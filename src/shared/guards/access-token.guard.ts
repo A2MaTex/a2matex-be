@@ -36,6 +36,10 @@ type AuthRequest = Request & {
 };
 
 @Injectable()
+/**
+ * Validates the Bearer access token, active user session, active device, and
+ * cached role permission before allowing a protected API request.
+ */
 export class AccessTokenGuard implements CanActivate {
   constructor(
     private readonly tokenService: TokenService,

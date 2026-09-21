@@ -11,6 +11,10 @@ import { AUTH_TYPE_KEY, AuthTypeDecoratorPayload } from '../decorators/auth.deco
 import { AccessTokenGuard } from './access-token.guard.js';
 
 @Injectable()
+/**
+ * Reads route auth metadata and delegates to the required auth guards.
+ * Routes are Bearer-protected by default unless marked public with @IsPublic().
+ */
 export class AuthenticationGuard implements CanActivate {
   private readonly authTypeGuardMap: Record<string, CanActivate>;
   constructor(
@@ -49,7 +53,7 @@ export class AuthenticationGuard implements CanActivate {
   private async handleOrCondition(guards: CanActivate[], context: ExecutionContext) {
     let lastError: any = null;
 
-    // Duyệt qua hết các guard, nếu có 1 guard pass thì return true
+    // Try every guard and allow the request if any guard passes.
     for (const guard of guards) {
       try {
         if (await guard.canActivate(context)) {
@@ -67,7 +71,7 @@ export class AuthenticationGuard implements CanActivate {
   }
 
   private async handleAndCondition(guards: CanActivate[], context: ExecutionContext) {
-    // Duyệt qua hết các guard, nếu mọi guard đều pass thì return true
+    // Try every guard and allow the request only if all guards pass.
     for (const guard of guards) {
       try {
         if (!(await guard.canActivate(context))) {
