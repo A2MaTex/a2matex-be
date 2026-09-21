@@ -43,9 +43,9 @@ npx prisma generate --config prisma7.config.ts
 Generate core files
 
 ```bash
-npx nest g mo routes/<module_name> --no-spec
-npx nest g co routes/<module_name> --no-spec
-npx nest g s routes/<module_name> --no-spec
+npx nest g module routes/<module_name> --no-spec
+npx nest g controller routes/<module_name> --no-spec
+npx nest g service routes/<module_name> --no-spec
 ```
 
 Flags meaning
@@ -58,4 +58,18 @@ Flags meaning
 --no-flat       # generate folder structure
 --skip-import   # do not auto-import into module
 --format        # run prettier on generated files
+```
+
+## Seed initial data
+
+### Create roles
+
+```bash
+npx tsx src/seed/create-role.ts
+```
+
+### Create permissions
+
+```bash
+npx tsx src/seed/create-permissions.ts
 ```
