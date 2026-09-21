@@ -14,7 +14,7 @@ export class EmailService {
     console.log(`OTP Email: ${payload.email}, Code: ${payload.code}`);
     const subject = 'Mã OTP';
     return this.resend.emails.send({
-      from: 'Nest.js Ecommerce <no-reply@duoc.id.vn>',
+      from: 'A2MaTeX <onboarding@resend.dev>',
       to: [payload.email],
       subject,
       react: <OTPEmail otpCode={payload.code} title={subject} />,

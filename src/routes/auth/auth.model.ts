@@ -22,21 +22,16 @@ export const RegisterInput = User.pick({
     }
   });
 
-export const RegisterOutput = User.pick({
-  id: true,
-});
-
 export const SendOTPInput = VerificationCode.pick({
   email: true,
   type: true,
 }).strict();
 
 export const LoginInput = User.pick({
-  username: true,
-  email: true,
   password: true,
 })
   .extend({
+    account: z.string().min(1).max(500),
     code: z.string().length(6).optional(),
   })
   .strict();
@@ -45,6 +40,8 @@ export const LoginOutput = z.object({
   accessToken: z.string(),
   refreshToken: z.string(),
 });
+
+export const RegisterOutput = LoginOutput;
 
 export const RefreshTokenInput = z
   .object({

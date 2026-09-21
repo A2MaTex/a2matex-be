@@ -1,4 +1,11 @@
-import { ExceptionFilter, Catch, ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  ExceptionFilter,
+  Catch,
+  ArgumentsHost,
+  HttpException,
+  HttpStatus,
+  Inject,
+} from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { isUniqueConstraintPrismaError } from '../utils/prisma.ts';
 
@@ -8,7 +15,7 @@ import { isUniqueConstraintPrismaError } from '../utils/prisma.ts';
  * known Prisma unique constraint errors to 409 so clients receive an HTTP response.
  */
 export class CatchEverythingFilter implements ExceptionFilter {
-  constructor(private readonly httpAdapterHost: HttpAdapterHost) {}
+  constructor(@Inject(HttpAdapterHost) private readonly httpAdapterHost: HttpAdapterHost) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     // In certain situations `httpAdapter` might not be available in the

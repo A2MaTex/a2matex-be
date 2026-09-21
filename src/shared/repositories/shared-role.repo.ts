@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { RoleName } from '../constants/role.constant.ts';
 import { PrismaService } from '../services/prisma.service.ts';
 import { RoleType } from '../../entities/role.schema.ts';
@@ -8,7 +8,7 @@ export class SharedRoleRepository {
   private customerRoleId: string | null = null;
   private adminRoleId: string | null = null;
 
-  constructor(private readonly prismaService: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
 
   private async getRole(roleName: string) {
     const role: RoleType = await this.prismaService.$queryRaw<RoleType[]>`

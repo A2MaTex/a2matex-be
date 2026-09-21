@@ -5,7 +5,7 @@ import { BaseWithUserFields } from './base.model.ts';
 export const Permission = BaseWithUserFields.extend({
   name: z.string().max(500),
   description: z.string(),
-  module: z.string().max(500),
+  module: z.string().max(100),
   path: z.string().max(1000),
   method: z.enum([
     HTTPMethod.GET,

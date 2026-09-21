@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Inject,
   Ip,
   Post,
   Query,
@@ -33,13 +34,17 @@ import {
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(@Inject(AuthService) private readonly authService: AuthService) {}
 
   @Post('register')
   @IsPublic()
   @ZodResponse({ type: RegisterOutputDTO })
-  register(@Body() body: RegisterInputDTO) {
-    return this.authService.register(body);
+  register(@Body() body: RegisterInputDTO, @UserAgent() userAgent: string, @Ip() ip: string) {
+    return this.authService.register({
+      ...body,
+      userAgent,
+      ip,
+    });
   }
 
   @Post('otp')

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import envConfig from '../config.js';
 import {
@@ -12,7 +12,7 @@ import type { StringValue } from 'ms';
 
 @Injectable()
 export class TokenService {
-  constructor(private readonly jwtService: JwtService) {}
+  constructor(@Inject(JwtService) private readonly jwtService: JwtService) {}
 
   signAccessToken(payload: AccessTokenPayloadCreate) {
     return this.jwtService.sign(

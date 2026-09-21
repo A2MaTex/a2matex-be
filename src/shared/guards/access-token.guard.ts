@@ -22,8 +22,8 @@ import {
   UserStatus,
 } from '../constants/auth.constant.js';
 import { API_PREFIX_PATH } from '../constants/route.constant.js';
-import { PrismaService } from '../services/prisma.service.js';
-import { TokenService } from '../services/token.service.js';
+import { PrismaService } from '../services/prisma.service.ts';
+import { TokenService } from '../services/token.service.ts';
 import type { AccessTokenPayload } from '../types/jwt.type.js';
 import type { RolePermissionPayload } from '../types/role-permission.type.ts';
 
@@ -42,8 +42,8 @@ type AuthRequest = Request & {
  */
 export class AccessTokenGuard implements CanActivate {
   constructor(
-    private readonly tokenService: TokenService,
-    private readonly prismaService: PrismaService,
+    @Inject(TokenService) private readonly tokenService: TokenService,
+    @Inject(PrismaService) private readonly prismaService: PrismaService,
     @Inject(CACHE_PROVIDER) private readonly cacheProvider: CacheProvider,
   ) {}
 

@@ -1,4 +1,4 @@
-import { HttpException, Injectable } from '@nestjs/common';
+import { HttpException, Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { addMilliseconds } from 'date-fns';
 import { AuthRepository } from './auth.repo.js';
@@ -25,6 +25,7 @@ import {
   UnauthorizedAccessException,
 } from './auth.error.js';
 import { SharedRoleRepository } from '../../shared/repositories/shared-role.repo.js';
+import { RoleName } from '../../shared/constants/role.constant.ts';
 import {
   ForgotPasswordInputType,
   LoginInputType,
@@ -39,12 +40,12 @@ import { InvalidPasswordException } from '../../shared/types/error.type.ts';
 @Injectable()
 export class AuthService {
   constructor(
-    private readonly hashingService: HashingService,
-    private readonly sharedRoleRepository: SharedRoleRepository,
-    private readonly authRepository: AuthRepository,
-    private readonly sharedUserRepository: SharedUserRepository,
-    private readonly emailService: EmailService,
-    private readonly tokenService: TokenService,
+    @Inject(HashingService) private readonly hashingService: HashingService,
+    @Inject(SharedRoleRepository) private readonly sharedRoleRepository: SharedRoleRepository,
+    @Inject(AuthRepository) private readonly authRepository: AuthRepository,
+    @Inject(SharedUserRepository) private readonly sharedUserRepository: SharedUserRepository,
+    @Inject(EmailService) private readonly emailService: EmailService,
+    @Inject(TokenService) private readonly tokenService: TokenService,
   ) {}
 
   async validateVerificationCode({
@@ -71,21 +72,30 @@ export class AuthService {
     return vevificationCode;
   }
 
-  async register(body: RegisterInputType) {
+  async register(body: RegisterInputType & { userAgent: string; ip: string }) {
     try {
       await this.validateVerificationCode({
         email: body.email,
         type: TypeOfVerificationCode.REGISTER,
         code: body.code,
       });
-      const customerRoleId = await this.sharedRoleRepository.getCustomerRoleId();
-      const hashedPassword = await this.hashingService.hash(body.password);
-      const [user] = await Promise.all([
-        this.authRepository.createUserIncludeRole({
-          email: body.email,
-          username: body.username,
-          password: hashedPassword,
-          roleId: customerRoleId,
+      const [customerRoleId, hashedPassword] = await Promise.all([
+        this.sharedRoleRepository.getCustomerRoleId(),
+        this.hashingService.hash(body.password),
+      ]);
+      const user = await this.authRepository.createUserIncludeRole({
+        email: body.email,
+        username: body.username,
+        password: hashedPassword,
+        roleId: customerRoleId,
+      });
+
+      const [device] = await Promise.all([
+        this.authRepository.createDevice({
+          userId: user.id,
+          userAgent: body.userAgent,
+          ip: body.ip,
+          lastActive: new Date(),
         }),
         this.authRepository.deleteVerificationCode({
           email_type: {
@@ -94,7 +104,13 @@ export class AuthService {
           },
         }),
       ]);
-      return user;
+
+      return this.generateTokens({
+        userId: user.id,
+        deviceId: device.id,
+        roleId: customerRoleId,
+        roleName: RoleName.Customer,
+      });
     } catch (error) {
       if (isUniqueConstraintPrismaError(error)) {
         throw EmailAlreadyExistsException;
@@ -134,7 +150,7 @@ export class AuthService {
 
   async login(body: LoginInputType & { userAgent: string; ip: string }) {
     const user = await this.authRepository.findUniqueUserIncludeRole({
-      email: body.email,
+      account: body.account,
     });
     if (!user) {
       throw EmailNotFoundException;

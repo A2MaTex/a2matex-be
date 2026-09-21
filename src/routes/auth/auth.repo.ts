@@ -1,9 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 
-import {
-  TypeOfVerificationCodeType,
-  UserStatus,
-} from '../../shared/constants/auth.constant.ts';
+import { TypeOfVerificationCodeType, UserStatus } from '../../shared/constants/auth.constant.ts';
 import { RoleType } from '../../entities/role.schema.ts';
 import { UserType } from '../../entities/user.model.ts';
 import { WhereUniqueUserType } from '../../shared/repositories/shared-user.repo.ts';
@@ -19,7 +16,7 @@ type RefreshTokenWithUserRoleType = RefreshTokenType & {
 
 @Injectable()
 export class AuthRepository {
-  constructor(private readonly prismaService: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
 
   createUser(
     user: Pick<UserType, 'email' | 'username' | 'password'>,
@@ -58,28 +55,21 @@ export class AuthRepository {
     });
   }
 
-  createVerificationCode(
-    payload: Pick<
-      VerificationCodeType,
-      'email' | 'type' | 'code' | 'expiresAt'
-    >,
+  async createVerificationCode(
+    payload: Pick<VerificationCodeType, 'email' | 'type' | 'code' | 'expiresAt'>,
   ): Promise<Pick<VerificationCodeType, 'id'>> {
-    return this.prismaService.verificationCode.upsert({
-      where: {
-        email_type: {
-          email: payload.email,
-          type: payload.type,
-        },
-      },
-      create: payload,
-      update: {
-        code: payload.code,
-        expiresAt: payload.expiresAt,
-      },
-      select: {
-        id: true,
-      },
-    });
+    const [verificationCode] = await this.prismaService.$queryRaw<Pick<VerificationCodeType, 'id'>[]>`
+      INSERT INTO "VerificationCode" (email, type, code, "expiresAt")
+      VALUES (${payload.email}, ${payload.type}::"VerificationCodeType", ${payload.code}, ${payload.expiresAt})
+      ON CONFLICT (email, type) WHERE "deletedAt" IS NULL
+      DO UPDATE SET
+        code = EXCLUDED.code,
+        "expiresAt" = EXCLUDED."expiresAt",
+        "updatedAt" = now()
+      RETURNING id;
+    `;
+
+    return verificationCode;
   }
 
   findUniqueVerificationCode(
@@ -116,21 +106,62 @@ export class AuthRepository {
     data: Pick<DeviceType, 'userId' | 'userAgent' | 'ip' | 'lastActive'> &
       Partial<Pick<DeviceType, 'isActive'>>,
   ): Promise<Pick<DeviceType, 'id'>> {
-    return this.prismaService.device.create({
-      data,
-      select: {
-        id: true,
-      },
-    });
+    return this.prismaService.device
+      .findFirst({
+        where: {
+          userId: data.userId,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+        },
+      })
+      .then((device) => {
+        if (!device) {
+          return this.prismaService.device.create({
+            data,
+            select: {
+              id: true,
+            },
+          });
+        }
+
+        return this.prismaService.device.update({
+          where: {
+            id: device.id,
+          },
+          data: {
+            userAgent: data.userAgent,
+            ip: data.ip,
+            lastActive: data.lastActive,
+            isActive: data.isActive ?? true,
+            updatedAt: new Date(),
+          },
+          select: {
+            id: true,
+          },
+        });
+      });
   }
 
   findUniqueUserIncludeRole(
-    where: WhereUniqueUserType,
+    where: WhereUniqueUserType | { account: string },
   ): Promise<UserWithRoleType | null> {
     return this.prismaService.user
       .findFirst({
         where: {
-          ...where,
+          ...('account' in where
+            ? {
+                OR: [
+                  {
+                    email: where.account,
+                  },
+                  {
+                    username: where.account,
+                  },
+                ],
+              }
+            : where),
           deletedAt: null,
         },
         include: {
@@ -193,11 +224,7 @@ export class AuthRepository {
         },
       })
       .then((refreshToken) => {
-        if (
-          !refreshToken?.user ||
-          !refreshToken.userId ||
-          !refreshToken.deviceId
-        ) {
+        if (!refreshToken?.user || !refreshToken.userId || !refreshToken.deviceId) {
           return null;
         }
 
@@ -220,10 +247,7 @@ export class AuthRepository {
       });
   }
 
-  updateDevice(
-    deviceId: string,
-    data: Partial<DeviceType>,
-  ): Promise<Pick<DeviceType, 'id'>> {
+  updateDevice(deviceId: string, data: Partial<DeviceType>): Promise<Pick<DeviceType, 'id'>> {
     return this.prismaService.device.update({
       where: {
         id: deviceId,

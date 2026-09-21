@@ -13,9 +13,7 @@ import {
 
 export class RegisterInputDTO extends createZodDto(RegisterInput) {}
 
-export class RegisterOutputDTO extends createZodDto(RegisterOutput, {
-  codec: true,
-}) {}
+export class RegisterOutputDTO extends createZodDto(RegisterOutput) {}
 
 export class SendOTPInputDTO extends createZodDto(SendOTPInput) {}
 
