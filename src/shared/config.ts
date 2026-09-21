@@ -16,6 +16,7 @@ const configSchema = z.object({
   NODE_ENV: z.string().default('development'),
   HOST: z.string().default('localhost'),
   PORT: z.string().default('3000'),
+  API_PREFIX: z.string().default('api/v1'),
   POSTGRES_HOST: z.string(),
   POSTGRES_PORT: z.string(),
   POSTGRES_USER: z.string(),
@@ -28,6 +29,9 @@ const configSchema = z.object({
   REFRESH_TOKEN_SECRET: z.string(),
   OTP_EXPIRES_IN: z.string().default('5m'),
   RESEND_API_KEY: z.string(),
+  REDIS_HOST: z.string().default('localhost'),
+  REDIS_PORT: z.coerce.number().int().positive().default(6379),
+  REDIS_PREFIX: z.string().default('a2matex:'),
 });
 
 const configServer = configSchema.safeParse(process.env);

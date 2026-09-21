@@ -34,6 +34,10 @@ export class RedisCacheProvider implements CacheProvider {
     }
   }
 
+  async onModuleDestroy() {
+    await this.Disconnect();
+  }
+
   async SetState(prefixKey: string, key: string, value: string, expiration = 0) {
     const fullKey = this.buildKey(prefixKey, key);
     if (expiration > 0) {

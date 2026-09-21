@@ -113,7 +113,7 @@ export class AuthService {
     if (body.type === TypeOfVerificationCode.FORGOT_PASSWORD && !user) {
       throw EmailNotFoundException;
     }
-    // 2. Tạo mã OTP
+
     const code = generateOTP();
     await this.authRepository.createVerificationCode({
       email: body.email,
@@ -121,7 +121,7 @@ export class AuthService {
       type: body.type,
       expiresAt: addMilliseconds(new Date(), ms(envConfig.OTP_EXPIRES_IN as StringValue)),
     });
-    // 3. Gửi mã OTP
+
     const { error } = await this.emailService.sendOTP({
       email: body.email,
       code,
@@ -148,7 +148,6 @@ export class AuthService {
       throw InvalidPasswordException;
     }
 
-    // 3. Tạo mới device
     const device = await this.authRepository.createDevice({
       userId: user.id,
       userAgent: body.userAgent,
@@ -156,7 +155,6 @@ export class AuthService {
       lastActive: new Date(),
     });
 
-    // 4. Tạo mới accessToken và refreshToken
     const tokens = await this.generateTokens({
       userId: user.id,
       deviceId: device.id,

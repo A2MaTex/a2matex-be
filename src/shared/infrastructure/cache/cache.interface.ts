@@ -1,5 +1,7 @@
 export type CacheExpiration = number;
 
+export const CACHE_PROVIDER = Symbol('CACHE_PROVIDER');
+
 export interface CacheProvider {
   Connect(): Promise<void>;
   Disconnect(): Promise<void>;

@@ -17,8 +17,7 @@ interface OTPEmailProps {
   title: string;
 }
 
-const logoUrl =
-  'https://duthanhduoc.com/_next/image?url=%2Fimg%2Fme.jpg&w=1080&q=75';
+const logoUrl = '';
 
 export const OTPEmail = ({ otpCode, title }: OTPEmailProps) => (
   <Html>
@@ -29,9 +28,7 @@ export const OTPEmail = ({ otpCode, title }: OTPEmailProps) => (
       <Container style={container}>
         <Img src={logoUrl} width="212" height="88" alt="Logo" style={logo} />
         <Text style={tertiary}>Mã xác thực OTP</Text>
-        <Heading style={secondary}>
-          Hãy nhập mã xác thực OTP sau vào website
-        </Heading>
+        <Heading style={secondary}>Hãy nhập mã xác thực OTP sau vào website</Heading>
         <Section style={codeContainer}>
           <Text style={code}>{otpCode}</Text>
         </Section>
