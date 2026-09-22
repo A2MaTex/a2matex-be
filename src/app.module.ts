@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
@@ -9,6 +9,7 @@ import { HttpExceptionFilter } from './shared/filters/http-exception.filter.js';
 import { AuthenticationGuard } from './shared/guards/authentication.guard.js';
 import { CustomZodSerializerInterceptor } from './shared/interceptors/custom-zod.interceptor.js';
 import { LoggingInterceptor } from './shared/interceptors/logging.interceptor.js';
+import { RequestLoggingMiddleware } from './shared/middlewares/request-logging.middleware.ts';
 import { TransformInterceptor } from './shared/interceptors/transform.interceptor.js';
 import CustomZodValidationPipe from './shared/pipes/custom-zod-validation.pipe.js';
 import { SharedModule } from './shared/shared.module.js';
@@ -53,4 +54,8 @@ import { SharedModule } from './shared/shared.module.js';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestLoggingMiddleware).forRoutes('*');
+  }
+}

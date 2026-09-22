@@ -1,21 +1,21 @@
 import {
-  Injectable,
-  NestInterceptor,
-  ExecutionContext,
   CallHandler,
-  Logger,
+  ExecutionContext,
   HttpException,
   HttpStatus,
+  Injectable,
+  Logger,
+  NestInterceptor,
 } from '@nestjs/common';
-import type { Request, Response } from 'express';
+import type { Request } from 'express';
 import { Observable, throwError } from 'rxjs';
-import { catchError, tap } from 'rxjs/operators';
+import { catchError } from 'rxjs/operators';
 import { isUniqueConstraintPrismaError } from '../utils/prisma.ts';
 
 @Injectable()
 /**
- * Logs incoming API requests and their completion time without logging bodies,
- * headers, or tokens.
+ * Logs controller/service exceptions with details. Request lifecycle logs live
+ * in RequestLoggingMiddleware so guard failures are logged too.
  */
 export class LoggingInterceptor implements NestInterceptor {
   private readonly logger = new Logger(LoggingInterceptor.name);
@@ -23,19 +23,10 @@ export class LoggingInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const httpContext = context.switchToHttp();
     const request = httpContext.getRequest<Request>();
-    const response = httpContext.getResponse<Response>();
     const startedAt = Date.now();
-    const { method, originalUrl, ip } = request;
-    const userAgent = request.headers['user-agent'] ?? '';
-
-    this.logger.log(`Incoming request ${method} ${originalUrl} ip=${ip} userAgent="${userAgent}"`);
+    const { method, originalUrl } = request;
 
     return next.handle().pipe(
-      tap(() => {
-        this.logger.log(
-          `Completed request ${method} ${originalUrl} status=${response.statusCode} duration=${Date.now() - startedAt}ms`,
-        );
-      }),
       catchError((error: unknown) => {
         const statusCode = this.getErrorStatusCode(error);
         const errorDetail = this.getErrorDetail(error);
