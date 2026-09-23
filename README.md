@@ -1,3 +1,29 @@
+# a2matex-be
+
+Backend API cho A2MaTeX: NestJS 11, Prisma 7 (PostgreSQL), Redis, Zod.
+
+## Tài liệu triển khai
+
+| Tài liệu | Dùng khi |
+| --- | --- |
+| [docs/deployment-spec.md](docs/deployment-spec.md) | muốn hiểu kiến trúc, quyết định và những gì đã kiểm chứng |
+| [docs/deployment-runbook.md](docs/deployment-runbook.md) | cần thao tác thật trên VPS và GitHub: thiết lập lần đầu, deploy, quay lui, sao lưu |
+
+Deploy là tự động: merge vào `main` sẽ build image, đẩy lên GHCR và cập nhật VPS qua workflow `.github/workflows/deploy.yml`.
+
+## Phát triển cục bộ
+
+```bash
+npm install
+cp .env.example .env            # rồi điền giá trị
+npm run compose-up              # postgres + redis
+npm run prisma:generate
+npm run prisma:migrate:deploy
+npm run seed:roles
+npm run seed:permissions
+npm run start:dev
+```
+
 ## Tools
 
 ### Docker

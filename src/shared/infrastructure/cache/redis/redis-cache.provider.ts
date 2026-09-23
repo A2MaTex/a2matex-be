@@ -5,6 +5,7 @@ import { CacheExpiration, CacheProvider } from '../cache.interface.ts';
 export type RedisCacheProviderOptions = {
   host: string;
   port: number;
+  password?: string;
   keyPrefix?: string;
 };
 
@@ -19,6 +20,7 @@ export class RedisCacheProvider implements CacheProvider {
         host: options.host,
         port: options.port,
       },
+      password: options.password,
     });
   }
 

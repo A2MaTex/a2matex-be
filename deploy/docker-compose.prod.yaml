@@ -1,0 +1,138 @@
+# Production stack. Images are built by GitHub Actions and pulled from GHCR;
+# nothing is built on the VPS. IMAGE_REPO and IMAGE_TAG come from .env.production
+# and .env.deploy (written by deploy/vps-deploy.sh on every deploy).
+name: a2matex
+
+x-app-image: &app-image ${IMAGE_REPO:-ghcr.io/a2matex/a2matex-be}:${IMAGE_TAG:-latest}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: a2matex-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backend
+
+  redis:
+    image: redis:7-alpine
+    container_name: a2matex-redis
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes', '--requirepass', '${REDIS_PASSWORD}']
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli --no-auth-warning -a "$$REDIS_PASSWORD" ping | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backend
+
+  # One-shot job: applies pending migrations, then exits. The app only starts
+  # after it succeeds, so a failed migration leaves the previous app running.
+  migrate:
+    image: *app-image
+    container_name: a2matex-migrate
+    restart: 'no'
+    command: ['npx', 'prisma', 'migrate', 'deploy', '--config', 'prisma7.config.ts']
+    env_file:
+      - ../.env.production
+    environment:
+      PRISMA_HIDE_UPDATE_MESSAGE: '1'
+      CHECKPOINT_DISABLE: '1'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+
+  app:
+    image: *app-image
+    container_name: a2matex-app
+    restart: unless-stopped
+    env_file:
+      - ../.env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - backend
+      - edge
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: a2matex-caddy
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+      APP_UPSTREAM: app:${PORT:-9999}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+    networks:
+      - edge
+
+  # Manual jobs. Never started by `up`; run explicitly:
+  #   docker compose ... --profile seed run --rm seed-roles
+  #   docker compose ... --profile seed run --rm seed-permissions
+  seed-roles:
+    image: *app-image
+    profiles: ['seed']
+    restart: 'no'
+    command: ['npx', 'tsx', 'src/seed/create-role.ts']
+    env_file:
+      - ../.env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+
+  seed-permissions:
+    image: *app-image
+    profiles: ['seed']
+    restart: 'no'
+    command: ['npx', 'tsx', 'src/seed/create-permissions.ts']
+    env_file:
+      - ../.env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+
+volumes:
+  postgres-data:
+  redis-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  backend:
+    internal: true
+  edge:

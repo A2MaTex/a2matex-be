@@ -1,0 +1,150 @@
+# Build the image on every push to main, push it to GHCR, then deploy it to the
+# VPS over SSH. Re-run manually with an existing image tag to roll back.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Tag đã có trên GHCR để deploy lại (ví dụ sha-1a2b3c4). Bỏ trống để build từ commit này.'
+        required: false
+        default: ''
+
+# One deploy at a time; a second push waits instead of racing the first.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  APP_DIR: /opt/a2matex
+
+jobs:
+  build:
+    name: Lint, test, build image
+    if: ${{ github.event_name == 'push' || github.event.inputs.image_tag == '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_repo: ${{ steps.meta.outputs.image_repo }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # No lockfile is committed, so this resolves dependencies fresh (see spec).
+      - name: Install dependencies
+        run: npm install --no-package-lock
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Resolve image name
+        id: meta
+        run: |
+          echo "image_repo=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "image_tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runner
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image_repo }}:${{ steps.meta.outputs.image_tag }}
+            ${{ steps.meta.outputs.image_repo }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to VPS
+    needs: [build]
+    # Runs after a successful build, or directly when re-deploying an existing tag.
+    if: ${{ always() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve target image
+        id: target
+        run: |
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            echo "image_repo=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+            echo "image_tag=${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "image_repo=${{ needs.build.outputs.image_repo }}" >> "$GITHUB_OUTPUT"
+            echo "image_tag=${{ needs.build.outputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Copy deploy files to VPS
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy_key -p $VPS_PORT" \
+            deploy/ "$VPS_USER@$VPS_HOST:$APP_DIR/deploy/"
+
+      - name: Run deploy script on VPS
+        env:
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+          IMAGE_REPO: ${{ steps.target.outputs.image_repo }}
+          IMAGE_TAG: ${{ steps.target.outputs.image_tag }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The short-lived GITHUB_TOKEN is piped over stdin; it is valid only for
+          # this job, so nothing long-lived is left on the VPS.
+          printf '%s' "$GHCR_TOKEN" | ssh -i ~/.ssh/deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+            "IMAGE_REPO='$IMAGE_REPO' IMAGE_TAG='$IMAGE_TAG' GHCR_USER='$GHCR_USER' APP_DIR='$APP_DIR' bash $APP_DIR/deploy/vps-deploy.sh"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Deployed"
+            echo ""
+            echo "- Image: \`${{ steps.target.outputs.image_repo }}:${{ steps.target.outputs.image_tag }}\`"
+            echo "- Host: \`${{ secrets.VPS_HOST }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

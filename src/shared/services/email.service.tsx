@@ -11,10 +11,12 @@ export class EmailService {
     this.resend = new Resend(envConfig.RESEND_API_KEY);
   }
   async sendOTP(payload: { email: string; code: string }) {
-    console.log(`OTP Email: ${payload.email}, Code: ${payload.code}`);
+    if (envConfig.NODE_ENV !== 'production') {
+      console.log(`OTP Email: ${payload.email}, Code: ${payload.code}`);
+    }
     const subject = 'Mã OTP';
     return this.resend.emails.send({
-      from: 'A2MaTeX <onboarding@resend.dev>',
+      from: envConfig.EMAIL_FROM,
       to: [payload.email],
       subject,
       react: <OTPEmail otpCode={payload.code} title={subject} />,

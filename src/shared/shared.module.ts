@@ -26,6 +26,7 @@ const cacheProvider = {
     const provider = new RedisCacheProvider({
       host: envConfig.REDIS_HOST,
       port: envConfig.REDIS_PORT,
+      password: envConfig.REDIS_PASSWORD,
       keyPrefix: `${envConfig.REDIS_PREFIX}${envConfig.NODE_ENV}:`,
     });
     await provider.Connect();

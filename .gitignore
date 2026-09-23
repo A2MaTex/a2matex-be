@@ -42,6 +42,8 @@ lerna-debug.log*
 
 # dotenv environment variable files
 .env
+.env.production
+.env.deploy
 .env.development.local
 .env.test.local
 .env.production.local

@@ -3,42 +3,67 @@ import fs from 'fs';
 import path from 'path';
 import { config } from 'dotenv';
 
-config({
-  path: '.env',
-});
-
-if (!fs.existsSync(path.resolve('.env'))) {
-  console.log('Không tìm thấy file .env');
-  process.exit(1);
+// A .env file is a convenience for local development. In containers the values
+// arrive as real environment variables, so a missing file is not an error.
+const envFilePath = path.resolve('.env');
+if (fs.existsSync(envFilePath)) {
+  config({ path: envFilePath });
 }
 
-const configSchema = z.object({
-  NODE_ENV: z.string().default('development'),
-  HOST: z.string().default('localhost'),
-  PORT: z.string().default('3000'),
-  API_PREFIX: z.string().default('api/v1'),
-  POSTGRES_HOST: z.string(),
-  POSTGRES_PORT: z.string(),
-  POSTGRES_USER: z.string(),
-  POSTGRES_PASSWORD: z.string(),
-  POSTGRES_DB: z.string(),
-  DATABASE_URL: z.string(),
-  ACCESS_TOKEN_EXPIRES_IN: z.string().default('10m'),
-  REFRESH_TOKEN_EXPIRES_IN: z.string().default('3d'),
-  ACCESS_TOKEN_SECRET: z.string(),
-  REFRESH_TOKEN_SECRET: z.string(),
-  OTP_EXPIRES_IN: z.string().default('5m'),
-  RESEND_API_KEY: z.string(),
-  REDIS_HOST: z.string().default('localhost'),
-  REDIS_PORT: z.coerce.number().int().positive().default(6379),
-  REDIS_PREFIX: z.string().default('a2matex:'),
-});
+const MIN_SECRET_LENGTH = 32;
+
+const emptyToUndefined = (value: string | undefined) => (value ? value : undefined);
+
+const configSchema = z
+  .object({
+    NODE_ENV: z.string().default('development'),
+    HOST: z.string().default('0.0.0.0'),
+    PORT: z.string().default('3000'),
+    API_PREFIX: z.string().default('api/v1'),
+    // Comma-separated browser origins. Empty or * keeps Nest's permissive default without credentials.
+    CORS_ORIGIN: z.string().default('*'),
+    // Number of reverse proxies in front of the app, or false when exposed directly. Caddy alone is 1.
+    TRUST_PROXY: z.string().default('false'),
+    POSTGRES_HOST: z.string(),
+    POSTGRES_PORT: z.string(),
+    POSTGRES_USER: z.string(),
+    POSTGRES_PASSWORD: z.string(),
+    POSTGRES_DB: z.string(),
+    DATABASE_URL: z.string(),
+    ACCESS_TOKEN_EXPIRES_IN: z.string().default('10m'),
+    REFRESH_TOKEN_EXPIRES_IN: z.string().default('3d'),
+    ACCESS_TOKEN_SECRET: z.string().min(1),
+    REFRESH_TOKEN_SECRET: z.string().min(1),
+    OTP_EXPIRES_IN: z.string().default('5m'),
+    RESEND_API_KEY: z.string(),
+    EMAIL_FROM: z.string().default('A2MaTeX <onboarding@resend.dev>'),
+    REDIS_HOST: z.string().default('localhost'),
+    REDIS_PORT: z.coerce.number().int().positive().default(6379),
+    REDIS_PASSWORD: z.string().optional().transform(emptyToUndefined),
+    REDIS_PREFIX: z.string().default('a2matex:'),
+  })
+  .superRefine((cfg, ctx) => {
+    // Short secrets are tolerated in development so local .env files keep working,
+    // but production refuses to start with a guessable JWT key.
+    if (cfg.NODE_ENV !== 'production') {
+      return;
+    }
+    for (const key of ['ACCESS_TOKEN_SECRET', 'REFRESH_TOKEN_SECRET'] as const) {
+      if (cfg[key].length < MIN_SECRET_LENGTH) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [key],
+          message: `${key} must be at least ${MIN_SECRET_LENGTH} characters in production`,
+        });
+      }
+    }
+  });
 
 const configServer = configSchema.safeParse(process.env);
 
 if (!configServer.success) {
-  console.log('Các giá trị khai báo trong file .env không hợp lệ');
-  console.error(configServer.error);
+  console.error('Các giá trị khai báo trong biến môi trường không hợp lệ');
+  console.error(z.prettifyError(configServer.error));
   process.exit(1);
 }
 
