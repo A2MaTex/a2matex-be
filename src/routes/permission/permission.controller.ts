@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Inject, Param, Post, Put, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
 import { ActiveUser } from '../../shared/decorators/active-user.decorator.ts';
 import { MessageResDTO } from '../../shared/dtos/response.dto.ts';
@@ -14,6 +15,8 @@ import {
 } from './permission.dto.ts';
 import { PermissionService } from './permission.service.ts';
 
+@ApiTags('permissions')
+@ApiBearerAuth('access-token')
 @Controller('permissions')
 export class PermissionController {
   constructor(@Inject(PermissionService) private readonly permissionService: PermissionService) {}

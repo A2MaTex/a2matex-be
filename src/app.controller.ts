@@ -1,12 +1,15 @@
 import { Controller, Get } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AppService } from './app.service.js';
 import { IsPublic } from './shared/decorators/auth.decorator.js';
 
+@ApiTags('app')
 @Controller()
 export class AppController {
   constructor(private readonly appService: AppService) {}
 
   @Get()
+  @ApiBearerAuth('access-token')
   getHello(): string {
     return this.appService.getHello();
   }

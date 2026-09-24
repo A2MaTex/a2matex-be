@@ -1,6 +1,7 @@
 import { Base } from './base.model.ts';
 import { TypeOfVerificationCode } from '../shared/constants/auth.constant.ts';
 import z from 'zod';
+import { zDate } from '../shared/utils/zod.ts';
 
 export const VerificationCode = Base.extend({
   email: z.email(),
@@ -11,7 +12,7 @@ export const VerificationCode = Base.extend({
     TypeOfVerificationCode.LOGIN,
     TypeOfVerificationCode.DISABLE_2FA,
   ]),
-  expiresAt: z.date(),
+  expiresAt: zDate(),
 });
 
 export type VerificationCodeType = z.infer<typeof VerificationCode>;

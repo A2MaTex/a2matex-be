@@ -1,4 +1,5 @@
 import z from 'zod';
+import { zDate } from '../shared/utils/zod.ts';
 import { BaseWithUserFields } from './base.model.ts';
 
 export const Profile = BaseWithUserFields.extend({
@@ -12,7 +13,7 @@ export const Profile = BaseWithUserFields.extend({
   github: z.string().nullable(),
   instagram: z.string().nullable(),
   gender: z.string().nullable(),
-  birthday: z.date().nullable(),
+  birthday: zDate().nullable(),
   address: z.string().nullable(),
   phone: z.string().nullable(),
   email: z.string().nullable(),

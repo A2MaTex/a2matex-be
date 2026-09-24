@@ -12,6 +12,7 @@ import {
   Res,
 } from '@nestjs/common';
 import { Response } from 'express';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
 import { AuthService } from './auth.service.js';
 import envConfig from '../../shared/config.js';
@@ -32,6 +33,7 @@ import {
   SendOTPInputDTO,
 } from './auth.dto.ts';
 
+@ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(@Inject(AuthService) private readonly authService: AuthService) {}
@@ -82,6 +84,7 @@ export class AuthController {
   }
 
   @Post('logout')
+  @ApiBearerAuth('access-token')
   @ZodResponse({ type: MessageResDTO })
   logout(@Body() body: LogoutInputDTO) {
     return this.authService.logout(body.refreshToken);

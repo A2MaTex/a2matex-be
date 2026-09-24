@@ -1,10 +1,11 @@
 import z from 'zod';
+import { zDate } from '../shared/utils/zod.ts';
 
 export const Base = z.object({
   id: z.uuid(),
-  createdAt: z.date(),
-  updatedAt: z.date().nullable(),
-  deletedAt: z.date().nullable(),
+  createdAt: zDate(),
+  updatedAt: zDate().nullable(),
+  deletedAt: zDate().nullable(),
 });
 
 export const BaseWithUserFields = Base.extend({
