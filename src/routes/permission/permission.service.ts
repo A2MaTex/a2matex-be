@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { CACHE_PROVIDER } from '../../shared/infrastructure/cache/cache.interface.ts';
 import type { CacheProvider } from '../../shared/infrastructure/cache/cache.interface.ts';
+import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import { isNotFoundPrismaError, isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
 import { PermissionAlreadyExistsException, PermissionNotFoundException } from './permission.error.ts';
 import { PermissionRepo } from './permission.repo.ts';
@@ -75,9 +76,7 @@ export class PermissionService {
       });
       await this.removeRolePermissionCache(roleIds);
 
-      return {
-        message: 'Update successfully',
-      };
+      return SUCCESS_RESPONSE;
     } catch (error) {
       if (isNotFoundPrismaError(error)) {
         throw PermissionNotFoundException;
@@ -104,9 +103,7 @@ export class PermissionService {
     });
     await this.removeRolePermissionCache(roleIds);
 
-    return {
-      message: 'Delete successfully',
-    };
+    return SUCCESS_RESPONSE;
   }
 
   private async removeRolePermissionCache(roleIds: string[]) {

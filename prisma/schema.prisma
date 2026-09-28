@@ -8,6 +8,160 @@ datasource db {
   provider = "postgresql"
 }
 
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model User {
+  id                 String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username           String         @db.VarChar(255)
+  email              String
+  password           String         @db.VarChar(255)
+  status             UserStatus     @default(INACTIVE)
+  createdAt          DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime?      @db.Timestamptz(6)
+  deletedAt          DateTime?      @db.Timestamptz(6)
+  device             Device[]
+  createdPermissions Permission[]   @relation("PermissionCreatedBy")
+  deletedPermissions Permission[]   @relation("PermissionDeletedBy")
+  updatedPermissions Permission[]   @relation("PermissionUpdatedBy")
+  createdProfiles    Profile[]      @relation("ProfileCreatedBy")
+  deletedProfiles    Profile[]      @relation("ProfileDeletedBy")
+  updatedProfiles    Profile[]      @relation("ProfileUpdatedBy")
+  profile            Profile?       @relation("ProfileUser")
+  refreshTokens      RefreshToken[]
+  createdRoles       Role[]         @relation("RoleCreatedBy")
+  deletedRoles       Role[]         @relation("RoleDeletedBy")
+  updatedRoles       Role[]         @relation("RoleUpdatedBy")
+  userRoles          UserRole[]
+}
+
+model Profile {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String    @unique(map: "Profile_userId_idx", where: raw("(\"deletedAt\" IS NULL)")) @db.Uuid
+  fullName       String    @db.VarChar(255)
+  avatarStaticId String?   @db.Uuid
+  bio            String?
+  website        String?
+  twitter        String?
+  linkedin       String?
+  github         String?
+  instagram      String?
+  gender         String?   @db.VarChar(20)
+  birthday       DateTime? @db.Date
+  address        String?
+  phone          String?
+  email          String?
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime? @db.Timestamptz(6)
+  deletedAt      DateTime? @db.Timestamptz(6)
+  createdById    String    @db.Uuid
+  updatedById    String?   @db.Uuid
+  deletedById    String?   @db.Uuid
+  createdBy      User      @relation("ProfileCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  deletedBy      User?     @relation("ProfileDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  updatedBy      User?     @relation("ProfileUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user           User      @relation("ProfileUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model VerificationCode {
+  id        String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email     String               @db.VarChar(500)
+  code      String               @db.VarChar(50)
+  type      VerificationCodeType
+  expiresAt DateTime             @db.Timestamptz(6)
+  createdAt DateTime             @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime?            @db.Timestamptz(6)
+  deletedAt DateTime?            @db.Timestamptz(6)
+
+  @@unique([email, type], map: "VerificationCode_email_type_idx", where: raw("(\"deletedAt\" IS NULL)"))
+}
+
+model Device {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String         @db.Uuid
+  userAgent     String
+  ip            String
+  lastActive    DateTime       @db.Timestamptz(6)
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime?      @db.Timestamptz(6)
+  deletedAt     DateTime?      @db.Timestamptz(6)
+  user          User           @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  token     String    @unique(map: "RefreshToken_token_idx", where: raw("(\"deletedAt\" IS NULL)"))
+  userId    String    @db.Uuid
+  deviceId  String    @db.Uuid
+  expiresAt DateTime  @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime? @db.Timestamptz(6)
+  deletedAt DateTime? @db.Timestamptz(6)
+  device    Device    @relation(fields: [deviceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user      User      @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model Permission {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String           @db.VarChar(500)
+  module          String           @db.VarChar(100)
+  description     String
+  path            String           @db.VarChar(1000)
+  method          HTTPMethod
+  createdById     String           @db.Uuid
+  updatedById     String?          @db.Uuid
+  deletedById     String?          @db.Uuid
+  createdAt       DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime?        @db.Timestamptz(6)
+  deletedAt       DateTime?        @db.Timestamptz(6)
+  createdBy       User             @relation("PermissionCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  deletedBy       User?            @relation("PermissionDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  updatedBy       User?            @relation("PermissionUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  rolePermissions RolePermission[]
+}
+
+model Role {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String           @db.VarChar(500)
+  description     String?
+  status          RoleStatus       @default(ACTIVE)
+  createdById     String           @db.Uuid
+  updatedById     String?          @db.Uuid
+  deletedById     String?          @db.Uuid
+  createdAt       DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime?        @db.Timestamptz(6)
+  deletedAt       DateTime?        @db.Timestamptz(6)
+  createdBy       User             @relation("RoleCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  deletedBy       User?            @relation("RoleDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  updatedBy       User?            @relation("RoleUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+}
+
+model RolePermission {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  roleId       String     @db.Uuid
+  permissionId String     @db.Uuid
+  createdAt    DateTime   @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime?  @db.Timestamptz(6)
+  deletedAt    DateTime?  @db.Timestamptz(6)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([roleId, permissionId], map: "RolePermission_roleId_permissionId_idx", where: raw("(\"deletedAt\" IS NULL)"))
+}
+
+model UserRole {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @db.Uuid
+  roleId    String    @db.Uuid
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime? @db.Timestamptz(6)
+  deletedAt DateTime? @db.Timestamptz(6)
+  role      Role      @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user      User      @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
 enum UserStatus {
   ACTIVE
   INACTIVE
@@ -34,159 +188,4 @@ enum HTTPMethod {
   PATCH
   OPTIONS
   HEAD
-}
-
-model User {
-  id                 String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  username           String         @db.VarChar(255)
-  email              String
-  password           String         @db.VarChar(255)
-  status             UserStatus     @default(INACTIVE)
-  createdAt          DateTime       @default(now()) @db.Timestamptz(6)
-  updatedAt          DateTime?      @db.Timestamptz(6)
-  deletedAt          DateTime?      @db.Timestamptz(6)
-  device             Device?
-  profile            Profile?       @relation("ProfileUser")
-  refreshTokens      RefreshToken[]
-  userRoles          UserRole[]
-  createdPermissions Permission[]   @relation("PermissionCreatedBy")
-  updatedPermissions Permission[]   @relation("PermissionUpdatedBy")
-  deletedPermissions Permission[]   @relation("PermissionDeletedBy")
-  createdProfiles    Profile[]      @relation("ProfileCreatedBy")
-  updatedProfiles    Profile[]      @relation("ProfileUpdatedBy")
-  deletedProfiles    Profile[]      @relation("ProfileDeletedBy")
-  createdRoles       Role[]         @relation("RoleCreatedBy")
-  updatedRoles       Role[]         @relation("RoleUpdatedBy")
-  deletedRoles       Role[]         @relation("RoleDeletedBy")
-}
-
-model Profile {
-  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId         String    @unique(map: "Profile_userId_idx", where: raw("(\"deletedAt\" IS NULL)")) @db.Uuid
-  fullName       String    @db.VarChar(255)
-  avatarStaticId String?   @db.Uuid
-  bio            String?
-  website        String?
-  twitter        String?
-  linkedin       String?
-  github         String?
-  instagram      String?
-  gender         String?   @db.VarChar(20)
-  birthday       DateTime? @db.Date
-  address        String?
-  phone          String?
-  email          String?
-  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
-  updatedAt      DateTime? @db.Timestamptz(6)
-  deletedAt      DateTime? @db.Timestamptz(6)
-  createdById    String    @db.Uuid
-  updatedById    String?   @db.Uuid
-  deletedById    String?   @db.Uuid
-  user           User      @relation("ProfileUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdBy      User      @relation("ProfileCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  updatedBy      User?     @relation("ProfileUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  deletedBy      User?     @relation("ProfileDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-}
-
-model VerificationCode {
-  id        String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email     String               @db.VarChar(500)
-  code      String               @db.VarChar(50)
-  type      VerificationCodeType
-  expiresAt DateTime             @db.Timestamptz(6)
-  createdAt DateTime             @default(now()) @db.Timestamptz(6)
-  updatedAt DateTime?            @db.Timestamptz(6)
-  deletedAt DateTime?            @db.Timestamptz(6)
-
-  @@unique([email, type], map: "VerificationCode_email_type_idx", where: raw("(\"deletedAt\" IS NULL)"))
-}
-
-model Device {
-  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId        String?        @unique(map: "Device_userId_idx", where: raw("(\"deletedAt\" IS NULL)")) @db.Uuid
-  userAgent     String
-  ip            String
-  lastActive    DateTime       @db.Timestamptz(6)
-  isActive      Boolean        @default(true)
-  createdAt     DateTime       @default(now()) @db.Timestamptz(6)
-  updatedAt     DateTime?      @db.Timestamptz(6)
-  deletedAt     DateTime?      @db.Timestamptz(6)
-  user          User?          @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  refreshTokens RefreshToken[]
-}
-
-model RefreshToken {
-  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  token     String    @unique(map: "RefreshToken_token_idx", where: raw("(\"deletedAt\" IS NULL)"))
-  userId    String?   @db.Uuid
-  deviceId  String?   @db.Uuid
-  expiresAt DateTime  @db.Timestamptz(6)
-  createdAt DateTime  @default(now()) @db.Timestamptz(6)
-  updatedAt DateTime? @db.Timestamptz(6)
-  deletedAt DateTime? @db.Timestamptz(6)
-  user      User?     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  device    Device?   @relation(fields: [deviceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-}
-
-model Permission {
-  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name            String           @db.VarChar(500)
-  module          String           @db.VarChar(100)
-  description     String
-  path            String           @db.VarChar(1000)
-  method          HTTPMethod
-  createdById     String           @db.Uuid
-  updatedById     String           @db.Uuid
-  deletedById     String?          @db.Uuid
-  createdAt       DateTime         @default(now()) @db.Timestamptz(6)
-  updatedAt       DateTime?        @db.Timestamptz(6)
-  deletedAt       DateTime?        @db.Timestamptz(6)
-  createdBy       User             @relation("PermissionCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  updatedBy       User             @relation("PermissionUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  deletedBy       User?            @relation("PermissionDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  rolePermissions RolePermission[]
-}
-
-model Role {
-  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name            String           @db.VarChar(500)
-  description     String?
-  status          RoleStatus?
-  createdById     String           @db.Uuid
-  updatedById     String           @db.Uuid
-  deletedById     String?          @db.Uuid
-  createdAt       DateTime         @default(now()) @db.Timestamptz(6)
-  updatedAt       DateTime?        @db.Timestamptz(6)
-  deletedAt       DateTime?        @db.Timestamptz(6)
-  createdBy       User             @relation("RoleCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  updatedBy       User             @relation("RoleUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  deletedBy       User?            @relation("RoleDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  rolePermissions RolePermission[]
-  userRoles       UserRole[]
-}
-
-model RolePermission {
-  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  roleId       String      @db.Uuid
-  permissionId String      @db.Uuid
-  createdAt    DateTime    @default(now()) @db.Timestamptz(6)
-  updatedAt    DateTime?   @db.Timestamptz(6)
-  deletedAt    DateTime?   @db.Timestamptz(6)
-  role         Role        @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  permission   Permission  @relation(fields: [permissionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@unique([roleId, permissionId], map: "RolePermission_roleId_permissionId_idx", where: raw("(\"deletedAt\" IS NULL)"))
-}
-
-model UserRole {
-  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId    String    @db.Uuid
-  roleId    String    @db.Uuid
-  createdAt DateTime  @default(now()) @db.Timestamptz(6)
-  updatedAt DateTime? @db.Timestamptz(6)
-  deletedAt DateTime? @db.Timestamptz(6)
-  user      User      @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  role      Role      @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@unique([userId, roleId], map: "UserRole_userId_roleId_idx", where: raw("(\"deletedAt\" IS NULL)"))
 }

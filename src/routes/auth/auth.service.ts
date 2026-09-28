@@ -26,6 +26,7 @@ import {
 } from './auth.error.js';
 import { SharedRoleRepository } from '../../shared/repositories/shared-role.repo.js';
 import { RoleName } from '../../shared/constants/role.constant.ts';
+import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import {
   ForgotPasswordInputType,
   LoginInputType,
@@ -145,7 +146,7 @@ export class AuthService {
     if (error) {
       throw FailedToSendOTPException;
     }
-    return { message: 'Gửi mã OTP thành công' };
+    return SUCCESS_RESPONSE;
   }
 
   async login(body: LoginInputType & { userAgent: string; ip: string }) {
@@ -270,7 +271,7 @@ export class AuthService {
       });
 
       await Promise.all([$deleteRefreshToken, $updateDevice]);
-      return { message: 'Log out successfully' };
+      return SUCCESS_RESPONSE;
     } catch (error) {
       if (isNotFoundPrismaError(error)) {
         throw RefreshTokenAlreadyUsedException;
@@ -310,8 +311,6 @@ export class AuthService {
         },
       }),
     ]);
-    return {
-      message: 'Password changes successfully',
-    };
+    return SUCCESS_RESPONSE;
   }
 }
