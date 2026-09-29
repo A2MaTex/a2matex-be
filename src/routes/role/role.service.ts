@@ -5,6 +5,8 @@ import type { CacheProvider } from '../../shared/infrastructure/cache/cache.inte
 import { ROLE_PERMISSION_CACHE_PREFIX } from '../../shared/constants/auth.constant.ts';
 import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import { isNotFoundPrismaError, isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
+import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
+import { TransactionService } from '../../shared/services/transaction.service.ts';
 import {
   CreateRoleInputType,
   DeleteManyRoleInputType,
@@ -27,6 +29,7 @@ export class RoleService {
   constructor(
     @Inject(RoleRepo) private readonly roleRepo: RoleRepo,
     @Inject(CACHE_PROVIDER) private readonly cacheProvider: CacheProvider,
+    @Inject(TransactionService) private readonly transactionService: TransactionService,
   ) {}
 
   async create({ data, createdById }: { data: CreateRoleInputType; createdById: string }) {
@@ -98,22 +101,30 @@ export class RoleService {
   }
 
   async deleteMany({ data, deletedById }: { data: DeleteManyRoleInputType; deletedById: string }) {
-    const roles = await this.roleRepo.getActiveRolesByIds(data.ids);
-    if (roles.length !== new Set(data.ids).size) {
-      throw RoleNotFoundException;
-    }
-
-    roles.forEach((role) => this.validateBaseRoleCanBeChanged(role.name));
-
-    await this.roleRepo.softDeleteRolePermissionsByRoleIds(data.ids);
-    await this.roleRepo.softDeleteUserRolesByRoleIds(data.ids);
-    await this.roleRepo.deleteMany({
+    await this.deleteRoles({
       ids: data.ids,
       deletedById,
     });
     await this.removeRolePermissionCache(data.ids);
 
     return SUCCESS_RESPONSE;
+  }
+
+  @Transactional()
+  private async deleteRoles({ ids, deletedById }: { ids: string[]; deletedById: string }) {
+    const roles = await this.roleRepo.getActiveRolesByIds(ids);
+    if (roles.length !== new Set(ids).size) {
+      throw RoleNotFoundException;
+    }
+
+    roles.forEach((role) => this.validateBaseRoleCanBeChanged(role.name));
+
+    await this.roleRepo.softDeleteRolePermissionsByRoleIds(ids);
+    await this.roleRepo.softDeleteUserRolesByRoleIds(ids);
+    await this.roleRepo.deleteMany({
+      ids,
+      deletedById,
+    });
   }
 
   async getPermissions(id: string) {
@@ -126,17 +137,31 @@ export class RoleService {
   }
 
   async updatePermissions({ id, data }: { id: string; data: UpdateRolePermissionsInputType }) {
-    const role = await this.validateRoleExists(id);
-    this.validateBaseRoleCanBeChanged(role.name);
-
-    await this.validatePermissionsAreActive(data.permissionIds);
-    await this.roleRepo.syncRolePermissions({
-      roleId: id,
+    await this.syncRolePermissions({
+      id,
       permissionIds: data.permissionIds,
     });
     await this.removeRolePermissionCache([id]);
 
     return SUCCESS_RESPONSE;
+  }
+
+  @Transactional()
+  private async syncRolePermissions({
+    id,
+    permissionIds,
+  }: {
+    id: string;
+    permissionIds: string[];
+  }) {
+    const role = await this.validateRoleExists(id);
+    this.validateBaseRoleCanBeChanged(role.name);
+
+    await this.validatePermissionsAreActive(permissionIds);
+    await this.roleRepo.syncRolePermissions({
+      roleId: id,
+      permissionIds,
+    });
   }
 
   private async validateRoleNameIsUnique({

@@ -115,6 +115,35 @@ login(@UserAgent() userAgent: string) {
 
 This decorator is useful for auth flows that store or validate device/session metadata.
 
+## Transactional
+
+Use `@Transactional()` on service methods that need multiple database operations to commit or rollback together.
+
+```ts
+import { Transactional } from '../../shared/decorators/transactional.decorator.js';
+import { TransactionService } from '../../shared/services/transaction.service.js';
+
+@Injectable()
+export class RoleService {
+  constructor(private readonly transactionService: TransactionService) {}
+
+  @Transactional()
+  private async syncRolePermissions() {
+    // Repository methods called here must use the current Prisma client.
+  }
+}
+```
+
+The decorated class must inject `TransactionService` as `transactionService`. Repository methods that should join the transaction should resolve the current Prisma client at execution time, usually with a getter:
+
+```ts
+private get prisma() {
+  return this.prismaService.getClient();
+}
+```
+
+Use `this.prisma` in repository methods instead of calling `this.prismaService` delegates directly. Do not store `this.prismaService.getClient()` in a class field because that would capture the normal client before a transaction starts.
+
 ## Typical Controller Example
 
 ```ts

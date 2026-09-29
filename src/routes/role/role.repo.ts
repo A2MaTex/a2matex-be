@@ -13,6 +13,10 @@ import {
 export class RoleRepo {
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
 
+  private get prisma() {
+    return this.prismaService.getClient();
+  }
+
   async getList(query: GetRoleListInputType): Promise<GetRoleListOutputType> {
     const { page, limit, skip, take } = getPagination(query);
     const where = {
@@ -20,10 +24,10 @@ export class RoleRepo {
     };
 
     const [totalItems, data] = await Promise.all([
-      this.prismaService.role.count({
+      this.prisma.role.count({
         where,
       }),
-      this.prismaService.role.findMany({
+      this.prisma.role.findMany({
         where,
         orderBy: {
           createdAt: 'desc',
@@ -43,7 +47,7 @@ export class RoleRepo {
   }
 
   async getDetail(id: string): Promise<RoleDetailOutputType | null> {
-    const role = await this.prismaService.role.findFirst({
+    const role = await this.prisma.role.findFirst({
       where: {
         id,
         deletedAt: null,
@@ -58,7 +62,7 @@ export class RoleRepo {
   }
 
   async getPermissionIds(roleId: string) {
-    const rolePermissions = await this.prismaService.rolePermission.findMany({
+    const rolePermissions = await this.prisma.rolePermission.findMany({
       where: {
         roleId,
         deletedAt: null,
@@ -75,7 +79,7 @@ export class RoleRepo {
   }
 
   create({ data, createdById }: { data: CreateRoleInputType; createdById: string }) {
-    return this.prismaService.role.create({
+    return this.prisma.role.create({
       data: {
         ...data,
         createdById,
@@ -88,7 +92,7 @@ export class RoleRepo {
   }
 
   async existsByName({ name, excludeId }: { name: string; excludeId?: string }) {
-    const role = await this.prismaService.role.findFirst({
+    const role = await this.prisma.role.findFirst({
       where: {
         name: {
           equals: name,
@@ -110,7 +114,7 @@ export class RoleRepo {
   }
 
   async getActiveRolesByIds(ids: string[]) {
-    return this.prismaService.role.findMany({
+    return this.prisma.role.findMany({
       where: {
         id: {
           in: ids,
@@ -129,7 +133,7 @@ export class RoleRepo {
       return 0;
     }
 
-    return this.prismaService.permission.count({
+    return this.prisma.permission.count({
       where: {
         id: {
           in: permissionIds,
@@ -148,7 +152,7 @@ export class RoleRepo {
     data: UpdateRoleInputType;
     updatedById: string;
   }) {
-    await this.prismaService.role.update({
+    await this.prisma.role.update({
       where: {
         id,
         deletedAt: null,
@@ -165,7 +169,7 @@ export class RoleRepo {
   }
 
   async deleteMany({ ids, deletedById }: { ids: string[]; deletedById: string }) {
-    return this.prismaService.role.updateMany({
+    return this.prisma.role.updateMany({
       where: {
         id: {
           in: ids,
@@ -180,7 +184,7 @@ export class RoleRepo {
   }
 
   async softDeleteRolePermissionsByRoleIds(roleIds: string[]) {
-    return this.prismaService.rolePermission.updateMany({
+    return this.prisma.rolePermission.updateMany({
       where: {
         roleId: {
           in: roleIds,
@@ -194,7 +198,7 @@ export class RoleRepo {
   }
 
   async softDeleteUserRolesByRoleIds(roleIds: string[]) {
-    return this.prismaService.userRole.updateMany({
+    return this.prisma.userRole.updateMany({
       where: {
         roleId: {
           in: roleIds,
@@ -216,7 +220,7 @@ export class RoleRepo {
   }) {
     const uniquePermissionIds = [...new Set(permissionIds)];
 
-    await this.prismaService.rolePermission.updateMany({
+    await this.prisma.rolePermission.updateMany({
       where: {
         roleId,
         deletedAt: null,
@@ -233,7 +237,7 @@ export class RoleRepo {
       return;
     }
 
-    await this.prismaService.rolePermission.createMany({
+    await this.prisma.rolePermission.createMany({
       data: uniquePermissionIds.map((permissionId) => ({
         roleId,
         permissionId,
