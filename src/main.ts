@@ -5,7 +5,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { cleanupOpenApiDoc } from 'nestjs-zod';
 import { AppModule } from './app.module.js';
 import envConfig from './shared/config.js';
-import { API_PREFIX } from './shared/constants/route.constant.js';
+import { API_PREFIX } from './shared/constants/system.constant.js';
 
 /**
  * Explicit origins are allowed with credentials. A wildcard (or nothing) keeps
@@ -51,10 +51,7 @@ function setupSwagger(app: NestExpressApplication) {
         'Route có ổ khóa cần access token lấy từ POST /auth/login.',
     )
     .setVersion(process.env.npm_package_version ?? '0.0.1')
-    .addBearerAuth(
-      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-      'access-token',
-    )
+    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'access-token')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

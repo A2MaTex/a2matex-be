@@ -8,14 +8,13 @@ import {
   CreatePermissionOutputDTO,
   DeleteManyPermissionInputDTO,
   GetPermissionDetailOutputDTO,
-  GetPermissionListInputDTO,
   GetPermissionListOutputDTO,
   PermissionIdParamDTO,
   UpdatePermissionInputDTO,
 } from './permission.dto.ts';
 import { PermissionService } from './permission.service.ts';
 
-@ApiTags('permissions')
+@ApiTags('Permissions')
 @ApiBearerAuth('access-token')
 @Controller('permissions')
 export class PermissionController {
@@ -32,8 +31,8 @@ export class PermissionController {
 
   @Get()
   @ZodResponse({ type: GetPermissionListOutputDTO })
-  getList(@Query() query: GetPermissionListInputDTO) {
-    return this.permissionService.getList(query);
+  getList() {
+    return this.permissionService.getList();
   }
 
   @Get(':permissionId')

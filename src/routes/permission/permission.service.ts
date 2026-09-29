@@ -3,12 +3,15 @@ import { CACHE_PROVIDER } from '../../shared/infrastructure/cache/cache.interfac
 import type { CacheProvider } from '../../shared/infrastructure/cache/cache.interface.ts';
 import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import { isNotFoundPrismaError, isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
-import { PermissionAlreadyExistsException, PermissionNotFoundException } from './permission.error.ts';
+import { ROLE_PERMISSION_CACHE_PREFIX } from '../../shared/constants/auth.constant.ts';
+import {
+  PermissionAlreadyExistsException,
+  PermissionNotFoundException,
+} from './permission.error.ts';
 import { PermissionRepo } from './permission.repo.ts';
 import {
   CreatePermissionInputType,
   DeleteManyPermissionInputType,
-  GetPermissionListInputType,
   UpdatePermissionInputType,
 } from './permission.model.ts';
 
@@ -38,8 +41,8 @@ export class PermissionService {
     }
   }
 
-  getList(query: GetPermissionListInputType) {
-    return this.permissionRepo.getList(query);
+  getList() {
+    return this.permissionRepo.getList();
   }
 
   async getDetail(id: string) {
@@ -111,7 +114,7 @@ export class PermissionService {
       return;
     }
 
-    await this.cacheProvider.RemoveStates('role_permissions:', roleIds);
+    await this.cacheProvider.RemoveStates(ROLE_PERMISSION_CACHE_PREFIX, roleIds);
   }
 
   private async validatePermissionIsUnique({

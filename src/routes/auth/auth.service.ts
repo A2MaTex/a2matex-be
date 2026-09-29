@@ -16,6 +16,7 @@ import { EmailService } from '../../shared/services/email.service.js';
 import { AccessTokenPayloadCreate } from '../../shared/types/jwt.type.js';
 import {
   EmailAlreadyExistsException,
+  EmailOrUsernameNotFoundException,
   EmailNotFoundException,
   AccountBlockedException,
   FailedToSendOTPException,
@@ -23,6 +24,7 @@ import {
   OTPExpiredException,
   RefreshTokenAlreadyUsedException,
   UnauthorizedAccessException,
+  UsernameAlreadyExistsException,
 } from './auth.error.js';
 import { SharedRoleRepository } from '../../shared/repositories/shared-role.repo.js';
 import { RoleName } from '../../shared/constants/role.constant.ts';
@@ -75,6 +77,10 @@ export class AuthService {
 
   async register(body: RegisterInputType & { userAgent: string; ip: string }) {
     try {
+      await this.validateRegisterAccountIsUnique({
+        email: body.email,
+        username: body.username,
+      });
       await this.validateVerificationCode({
         email: body.email,
         type: TypeOfVerificationCode.REGISTER,
@@ -114,6 +120,10 @@ export class AuthService {
       });
     } catch (error) {
       if (isUniqueConstraintPrismaError(error)) {
+        await this.validateRegisterAccountIsUnique({
+          email: body.email,
+          username: body.username,
+        });
         throw EmailAlreadyExistsException;
       }
       throw error;
@@ -154,7 +164,7 @@ export class AuthService {
       account: body.account,
     });
     if (!user) {
-      throw EmailNotFoundException;
+      throw EmailOrUsernameNotFoundException;
     }
     if (user.status === UserStatus.BANNED) {
       throw AccountBlockedException;
@@ -179,6 +189,28 @@ export class AuthService {
       roleName: user.role.name,
     });
     return tokens;
+  }
+
+  private async validateRegisterAccountIsUnique({
+    email,
+    username,
+  }: Pick<RegisterInputType, 'email' | 'username'>) {
+    const existingAccounts = await this.authRepository.findExistingRegisterAccounts({
+      email,
+      username,
+    });
+    const normalizedEmail = email.toLowerCase();
+    const normalizedUsername = username.toLowerCase();
+
+    if (existingAccounts.some((account) => account.email.toLowerCase() === normalizedEmail)) {
+      throw EmailAlreadyExistsException;
+    }
+
+    if (
+      existingAccounts.some((account) => account.username.toLowerCase() === normalizedUsername)
+    ) {
+      throw UsernameAlreadyExistsException;
+    }
   }
 
   async generateTokens({ userId, deviceId, roleId, roleName }: AccessTokenPayloadCreate) {

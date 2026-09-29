@@ -1,9 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
-import { getPagination } from '../../shared/utils/pagination.ts';
 import {
   CreatePermissionInputType,
-  GetPermissionListInputType,
   GetPermissionListOutputType,
   PermissionOutputType,
   UpdatePermissionInputType,
@@ -13,8 +11,7 @@ import {
 export class PermissionRepo {
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
 
-  async getList(query: GetPermissionListInputType): Promise<GetPermissionListOutputType> {
-    const { page, limit, skip, take } = getPagination(query);
+  async getList(): Promise<GetPermissionListOutputType> {
     const where = {
       deletedAt: null,
     };
@@ -26,19 +23,14 @@ export class PermissionRepo {
       this.prismaService.permission.findMany({
         where,
         orderBy: {
-          createdAt: 'desc',
+          module: 'asc',
         },
-        skip,
-        take,
       }),
     ]);
 
     return {
-      data: data as PermissionOutputType[],
+      items: data as PermissionOutputType[],
       totalItems,
-      page,
-      limit,
-      totalPages: Math.ceil(totalItems / limit),
     };
   }
 
@@ -53,13 +45,7 @@ export class PermissionRepo {
     return permission as PermissionOutputType | null;
   }
 
-  async create({
-    data,
-    createdById,
-  }: {
-    data: CreatePermissionInputType;
-    createdById: string;
-  }) {
+  async create({ data, createdById }: { data: CreatePermissionInputType; createdById: string }) {
     return this.prismaService.permission.create({
       data: {
         ...data,

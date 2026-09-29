@@ -15,7 +15,10 @@ import {
   UpdateRolePermissionsInputDTO,
 } from './role.dto.ts';
 import { RoleService } from './role.service.ts';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
+@ApiTags('Roles')
+@ApiBearerAuth('access-token')
 @Controller('roles')
 export class RoleController {
   constructor(@Inject(RoleService) private readonly roleService: RoleService) {}

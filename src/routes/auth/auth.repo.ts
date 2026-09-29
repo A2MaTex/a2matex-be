@@ -14,6 +14,8 @@ type RefreshTokenWithUserRoleType = RefreshTokenType & {
   user: UserWithRoleType;
 };
 
+type ExistingRegisterAccountType = Pick<UserType, 'email' | 'username'>;
+
 @Injectable()
 export class AuthRepository {
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
@@ -51,6 +53,35 @@ export class AuthRepository {
       },
       select: {
         id: true,
+      },
+    });
+  }
+
+  findExistingRegisterAccounts({
+    email,
+    username,
+  }: Pick<UserType, 'email' | 'username'>): Promise<ExistingRegisterAccountType[]> {
+    return this.prismaService.user.findMany({
+      where: {
+        deletedAt: null,
+        OR: [
+          {
+            email: {
+              equals: email,
+              mode: 'insensitive',
+            },
+          },
+          {
+            username: {
+              equals: username,
+              mode: 'insensitive',
+            },
+          },
+        ],
+      },
+      select: {
+        email: true,
+        username: true,
       },
     });
   }

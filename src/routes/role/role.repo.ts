@@ -1,5 +1,4 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { PermissionType } from '../../entities/permission.model.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
 import { getPagination } from '../../shared/utils/pagination.ts';
 import {
@@ -7,7 +6,6 @@ import {
   GetRoleListInputType,
   GetRoleListOutputType,
   RoleDetailOutputType,
-  RoleOutputType,
   UpdateRoleInputType,
 } from './role.model.ts';
 
@@ -36,7 +34,7 @@ export class RoleRepo {
     ]);
 
     return {
-      data: data as RoleOutputType[],
+      items: data,
       totalItems,
       page,
       limit,
@@ -50,30 +48,13 @@ export class RoleRepo {
         id,
         deletedAt: null,
       },
-      include: {
-        rolePermissions: {
-          where: {
-            deletedAt: null,
-            permission: {
-              deletedAt: null,
-            },
-          },
-          include: {
-            permission: true,
-          },
-        },
-      },
     });
 
     if (!role) {
       return null;
     }
 
-    const { rolePermissions, ...roleData } = role;
-    return {
-      ...roleData,
-      permissions: rolePermissions.map(({ permission }) => permission as PermissionType),
-    } as RoleDetailOutputType;
+    return role;
   }
 
   async getPermissionIds(roleId: string) {

@@ -4,7 +4,6 @@ import {
   CreatePermissionOutput,
   DeleteManyPermissionInput,
   GetPermissionDetailOutput,
-  GetPermissionListInput,
   GetPermissionListOutput,
   PermissionIdParam,
   UpdatePermissionInput,
@@ -15,8 +14,6 @@ export class PermissionIdParamDTO extends createZodDto(PermissionIdParam) {}
 export class CreatePermissionInputDTO extends createZodDto(CreatePermissionInput) {}
 
 export class CreatePermissionOutputDTO extends createZodDto(CreatePermissionOutput) {}
-
-export class GetPermissionListInputDTO extends createZodDto(GetPermissionListInput) {}
 
 export class GetPermissionListOutputDTO extends createZodDto(GetPermissionListOutput) {}
 

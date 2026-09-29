@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { RoleName, HTTPMethod } from '../shared/constants/role.constant.ts';
-import { API_PREFIX_PATH } from '../shared/constants/route.constant.ts';
+import { API_PREFIX_PATH } from '../shared/constants/system.constant.ts';
 import { PrismaService } from '../shared/services/prisma.service.ts';
 import type { Permission } from '../generated/prisma/client.ts';
 
@@ -13,6 +13,8 @@ type AvailableRoute = {
   name: string;
   module: string;
 };
+
+const excludedPermissionModules = new Set(['HEALTH', 'ROOT']);
 
 const routeDecoratorMethodMap: Record<string, keyof typeof HTTPMethod> = {
   Get: HTTPMethod.GET,
@@ -35,8 +37,7 @@ function normalizePath(path: string) {
 }
 
 function getModuleName(path: string) {
-  const pathWithoutPrefix =
-    path === API_PREFIX_PATH ? '/' : path.slice(API_PREFIX_PATH.length);
+  const pathWithoutPrefix = path === API_PREFIX_PATH ? '/' : path.slice(API_PREFIX_PATH.length);
   const [moduleName] = pathWithoutPrefix.split('/').filter(Boolean);
   return (moduleName ?? 'ROOT').toUpperCase();
 }
@@ -145,6 +146,10 @@ function getRoutes() {
   const routeMap = new Map<string, AvailableRoute>();
   for (const controllerFile of getControllerFiles(sourceRoot)) {
     for (const route of getRoutesFromControllerFile(controllerFile)) {
+      if (excludedPermissionModules.has(route.module)) {
+        continue;
+      }
+
       routeMap.set(buildPermissionKey(route), route);
     }
   }
@@ -178,7 +183,11 @@ async function getAdminSeedContext(prisma: PrismaService) {
   };
 }
 
-async function syncPermissions(prisma: PrismaService, routes: AvailableRoute[], auditUserId: string) {
+async function syncPermissions(
+  prisma: PrismaService,
+  routes: AvailableRoute[],
+  auditUserId: string,
+) {
   const permissionsInDb = await prisma.permission.findMany({
     where: {
       deletedAt: null,

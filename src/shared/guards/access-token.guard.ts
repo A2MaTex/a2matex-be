@@ -6,6 +6,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import type { PermissionType } from '../../entities/permission.model.ts';
 import { CacheKeyNotFoundError } from '../infrastructure/cache/cache.error.ts';
@@ -15,13 +16,15 @@ import {
   AccountBlockedException,
   UnauthorizedAccessException,
 } from '../../routes/auth/auth.error.js';
+import { SKIP_PERMISSION_CHECK_KEY } from '../decorators/auth.decorator.ts';
 import {
   REQUEST_ROLE_PERMISSIONS,
+  ROLE_PERMISSION_CACHE_PREFIX,
   REQUEST_USER_KEY,
   RoleStatus,
   UserStatus,
 } from '../constants/auth.constant.js';
-import { API_PREFIX_PATH } from '../constants/route.constant.js';
+import { API_PREFIX_PATH } from '../constants/system.constant.js';
 import { PrismaService } from '../services/prisma.service.ts';
 import { TokenService } from '../services/token.service.ts';
 import type { AccessTokenPayload } from '../types/jwt.type.js';
@@ -42,6 +45,7 @@ type AuthRequest = Request & {
  */
 export class AccessTokenGuard implements CanActivate {
   constructor(
+    @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(TokenService) private readonly tokenService: TokenService,
     @Inject(PrismaService) private readonly prismaService: PrismaService,
     @Inject(CACHE_PROVIDER) private readonly cacheProvider: CacheProvider,
@@ -52,8 +56,21 @@ export class AccessTokenGuard implements CanActivate {
     const decodedAccessToken = await this.extractAndValidateToken(request);
 
     await this.validateUserSession(decodedAccessToken);
+    if (this.shouldSkipPermissionCheck(context)) {
+      return true;
+    }
+
     await this.validateUserPermission(decodedAccessToken, request);
     return true;
+  }
+
+  private shouldSkipPermissionCheck(context: ExecutionContext) {
+    return (
+      this.reflector.getAllAndOverride<boolean | undefined>(SKIP_PERMISSION_CHECK_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ]) ?? false
+    );
   }
 
   private async validateUserSession({
@@ -136,7 +153,7 @@ export class AccessTokenGuard implements CanActivate {
   private async getRolePermissions(roleId: string) {
     try {
       return await this.cacheProvider.GetStateObject<RolePermissionPayload>(
-        'role_permissions:',
+        ROLE_PERMISSION_CACHE_PREFIX,
         roleId,
       );
     } catch (error) {
@@ -182,7 +199,7 @@ export class AccessTokenGuard implements CanActivate {
       roleId,
       permissions,
     };
-    await this.cacheProvider.SetStateObject('role_permissions:', roleId, rolePermissions);
+    await this.cacheProvider.SetStateObject(ROLE_PERMISSION_CACHE_PREFIX, roleId, rolePermissions);
 
     return rolePermissions;
   }

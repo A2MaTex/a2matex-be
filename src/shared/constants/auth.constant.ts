@@ -11,6 +11,7 @@ export const RoleStatus = {
 
 export const REQUEST_USER_KEY = 'user';
 export const REQUEST_ROLE_PERMISSIONS = 'role_permissions';
+export const ROLE_PERMISSION_CACHE_PREFIX = `${REQUEST_ROLE_PERMISSIONS}:`;
 
 export const AuthType = {
   Bearer: 'Bearer',

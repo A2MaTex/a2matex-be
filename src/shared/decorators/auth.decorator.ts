@@ -7,6 +7,7 @@ import {
 } from '../constants/auth.constant.js';
 
 export const AUTH_TYPE_KEY = 'authType';
+export const SKIP_PERMISSION_CHECK_KEY = 'skipPermissionCheck';
 
 export type AuthTypeDecoratorPayload = {
   authTypes: AuthTypeType[];
@@ -21,3 +22,5 @@ export const Auth = (authTypes: AuthTypeType[], options?: { condition: Condition
 };
 
 export const IsPublic = () => Auth([AuthType.None]);
+
+export const SkipPermissionCheck = () => SetMetadata(SKIP_PERMISSION_CHECK_KEY, true);
