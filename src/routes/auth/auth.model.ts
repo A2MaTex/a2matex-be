@@ -8,6 +8,7 @@ export const RegisterInput = User.pick({
   password: true,
 })
   .extend({
+    fullName: z.string().min(1).max(255),
     confirmPassword: z.string().min(6).max(100),
     code: z.string().length(6),
   })

@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { Role } from '../../entities/role.schema.ts';
-import { Permission } from '../../entities/permission.model.ts';
 import { RoleStatus } from '../../shared/constants/auth.constant.ts';
 import { PaginationQuerySchema } from '../../shared/models/request.model.ts';
 
@@ -10,10 +9,13 @@ export const RoleIdParam = z
   })
   .strict();
 
-export const RoleOutput = Role;
-
-export const RoleDetailOutput = Role.extend({
-  permissions: z.array(Permission),
+export const RoleDetailOutput = Role.pick({
+  id: true,
+  name: true,
+  description: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
 });
 
 export const CreateRoleInput = Role.pick({
@@ -32,7 +34,7 @@ export const CreateRoleOutput = Role.pick({
 export const GetRoleListInput = PaginationQuerySchema.strict();
 
 export const GetRoleListOutput = z.object({
-  data: z.array(RoleOutput),
+  items: z.array(RoleDetailOutput),
   totalItems: z.number(),
   page: z.number(),
   limit: z.number(),
@@ -42,7 +44,7 @@ export const GetRoleListOutput = z.object({
 export const GetRoleDetailOutput = RoleDetailOutput;
 
 export const GetRolePermissionsOutput = z.object({
-  data: z.array(z.uuid()),
+  items: z.array(z.uuid()),
 });
 
 export const DeleteManyRoleInput = z
@@ -59,7 +61,6 @@ export const UpdateRolePermissionsInput = z
   })
   .strict();
 
-export type RoleOutputType = z.infer<typeof RoleOutput>;
 export type RoleDetailOutputType = z.infer<typeof RoleDetailOutput>;
 export type CreateRoleInputType = z.infer<typeof CreateRoleInput>;
 export type CreateRoleOutputType = z.infer<typeof CreateRoleOutput>;

@@ -34,10 +34,24 @@ export const EmailAlreadyExistsException = new UnprocessableEntityException([
   },
 ]);
 
+export const UsernameAlreadyExistsException = new UnprocessableEntityException([
+  {
+    message: 'Error.UsernameAlreadyExists',
+    path: 'username',
+  },
+]);
+
 export const EmailNotFoundException = new UnprocessableEntityException([
   {
     message: 'Error.EmailNotFound',
     path: 'email',
+  },
+]);
+
+export const EmailOrUsernameNotFoundException = new UnprocessableEntityException([
+  {
+    message: 'Error.EmailOrUsernameNotFound',
+    path: 'account',
   },
 ]);
 

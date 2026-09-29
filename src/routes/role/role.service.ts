@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { RoleName } from '../../shared/constants/role.constant.ts';
 import { CACHE_PROVIDER } from '../../shared/infrastructure/cache/cache.interface.ts';
 import type { CacheProvider } from '../../shared/infrastructure/cache/cache.interface.ts';
+import { ROLE_PERMISSION_CACHE_PREFIX } from '../../shared/constants/auth.constant.ts';
 import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import { isNotFoundPrismaError, isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
 import {
@@ -120,7 +121,7 @@ export class RoleService {
     const permissionIds = await this.roleRepo.getPermissionIds(id);
 
     return {
-      data: permissionIds,
+      items: permissionIds,
     };
   }
 
@@ -187,6 +188,6 @@ export class RoleService {
       return;
     }
 
-    await this.cacheProvider.RemoveStates('role_permissions:', roleIds);
+    await this.cacheProvider.RemoveStates(ROLE_PERMISSION_CACHE_PREFIX, roleIds);
   }
 }

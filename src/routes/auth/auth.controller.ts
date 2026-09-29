@@ -33,7 +33,7 @@ import {
   SendOTPInputDTO,
 } from './auth.dto.ts';
 
-@ApiTags('auth')
+@ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
   constructor(@Inject(AuthService) private readonly authService: AuthService) {}

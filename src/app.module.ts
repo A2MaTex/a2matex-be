@@ -4,6 +4,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './routes/auth/auth.module.js';
 import { PermissionModule } from './routes/permission/permission.module.js';
+import { ProfileModule } from './routes/profile/profile.module.ts';
 import { RoleModule } from './routes/role/role.module.ts';
 import { CatchEverythingFilter } from './shared/filters/catch-everything.filter.js';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter.js';
@@ -16,7 +17,7 @@ import CustomZodValidationPipe from './shared/pipes/custom-zod-validation.pipe.j
 import { SharedModule } from './shared/shared.module.js';
 
 @Module({
-  imports: [AuthModule, PermissionModule, RoleModule, SharedModule],
+  imports: [AuthModule, PermissionModule, ProfileModule, RoleModule, SharedModule],
   controllers: [AppController],
   providers: [
     AppService,
