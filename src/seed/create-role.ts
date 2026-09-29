@@ -70,6 +70,46 @@ async function findOrCreateAdminUser() {
   });
 }
 
+async function upsertAdminProfile(adminUser: { id: string; username: string; email: string }) {
+  const existingProfile = await prisma.profile.findFirst({
+    where: {
+      userId: adminUser.id,
+      deletedAt: null,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (existingProfile) {
+    await prisma.profile.update({
+      where: {
+        id: existingProfile.id,
+      },
+      data: {
+        fullName: adminUser.username,
+        email: adminUser.email,
+        updatedById: adminUser.id,
+        updatedAt: new Date(),
+      },
+    });
+
+    return 'updated';
+  }
+
+  await prisma.profile.create({
+    data: {
+      userId: adminUser.id,
+      fullName: adminUser.username,
+      email: adminUser.email,
+      createdById: adminUser.id,
+      updatedById: adminUser.id,
+    },
+  });
+
+  return 'created';
+}
+
 async function upsertRoles(adminUserId: string) {
   let createdRoleCount = 0;
   let updatedRoleCount = 0;
@@ -145,20 +185,23 @@ async function assignAdminRole(adminUserId: string) {
 
 async function main() {
   const adminUser = await findOrCreateAdminUser();
+  const adminProfileAction = await upsertAdminProfile(adminUser);
   const roleResult = await upsertRoles(adminUser.id);
   await assignAdminRole(adminUser.id);
 
   return {
     ...roleResult,
     adminUser,
+    adminProfileAction,
   };
 }
 
 main()
-  .then(({ adminUser, createdRoleCount, updatedRoleCount }) => {
+  .then(({ adminUser, adminProfileAction, createdRoleCount, updatedRoleCount }) => {
     console.log(`Created ${createdRoleCount} roles`);
     console.log(`Updated ${updatedRoleCount} roles`);
     console.log(`Seeded admin user: ${adminUser.email}`);
+    console.log(`Admin profile ${adminProfileAction}`);
   })
   .catch((error) => {
     console.error(error);

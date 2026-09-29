@@ -1,8 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 
 import { TypeOfVerificationCodeType, UserStatus } from '../../shared/constants/auth.constant.ts';
 import { RoleType } from '../../entities/role.schema.ts';
 import { UserType } from '../../entities/user.model.ts';
+import { ProfileType } from '../../entities/profile.model.ts';
 import { WhereUniqueUserType } from '../../shared/repositories/shared-user.repo.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
 import { VerificationCodeType } from '../../entities/verification.model.ts';
@@ -36,15 +38,25 @@ export class AuthRepository {
 
   createUserIncludeRole(
     user: Pick<UserType, 'email' | 'username' | 'password'> & {
+      fullName: ProfileType['fullName'];
       roleId: string;
     },
   ): Promise<Pick<UserType, 'id'>> {
-    const { roleId, ...userData } = user;
+    const { fullName, roleId, ...userData } = user;
+    const userId = randomUUID();
 
     return this.prismaService.user.create({
       data: {
+        id: userId,
         ...userData,
         status: UserStatus.ACTIVE,
+        profile: {
+          create: {
+            fullName,
+            email: userData.email,
+            createdById: userId,
+          },
+        },
         userRoles: {
           create: {
             roleId,
@@ -89,7 +101,9 @@ export class AuthRepository {
   async createVerificationCode(
     payload: Pick<VerificationCodeType, 'email' | 'type' | 'code' | 'expiresAt'>,
   ): Promise<Pick<VerificationCodeType, 'id'>> {
-    const [verificationCode] = await this.prismaService.$queryRaw<Pick<VerificationCodeType, 'id'>[]>`
+    const [verificationCode] = await this.prismaService.$queryRaw<
+      Pick<VerificationCodeType, 'id'>[]
+    >`
       INSERT INTO "VerificationCode" (email, type, code, "expiresAt")
       VALUES (${payload.email}, ${payload.type}::"VerificationCodeType", ${payload.code}, ${payload.expiresAt})
       ON CONFLICT (email, type) WHERE "deletedAt" IS NULL

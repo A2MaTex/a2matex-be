@@ -9,6 +9,10 @@ import {
 import { HttpAdapterHost } from '@nestjs/core';
 import { isUniqueConstraintPrismaError } from '../utils/prisma.ts';
 
+type ExceptionResponse = {
+  message?: unknown;
+};
+
 @Catch()
 /**
  * Final exception boundary for API requests. It maps unknown errors to 500 and
@@ -27,7 +31,9 @@ export class CatchEverythingFilter implements ExceptionFilter {
     let httpStatus =
       exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
     let message =
-      exception instanceof HttpException ? exception.getResponse() : 'Internal Server Error';
+      exception instanceof HttpException
+        ? this.normalizeExceptionMessage(exception.getResponse())
+        : 'Internal Server Error';
     if (isUniqueConstraintPrismaError(exception)) {
       httpStatus = HttpStatus.CONFLICT;
       message = 'Record already exist';
@@ -37,5 +43,30 @@ export class CatchEverythingFilter implements ExceptionFilter {
       message,
     };
     httpAdapter.reply(ctx.getResponse(), responseBody, httpStatus);
+  }
+
+  private normalizeExceptionMessage(response: string | object): unknown {
+    if (typeof response === 'string') {
+      return response;
+    }
+
+    const { message } = response as ExceptionResponse;
+    if (Array.isArray(message)) {
+      return message.map((item) => this.normalizeErrorItem(item));
+    }
+
+    return message ?? response;
+  }
+
+  private normalizeErrorItem(item: unknown): unknown {
+    if (!item || typeof item !== 'object') {
+      return item;
+    }
+
+    const { message, path } = item as { message?: unknown; path?: unknown };
+    return {
+      message,
+      path,
+    };
   }
 }

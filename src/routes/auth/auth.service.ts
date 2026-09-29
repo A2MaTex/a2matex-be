@@ -94,6 +94,7 @@ export class AuthService {
         email: body.email,
         username: body.username,
         password: hashedPassword,
+        fullName: body.fullName,
         roleId: customerRoleId,
       });
 
