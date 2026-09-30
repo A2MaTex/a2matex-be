@@ -1,5 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { Prisma } from '../../generated/prisma/client.js';
+import type { Prisma } from '../../generated/prisma/client.js';
+import type {
+  AfterCommitCallback,
+  TransactionStore,
+} from '../infrastructure/database/transaction/transaction-context.ts';
 import { TransactionContext } from '../infrastructure/database/transaction/transaction-context.ts';
 import { PrismaService } from './prisma.service.ts';
 
@@ -21,8 +25,34 @@ export class TransactionService {
       return Promise.resolve(callback());
     }
 
-    return this.prismaService.$transaction(async (client) => {
-      return this.transactionContext.run(client, async () => callback());
-    }, options);
+    const afterCommitCallbacks: AfterCommitCallback[] = [];
+
+    return this.prismaService
+      .$transaction(async (client) => {
+        const store: TransactionStore = {
+          client,
+          afterCommitCallbacks,
+        };
+        return this.transactionContext.run(store, async () => callback());
+      }, options)
+      .then(async (result) => {
+        await this.runAfterCommitCallbacks(afterCommitCallbacks);
+        return result;
+      });
+  }
+
+  async afterCommit(callback: AfterCommitCallback): Promise<void> {
+    if (!this.transactionContext.hasTransaction()) {
+      await callback();
+      return;
+    }
+
+    this.transactionContext.addAfterCommit(callback);
+  }
+
+  private async runAfterCommitCallbacks(callbacks: AfterCommitCallback[]): Promise<void> {
+    for (const callback of callbacks) {
+      await callback();
+    }
   }
 }

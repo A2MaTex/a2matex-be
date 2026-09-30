@@ -10,10 +10,8 @@ import { AccessTokenGuard } from './guards/access-token.guard.ts';
 import { SharedUserRepository } from './repositories/shared-user.repo.js';
 import { EmailService } from './services/email.service.js';
 import { SharedRoleRepository } from './repositories/shared-role.repo.js';
-import {
-  TransactionContext,
-  TransactionService,
-} from './infrastructure/database/transaction/index.ts';
+import { TransactionContext } from './infrastructure/database/transaction/transaction-context.ts';
+import { TransactionService } from './services/transaction.service.ts';
 
 const sharedServices = [
   PrismaService,

@@ -3,10 +3,14 @@ import { RoleName } from '../../shared/constants/role.constant.ts';
 import { CACHE_PROVIDER } from '../../shared/infrastructure/cache/cache.interface.ts';
 import type { CacheProvider } from '../../shared/infrastructure/cache/cache.interface.ts';
 import { ROLE_PERMISSION_CACHE_PREFIX } from '../../shared/constants/auth.constant.ts';
-import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
+import { MessageResType, SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import { isNotFoundPrismaError, isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
 import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
 import { TransactionService } from '../../shared/services/transaction.service.ts';
+import {
+  PostProcess,
+  PostProcessContext,
+} from '../../shared/decorators/post-process.decorator.ts';
 import {
   CreateRoleInputType,
   DeleteManyRoleInputType,
@@ -63,6 +67,9 @@ export class RoleService {
     return role;
   }
 
+  @PostProcess({
+    handlers: ['removeRolePermissionCache'],
+  })
   async update({
     id,
     data,
@@ -86,7 +93,6 @@ export class RoleService {
         data,
         updatedById,
       });
-      await this.removeRolePermissionCache([id]);
 
       return SUCCESS_RESPONSE;
     } catch (error) {
@@ -100,31 +106,26 @@ export class RoleService {
     }
   }
 
-  async deleteMany({ data, deletedById }: { data: DeleteManyRoleInputType; deletedById: string }) {
-    await this.deleteRoles({
-      ids: data.ids,
-      deletedById,
-    });
-    await this.removeRolePermissionCache(data.ids);
-
-    return SUCCESS_RESPONSE;
-  }
-
+  @PostProcess({
+    handlers: ['removeRolePermissionCache'],
+  })
   @Transactional()
-  private async deleteRoles({ ids, deletedById }: { ids: string[]; deletedById: string }) {
-    const roles = await this.roleRepo.getActiveRolesByIds(ids);
-    if (roles.length !== new Set(ids).size) {
+  async deleteMany({ data, deletedById }: { data: DeleteManyRoleInputType; deletedById: string }) {
+    const roles = await this.roleRepo.getActiveRolesByIds(data.ids);
+    if (roles.length !== new Set(data.ids).size) {
       throw RoleNotFoundException;
     }
 
     roles.forEach((role) => this.validateBaseRoleCanBeChanged(role.name));
 
-    await this.roleRepo.softDeleteRolePermissionsByRoleIds(ids);
-    await this.roleRepo.softDeleteUserRolesByRoleIds(ids);
+    await this.roleRepo.softDeleteRolePermissionsByRoleIds(data.ids);
+    await this.roleRepo.softDeleteUserRolesByRoleIds(data.ids);
     await this.roleRepo.deleteMany({
-      ids,
+      ids: data.ids,
       deletedById,
     });
+
+    return SUCCESS_RESPONSE;
   }
 
   async getPermissions(id: string) {
@@ -136,32 +137,21 @@ export class RoleService {
     };
   }
 
-  async updatePermissions({ id, data }: { id: string; data: UpdateRolePermissionsInputType }) {
-    await this.syncRolePermissions({
-      id,
-      permissionIds: data.permissionIds,
-    });
-    await this.removeRolePermissionCache([id]);
-
-    return SUCCESS_RESPONSE;
-  }
-
+  @PostProcess({
+    handlers: ['removeRolePermissionCache'],
+  })
   @Transactional()
-  private async syncRolePermissions({
-    id,
-    permissionIds,
-  }: {
-    id: string;
-    permissionIds: string[];
-  }) {
+  async updatePermissions({ id, data }: { id: string; data: UpdateRolePermissionsInputType }) {
     const role = await this.validateRoleExists(id);
     this.validateBaseRoleCanBeChanged(role.name);
 
-    await this.validatePermissionsAreActive(permissionIds);
+    await this.validatePermissionsAreActive(data.permissionIds);
     await this.roleRepo.syncRolePermissions({
       roleId: id,
-      permissionIds,
+      permissionIds: data.permissionIds,
     });
+
+    return SUCCESS_RESPONSE;
   }
 
   private async validateRoleNameIsUnique({
@@ -208,7 +198,15 @@ export class RoleService {
     }
   }
 
-  private async removeRolePermissionCache(roleIds: string[]) {
+  private async removeRolePermissionCache({
+    args,
+  }: PostProcessContext<
+    MessageResType,
+    [{ id: string } | { data: DeleteManyRoleInputType }]
+  >) {
+    const [payload] = args;
+    const roleIds = 'id' in payload ? [payload.id] : payload.data.ids;
+
     if (roleIds.length === 0) {
       return;
     }

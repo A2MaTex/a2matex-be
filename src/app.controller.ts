@@ -1,10 +1,7 @@
-import { Controller, Delete, Get, Inject } from '@nestjs/common';
+import { Controller, Get, Inject } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { ZodResponse } from 'nestjs-zod';
 import { AppService } from './app.service.js';
-import { ActiveUser } from './shared/decorators/active-user.decorator.ts';
-import { IsPublic, SkipPermissionCheck } from './shared/decorators/auth.decorator.js';
-import { MessageResDTO } from './shared/dtos/response.dto.ts';
+import { IsPublic } from './shared/decorators/auth.decorator.js';
 
 @ApiTags('app')
 @Controller()
@@ -31,11 +28,4 @@ export class AppController {
     };
   }
 
-  @Delete('permission-cache')
-  @ApiBearerAuth('access-token')
-  @SkipPermissionCheck()
-  @ZodResponse({ type: MessageResDTO })
-  clearPermissionCache(@ActiveUser('roleId') roleId: string) {
-    return this.appService.clearPermissionCache(roleId);
-  }
 }

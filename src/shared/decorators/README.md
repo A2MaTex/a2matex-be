@@ -144,6 +144,35 @@ private get prisma() {
 
 Use `this.prisma` in repository methods instead of calling `this.prismaService` delegates directly. Do not store `this.prismaService.getClient()` in a class field because that would capture the normal client before a transaction starts.
 
+## PostProcess
+
+Use `@PostProcess()` on service methods that need reusable side effects after the main method succeeds, such as cache invalidation, refreshing materialized views, or publishing messages.
+
+```ts
+import {
+  PostProcess,
+  PostProcessContext,
+} from '../../shared/decorators/post-process.decorator.js';
+
+@PostProcess({
+  handlers: ['refreshPublisherDiscountView', 'publishPublisherUpdatedMessage'],
+})
+@Transactional()
+async updatePublisher() {
+  // Core use case logic.
+}
+
+private async publishPublisherUpdatedMessage({
+  result,
+  args,
+}: PostProcessContext<PublisherOutputType, [UpdatePublisherInputType]>) {
+  // `result` is the service method output.
+  // `args` are the original service method arguments.
+}
+```
+
+Handlers are service methods on the same class and run one by one in the order listed in `handlers`. If the service method runs inside `@Transactional()`, handlers are executed after the transaction commits. By default, handler errors are logged and do not change the original service result.
+
 ## Typical Controller Example
 
 ```ts
