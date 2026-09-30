@@ -173,6 +173,42 @@ private async publishPublisherUpdatedMessage({
 
 Handlers are service methods on the same class and run one by one in the order listed in `handlers`. If the service method runs inside `@Transactional()`, handlers are executed after the transaction commits. By default, handler errors are logged and do not change the original service result.
 
+## DistributedLock
+
+Use `@DistributedLock()` on service methods that must not run concurrently for the same resource.
+
+```ts
+import { Inject, Injectable } from '@nestjs/common';
+import { DistributedLock } from '../../shared/decorators/distributed-lock.decorator.js';
+import {
+  CACHE_PROVIDER,
+  CacheProvider,
+} from '../../shared/infrastructure/cache/cache.interface.js';
+
+@Injectable()
+export class PublisherService {
+  constructor(@Inject(CACHE_PROVIDER) private readonly cacheProvider: CacheProvider) {}
+
+  @DistributedLock({
+    useCase: 'update_publisher',
+    resource: (body: UpdatePublisherInputDTO) => body.id,
+  })
+  async update(body: UpdatePublisherInputDTO) {
+    // Only one update for the same publisher id can run at a time.
+  }
+}
+```
+
+The decorated class must inject `CacheProvider` as `cacheProvider`. The decorator acquires a Redis lock before the method runs and releases it in `finally` with an owner token, so it does not delete a lock acquired by another request after the original lock expires.
+
+The lock key format is fixed:
+
+```txt
+distributed_lock:<useCase>_<resourceId>
+```
+
+For the example above, the Redis key is `distributed_lock:update_publisher_<publisherId>`.
+
 ## Typical Controller Example
 
 ```ts

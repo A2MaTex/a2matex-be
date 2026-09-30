@@ -1,6 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import { createClient, RedisClientType } from 'redis';
 import { CacheKeyNotFoundError } from '../cache.error.ts';
 import { CacheExpiration, CacheProvider } from '../cache.interface.ts';
+
+const RELEASE_LOCK_SCRIPT = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("del", KEYS[1])
+end
+return 0
+`;
 
 export type RedisCacheProviderOptions = {
   host: string;
@@ -171,8 +179,9 @@ export class RedisCacheProvider implements CacheProvider {
     return this.client;
   }
 
-  async DistributedLock(prefixKey: string, key: string, ttl: CacheExpiration) {
-    const result = await this.client.set(this.buildKey(prefixKey, key), 'In used', {
+  async AcquireLock(prefixKey: string, key: string, ttl: CacheExpiration) {
+    const owner = randomUUID();
+    const result = await this.client.set(this.buildKey(prefixKey, key), owner, {
       expiration: {
         type: 'EX',
         value: ttl,
@@ -180,7 +189,19 @@ export class RedisCacheProvider implements CacheProvider {
       condition: 'NX',
     });
 
-    return result === 'OK';
+    return result === 'OK' ? owner : null;
+  }
+
+  async ReleaseLock(prefixKey: string, key: string, owner: string) {
+    const result: unknown = await this.client.sendCommand([
+      'EVAL',
+      RELEASE_LOCK_SCRIPT,
+      '1',
+      this.buildKey(prefixKey, key),
+      owner,
+    ]);
+
+    return result === 1 || result === '1';
   }
 
   private buildKey(prefixKey: string, key: string) {

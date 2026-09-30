@@ -46,5 +46,7 @@ export interface CacheProvider {
 
   GetClient(): unknown;
 
-  DistributedLock(prefixKey: string, key: string, ttl: CacheExpiration): Promise<boolean>;
+  AcquireLock(prefixKey: string, key: string, ttl: CacheExpiration): Promise<string | null>;
+
+  ReleaseLock(prefixKey: string, key: string, owner: string): Promise<boolean>;
 }

@@ -3,10 +3,11 @@ import { CACHE_PROVIDER } from '../../shared/infrastructure/cache/cache.interfac
 import type { CacheProvider } from '../../shared/infrastructure/cache/cache.interface.ts';
 import { MessageResType, SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import { isNotFoundPrismaError, isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
-import { ROLE_PERMISSION_CACHE_PREFIX } from '../../shared/constants/auth.constant.ts';
+import { ROLE_PERMISSION_CACHE_PREFIX } from '../../shared/constants/cache.constant.ts';
 import { PostProcess, PostProcessContext } from '../../shared/decorators/post-process.decorator.ts';
 import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
 import { TransactionService } from '../../shared/services/transaction.service.ts';
+import { DistributedLock } from '../../shared/decorators/distributed-lock.decorator.ts';
 import {
   PermissionAlreadyExistsException,
   PermissionNotFoundException,
@@ -61,6 +62,10 @@ export class PermissionService {
   @PostProcess({
     handlers: ['removeRolePermissionCache'],
   })
+  @DistributedLock({
+    useCase: 'update_permission',
+    resource: ({ id }: { id: string }) => id,
+  })
   @Transactional()
   async update({
     id,
@@ -97,6 +102,9 @@ export class PermissionService {
     }
   }
 
+  @DistributedLock({
+    useCase: 'delete_permissions',
+  })
   async deleteMany({
     data,
     deletedById,

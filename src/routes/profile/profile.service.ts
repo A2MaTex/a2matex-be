@@ -3,6 +3,9 @@ import { HashingService } from '../../shared/services/hashing.service.ts';
 import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import { isNotFoundPrismaError } from '../../shared/utils/prisma.ts';
 import { NotFoundRecordException } from '../../shared/types/error.type.ts';
+import { CACHE_PROVIDER } from '../../shared/infrastructure/cache/cache.interface.ts';
+import type { CacheProvider } from '../../shared/infrastructure/cache/cache.interface.ts';
+import { DistributedLock } from '../../shared/decorators/distributed-lock.decorator.ts';
 import {
   ConfirmNewPasswordMismatchException,
   CurrentPasswordInvalidException,
@@ -16,6 +19,7 @@ export class ProfileService {
   constructor(
     @Inject(ProfileRepo) private readonly profileRepo: ProfileRepo,
     @Inject(HashingService) private readonly hashingService: HashingService,
+    @Inject(CACHE_PROVIDER) private readonly cacheProvider: CacheProvider,
   ) {}
 
   async getMe(userId: string) {
@@ -27,6 +31,10 @@ export class ProfileService {
     return profile;
   }
 
+  @DistributedLock({
+    useCase: 'update_personal_profile',
+    resource: ({ userId }: { userId: string }) => userId,
+  })
   async updatePersonalProfile({
     userId,
     data,
@@ -48,6 +56,10 @@ export class ProfileService {
     return SUCCESS_RESPONSE;
   }
 
+  @DistributedLock({
+    useCase: 'change_password',
+    resource: ({ userId }: { userId: string }) => userId,
+  })
   async changePassword({ userId, data }: { userId: string; data: ChangePasswordInputType }) {
     try {
       if (data.newPassword !== data.confirmNewPassword) {
