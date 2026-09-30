@@ -22,10 +22,14 @@ type ExistingRegisterAccountType = Pick<UserType, 'email' | 'username'>;
 export class AuthRepository {
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
 
+  private get prisma() {
+    return this.prismaService.getClient();
+  }
+
   createUser(
     user: Pick<UserType, 'email' | 'username' | 'password'>,
   ): Promise<Pick<UserType, 'id'>> {
-    return this.prismaService.user.create({
+    return this.prisma.user.create({
       data: {
         ...user,
         status: UserStatus.ACTIVE,
@@ -45,7 +49,7 @@ export class AuthRepository {
     const { fullName, roleId, ...userData } = user;
     const userId = randomUUID();
 
-    return this.prismaService.user.create({
+    return this.prisma.user.create({
       data: {
         id: userId,
         ...userData,
@@ -73,7 +77,7 @@ export class AuthRepository {
     email,
     username,
   }: Pick<UserType, 'email' | 'username'>): Promise<ExistingRegisterAccountType[]> {
-    return this.prismaService.user.findMany({
+    return this.prisma.user.findMany({
       where: {
         deletedAt: null,
         OR: [
@@ -101,7 +105,7 @@ export class AuthRepository {
   async createVerificationCode(
     payload: Pick<VerificationCodeType, 'email' | 'type' | 'code' | 'expiresAt'>,
   ): Promise<Pick<VerificationCodeType, 'id'>> {
-    const [verificationCode] = await this.prismaService.$queryRaw<
+    const [verificationCode] = await this.prisma.$queryRaw<
       Pick<VerificationCodeType, 'id'>[]
     >`
       INSERT INTO "VerificationCode" (email, type, code, "expiresAt")
@@ -127,7 +131,7 @@ export class AuthRepository {
           };
         },
   ): Promise<VerificationCodeType | null> {
-    return this.prismaService.verificationCode.findUnique({
+    return this.prisma.verificationCode.findUnique({
       where: uniqueValue,
     });
   }
@@ -139,7 +143,7 @@ export class AuthRepository {
     expiresAt: Date;
     deviceId: string;
   }): Promise<Pick<RefreshTokenType, 'id'>> {
-    return this.prismaService.refreshToken.create({
+    return this.prisma.refreshToken.create({
       data,
       select: {
         id: true,
@@ -151,7 +155,7 @@ export class AuthRepository {
     data: Pick<DeviceType, 'userId' | 'userAgent' | 'ip' | 'lastActive'> &
       Partial<Pick<DeviceType, 'isActive'>>,
   ): Promise<Pick<DeviceType, 'id'>> {
-    return this.prismaService.device
+    return this.prisma.device
       .findFirst({
         where: {
           userId: data.userId,
@@ -163,7 +167,7 @@ export class AuthRepository {
       })
       .then((device) => {
         if (!device) {
-          return this.prismaService.device.create({
+          return this.prisma.device.create({
             data,
             select: {
               id: true,
@@ -171,7 +175,7 @@ export class AuthRepository {
           });
         }
 
-        return this.prismaService.device.update({
+        return this.prisma.device.update({
           where: {
             id: device.id,
           },
@@ -192,7 +196,7 @@ export class AuthRepository {
   findUniqueUserIncludeRole(
     where: WhereUniqueUserType | { account: string },
   ): Promise<UserWithRoleType | null> {
-    return this.prismaService.user
+    return this.prisma.user
       .findFirst({
         where: {
           ...('account' in where
@@ -246,7 +250,7 @@ export class AuthRepository {
   findUniqueRefreshTokenIncludeUserRole(
     token: string,
   ): Promise<RefreshTokenWithUserRoleType | null> {
-    return this.prismaService.refreshToken
+    return this.prisma.refreshToken
       .findUnique({
         where: { token },
         include: {
@@ -293,7 +297,7 @@ export class AuthRepository {
   }
 
   updateDevice(deviceId: string, data: Partial<DeviceType>): Promise<Pick<DeviceType, 'id'>> {
-    return this.prismaService.device.update({
+    return this.prisma.device.update({
       where: {
         id: deviceId,
       },
@@ -307,7 +311,7 @@ export class AuthRepository {
   deleteRefreshToken(
     where: { id: string } | { token: string },
   ): Promise<Pick<RefreshTokenType, 'id'>> {
-    return this.prismaService.refreshToken.delete({
+    return this.prisma.refreshToken.delete({
       where,
       select: {
         id: true,
@@ -325,7 +329,7 @@ export class AuthRepository {
           };
         },
   ): Promise<VerificationCodeType> {
-    return this.prismaService.verificationCode.delete({
+    return this.prisma.verificationCode.delete({
       where: uniqueValue,
     });
   }

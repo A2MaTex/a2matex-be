@@ -39,6 +39,8 @@ import {
 import { isNotFoundPrismaError, isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
 import { generateOTP } from '../../shared/utils/utils.ts';
 import { InvalidPasswordException } from '../../shared/types/error.type.ts';
+import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
+import { TransactionService } from '../../shared/services/transaction.service.ts';
 
 @Injectable()
 export class AuthService {
@@ -49,6 +51,7 @@ export class AuthService {
     @Inject(SharedUserRepository) private readonly sharedUserRepository: SharedUserRepository,
     @Inject(EmailService) private readonly emailService: EmailService,
     @Inject(TokenService) private readonly tokenService: TokenService,
+    @Inject(TransactionService) private readonly transactionService: TransactionService,
   ) {}
 
   async validateVerificationCode({
@@ -90,34 +93,14 @@ export class AuthService {
         this.sharedRoleRepository.getCustomerRoleId(),
         this.hashingService.hash(body.password),
       ]);
-      const user = await this.authRepository.createUserIncludeRole({
+      return await this.registerWithSession({
         email: body.email,
         username: body.username,
         password: hashedPassword,
         fullName: body.fullName,
         roleId: customerRoleId,
-      });
-
-      const [device] = await Promise.all([
-        this.authRepository.createDevice({
-          userId: user.id,
-          userAgent: body.userAgent,
-          ip: body.ip,
-          lastActive: new Date(),
-        }),
-        this.authRepository.deleteVerificationCode({
-          email_type: {
-            email: body.email,
-            type: TypeOfVerificationCode.REGISTER,
-          },
-        }),
-      ]);
-
-      return this.generateTokens({
-        userId: user.id,
-        deviceId: device.id,
-        roleId: customerRoleId,
-        roleName: RoleName.Customer,
+        userAgent: body.userAgent,
+        ip: body.ip,
       });
     } catch (error) {
       if (isUniqueConstraintPrismaError(error)) {
@@ -129,6 +112,51 @@ export class AuthService {
       }
       throw error;
     }
+  }
+
+  @Transactional()
+  private async registerWithSession({
+    email,
+    username,
+    password,
+    fullName,
+    roleId,
+    userAgent,
+    ip,
+  }: Pick<RegisterInputType, 'email' | 'username' | 'fullName'> & {
+    password: string;
+    roleId: string;
+    userAgent: string;
+    ip: string;
+  }) {
+    const user = await this.authRepository.createUserIncludeRole({
+      email,
+      username,
+      password,
+      fullName,
+      roleId,
+    });
+
+    const device = await this.authRepository.createDevice({
+      userId: user.id,
+      userAgent,
+      ip,
+      lastActive: new Date(),
+    });
+
+    await this.authRepository.deleteVerificationCode({
+      email_type: {
+        email,
+        type: TypeOfVerificationCode.REGISTER,
+      },
+    });
+
+    return this.generateTokens({
+      userId: user.id,
+      deviceId: device.id,
+      roleId,
+      roleName: RoleName.Customer,
+    });
   }
 
   async sendOTP(body: SendOTPInputType) {
@@ -176,20 +204,36 @@ export class AuthService {
       throw InvalidPasswordException;
     }
 
-    const device = await this.authRepository.createDevice({
+    return this.loginWithSession({
       userId: user.id,
+      roleId: user.roleId,
+      roleName: user.role.name,
       userAgent: body.userAgent,
       ip: body.ip,
+    });
+  }
+
+  @Transactional()
+  private async loginWithSession({
+    userId,
+    roleId,
+    roleName,
+    userAgent,
+    ip,
+  }: Omit<AccessTokenPayloadCreate, 'deviceId'> & { userAgent: string; ip: string }) {
+    const device = await this.authRepository.createDevice({
+      userId,
+      userAgent,
+      ip,
       lastActive: new Date(),
     });
 
-    const tokens = await this.generateTokens({
-      userId: user.id,
+    return this.generateTokens({
+      userId,
       deviceId: device.id,
-      roleId: user.roleId,
-      roleName: user.role.name,
+      roleId,
+      roleName,
     });
-    return tokens;
   }
 
   private async validateRegisterAccountIsUnique({
@@ -264,25 +308,15 @@ export class AuthService {
         },
       } = refreshTokenInDb;
 
-      const $updateDevice = this.authRepository.updateDevice(deviceId, {
-        ip,
-        userAgent,
-      });
-
-      const $deleteRefreshToken = this.authRepository.deleteRefreshToken({
-        token: refreshToken,
-      });
-
-      const $tokens = this.generateTokens({
+      return await this.rotateRefreshToken({
+        refreshToken,
         userId,
+        deviceId,
         roleId,
         roleName,
-        deviceId,
+        userAgent,
+        ip,
       });
-
-      const [, , tokens] = await Promise.all([$updateDevice, $deleteRefreshToken, $tokens]);
-
-      return tokens;
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -291,19 +325,45 @@ export class AuthService {
     }
   }
 
+  @Transactional()
+  private async rotateRefreshToken({
+    refreshToken,
+    userId,
+    deviceId,
+    roleId,
+    roleName,
+    userAgent,
+    ip,
+  }: AccessTokenPayloadCreate & {
+    refreshToken: string;
+    userAgent: string;
+    ip: string;
+  }) {
+    await this.authRepository.updateDevice(deviceId, {
+      ip,
+      userAgent,
+    });
+
+    await this.authRepository.deleteRefreshToken({
+      token: refreshToken,
+    });
+
+    return this.generateTokens({
+      userId,
+      roleId,
+      roleName,
+      deviceId,
+    });
+  }
+
   async logout(refreshToken: string) {
     try {
       const { refreshTokenId, deviceId } = await this.tokenService.verifyRefreshToken(refreshToken);
 
-      const $deleteRefreshToken = this.authRepository.deleteRefreshToken({
-        id: refreshTokenId,
+      await this.logoutSession({
+        refreshTokenId,
+        deviceId,
       });
-
-      const $updateDevice = this.authRepository.updateDevice(deviceId, {
-        isActive: false,
-      });
-
-      await Promise.all([$deleteRefreshToken, $updateDevice]);
       return SUCCESS_RESPONSE;
     } catch (error) {
       if (isNotFoundPrismaError(error)) {
@@ -311,6 +371,23 @@ export class AuthService {
       }
       throw UnauthorizedAccessException;
     }
+  }
+
+  @Transactional()
+  private async logoutSession({
+    refreshTokenId,
+    deviceId,
+  }: {
+    refreshTokenId: string;
+    deviceId: string;
+  }) {
+    await this.authRepository.deleteRefreshToken({
+      id: refreshTokenId,
+    });
+
+    await this.authRepository.updateDevice(deviceId, {
+      isActive: false,
+    });
   }
 
   async forgotPassword(body: ForgotPasswordInputType) {
@@ -330,20 +407,35 @@ export class AuthService {
     });
 
     const hashedPassword = await this.hashingService.hash(newPassword);
-    await Promise.all([
-      this.sharedUserRepository.update(
-        { id: user.id },
-        {
-          password: hashedPassword,
-        },
-      ),
-      this.authRepository.deleteVerificationCode({
-        email_type: {
-          email: body.email,
-          type: TypeOfVerificationCode.FORGOT_PASSWORD,
-        },
-      }),
-    ]);
+    await this.resetPassword({
+      userId: user.id,
+      password: hashedPassword,
+      email: body.email,
+    });
     return SUCCESS_RESPONSE;
+  }
+
+  @Transactional()
+  private async resetPassword({
+    userId,
+    password,
+    email,
+  }: {
+    userId: string;
+    password: string;
+    email: string;
+  }) {
+    await this.sharedUserRepository.update(
+      { id: userId },
+      {
+        password,
+      },
+    );
+    await this.authRepository.deleteVerificationCode({
+      email_type: {
+        email,
+        type: TypeOfVerificationCode.FORGOT_PASSWORD,
+      },
+    });
   }
 }
