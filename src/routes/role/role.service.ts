@@ -2,9 +2,13 @@ import { Inject, Injectable } from '@nestjs/common';
 import { RoleName } from '../../shared/constants/role.constant.ts';
 import { CACHE_PROVIDER } from '../../shared/infrastructure/cache/cache.interface.ts';
 import type { CacheProvider } from '../../shared/infrastructure/cache/cache.interface.ts';
-import { ROLE_PERMISSION_CACHE_PREFIX } from '../../shared/constants/auth.constant.ts';
-import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
+import { ROLE_PERMISSION_CACHE_PREFIX } from '../../shared/constants/cache.constant.ts';
+import { MessageResType, SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import { isNotFoundPrismaError, isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
+import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
+import { TransactionService } from '../../shared/services/transaction.service.ts';
+import { PostProcess, PostProcessContext } from '../../shared/decorators/post-process.decorator.ts';
+import { DistributedLock } from '../../shared/decorators/distributed-lock.decorator.ts';
 import {
   CreateRoleInputType,
   DeleteManyRoleInputType,
@@ -27,6 +31,7 @@ export class RoleService {
   constructor(
     @Inject(RoleRepo) private readonly roleRepo: RoleRepo,
     @Inject(CACHE_PROVIDER) private readonly cacheProvider: CacheProvider,
+    @Inject(TransactionService) private readonly transactionService: TransactionService,
   ) {}
 
   async create({ data, createdById }: { data: CreateRoleInputType; createdById: string }) {
@@ -60,6 +65,13 @@ export class RoleService {
     return role;
   }
 
+  @DistributedLock({
+    useCase: 'update_role',
+    resource: ({ id }: { id: string }) => id,
+  })
+  @PostProcess({
+    handlers: ['removeRolePermissionCache'],
+  })
   async update({
     id,
     data,
@@ -83,7 +95,6 @@ export class RoleService {
         data,
         updatedById,
       });
-      await this.removeRolePermissionCache([id]);
 
       return SUCCESS_RESPONSE;
     } catch (error) {
@@ -97,6 +108,13 @@ export class RoleService {
     }
   }
 
+  @PostProcess({
+    handlers: ['removeRolePermissionCache'],
+  })
+  @DistributedLock({
+    useCase: 'delete_roles',
+  })
+  @Transactional()
   async deleteMany({ data, deletedById }: { data: DeleteManyRoleInputType; deletedById: string }) {
     const roles = await this.roleRepo.getActiveRolesByIds(data.ids);
     if (roles.length !== new Set(data.ids).size) {
@@ -111,7 +129,6 @@ export class RoleService {
       ids: data.ids,
       deletedById,
     });
-    await this.removeRolePermissionCache(data.ids);
 
     return SUCCESS_RESPONSE;
   }
@@ -125,6 +142,14 @@ export class RoleService {
     };
   }
 
+  @DistributedLock({
+    useCase: 'update_role_permissions',
+    resource: ({ id }: { id: string }) => id,
+  })
+  @PostProcess({
+    handlers: ['removeRolePermissionCache'],
+  })
+  @Transactional()
   async updatePermissions({ id, data }: { id: string; data: UpdateRolePermissionsInputType }) {
     const role = await this.validateRoleExists(id);
     this.validateBaseRoleCanBeChanged(role.name);
@@ -134,7 +159,6 @@ export class RoleService {
       roleId: id,
       permissionIds: data.permissionIds,
     });
-    await this.removeRolePermissionCache([id]);
 
     return SUCCESS_RESPONSE;
   }
@@ -183,7 +207,12 @@ export class RoleService {
     }
   }
 
-  private async removeRolePermissionCache(roleIds: string[]) {
+  private async removeRolePermissionCache({
+    args,
+  }: PostProcessContext<MessageResType, [{ id: string } | { data: DeleteManyRoleInputType }]>) {
+    const [payload] = args;
+    const roleIds = 'id' in payload ? [payload.id] : payload.data.ids;
+
     if (roleIds.length === 0) {
       return;
     }

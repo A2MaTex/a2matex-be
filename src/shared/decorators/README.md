@@ -115,6 +115,100 @@ login(@UserAgent() userAgent: string) {
 
 This decorator is useful for auth flows that store or validate device/session metadata.
 
+## Transactional
+
+Use `@Transactional()` on service methods that need multiple database operations to commit or rollback together.
+
+```ts
+import { Transactional } from '../../shared/decorators/transactional.decorator.js';
+import { TransactionService } from '../../shared/services/transaction.service.js';
+
+@Injectable()
+export class RoleService {
+  constructor(private readonly transactionService: TransactionService) {}
+
+  @Transactional()
+  private async syncRolePermissions() {
+    // Repository methods called here must use the current Prisma client.
+  }
+}
+```
+
+The decorated class must inject `TransactionService` as `transactionService`. Repository methods that should join the transaction should resolve the current Prisma client at execution time, usually with a getter:
+
+```ts
+private get prisma() {
+  return this.prismaService.getClient();
+}
+```
+
+Use `this.prisma` in repository methods instead of calling `this.prismaService` delegates directly. Do not store `this.prismaService.getClient()` in a class field because that would capture the normal client before a transaction starts.
+
+## PostProcess
+
+Use `@PostProcess()` on service methods that need reusable side effects after the main method succeeds, such as cache invalidation, refreshing materialized views, or publishing messages.
+
+```ts
+import {
+  PostProcess,
+  PostProcessContext,
+} from '../../shared/decorators/post-process.decorator.js';
+
+@PostProcess({
+  handlers: ['refreshPublisherDiscountView', 'publishPublisherUpdatedMessage'],
+})
+@Transactional()
+async updatePublisher() {
+  // Core use case logic.
+}
+
+private async publishPublisherUpdatedMessage({
+  result,
+  args,
+}: PostProcessContext<PublisherOutputType, [UpdatePublisherInputType]>) {
+  // `result` is the service method output.
+  // `args` are the original service method arguments.
+}
+```
+
+Handlers are service methods on the same class and run one by one in the order listed in `handlers`. If the service method runs inside `@Transactional()`, handlers are executed after the transaction commits. By default, handler errors are logged and do not change the original service result.
+
+## DistributedLock
+
+Use `@DistributedLock()` on service methods that must not run concurrently for the same resource.
+
+```ts
+import { Inject, Injectable } from '@nestjs/common';
+import { DistributedLock } from '../../shared/decorators/distributed-lock.decorator.js';
+import {
+  CACHE_PROVIDER,
+  CacheProvider,
+} from '../../shared/infrastructure/cache/cache.interface.js';
+
+@Injectable()
+export class PublisherService {
+  constructor(@Inject(CACHE_PROVIDER) private readonly cacheProvider: CacheProvider) {}
+
+  @DistributedLock({
+    useCase: 'update_publisher',
+    resource: (body: UpdatePublisherInputDTO) => body.id,
+  })
+  async update(body: UpdatePublisherInputDTO) {
+    // Only one update for the same publisher id can run at a time.
+  }
+}
+```
+
+The decorated class must inject `CacheProvider` as `cacheProvider`. The decorator acquires a Redis lock before the method runs and releases it in `finally` with an owner token, so it does not delete a lock acquired by another request after the original lock expires.
+
+The lock key format is fixed:
+
+```txt
+distributed_lock:<useCase>_<resourceId>
+```
+
+For the example above, the Redis key is `distributed_lock:update_publisher_<publisherId>`.
+
 ## Typical Controller Example
 
 ```ts

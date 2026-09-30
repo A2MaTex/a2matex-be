@@ -19,11 +19,11 @@ import {
 import { SKIP_PERMISSION_CHECK_KEY } from '../decorators/auth.decorator.ts';
 import {
   REQUEST_ROLE_PERMISSIONS,
-  ROLE_PERMISSION_CACHE_PREFIX,
   REQUEST_USER_KEY,
   RoleStatus,
   UserStatus,
 } from '../constants/auth.constant.js';
+import { ROLE_PERMISSION_CACHE_PREFIX } from '../constants/cache.constant.ts';
 import { API_PREFIX_PATH } from '../constants/system.constant.js';
 import { PrismaService } from '../services/prisma.service.ts';
 import { TokenService } from '../services/token.service.ts';

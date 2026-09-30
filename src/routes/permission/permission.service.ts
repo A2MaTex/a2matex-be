@@ -1,9 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { CACHE_PROVIDER } from '../../shared/infrastructure/cache/cache.interface.ts';
 import type { CacheProvider } from '../../shared/infrastructure/cache/cache.interface.ts';
-import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
+import { MessageResType, SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import { isNotFoundPrismaError, isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
-import { ROLE_PERMISSION_CACHE_PREFIX } from '../../shared/constants/auth.constant.ts';
+import { ROLE_PERMISSION_CACHE_PREFIX } from '../../shared/constants/cache.constant.ts';
+import { PostProcess, PostProcessContext } from '../../shared/decorators/post-process.decorator.ts';
+import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
+import { TransactionService } from '../../shared/services/transaction.service.ts';
+import { DistributedLock } from '../../shared/decorators/distributed-lock.decorator.ts';
 import {
   PermissionAlreadyExistsException,
   PermissionNotFoundException,
@@ -20,6 +24,7 @@ export class PermissionService {
   constructor(
     @Inject(PermissionRepo) private readonly permissionRepo: PermissionRepo,
     @Inject(CACHE_PROVIDER) private readonly cacheProvider: CacheProvider,
+    @Inject(TransactionService) private readonly transactionService: TransactionService,
   ) {}
 
   async create({ data, createdById }: { data: CreatePermissionInputType; createdById: string }) {
@@ -54,6 +59,14 @@ export class PermissionService {
     return permission;
   }
 
+  @PostProcess({
+    handlers: ['removeRolePermissionCache'],
+  })
+  @DistributedLock({
+    useCase: 'update_permission',
+    resource: ({ id }: { id: string }) => id,
+  })
+  @Transactional()
   async update({
     id,
     data,
@@ -71,13 +84,11 @@ export class PermissionService {
         excludeId: id,
       });
 
-      const roleIds = await this.permissionRepo.getRoleIdsByPermissionIds([id]);
       await this.permissionRepo.update({
         id,
         data,
         updatedById,
       });
-      await this.removeRolePermissionCache(roleIds);
 
       return SUCCESS_RESPONSE;
     } catch (error) {
@@ -91,6 +102,9 @@ export class PermissionService {
     }
   }
 
+  @DistributedLock({
+    useCase: 'delete_permissions',
+  })
   async deleteMany({
     data,
     deletedById,
@@ -99,17 +113,46 @@ export class PermissionService {
     deletedById: string;
   }) {
     const roleIds = await this.permissionRepo.getRoleIdsByPermissionIds(data.ids);
+    return this.deletePermissions({
+      data,
+      deletedById,
+      roleIds,
+    });
+  }
+
+  @PostProcess({
+    handlers: ['removeRolePermissionCache'],
+  })
+  @Transactional()
+  private async deletePermissions({
+    data,
+    deletedById,
+  }: {
+    data: DeleteManyPermissionInputType;
+    deletedById: string;
+    roleIds: string[];
+  }) {
     await this.permissionRepo.softDeleteRolePermissionsByPermissionIds(data.ids);
     await this.permissionRepo.deleteMany({
       ids: data.ids,
       deletedById,
     });
-    await this.removeRolePermissionCache(roleIds);
 
     return SUCCESS_RESPONSE;
   }
 
-  private async removeRolePermissionCache(roleIds: string[]) {
+  private async removeRolePermissionCache({
+    args,
+  }: PostProcessContext<
+    MessageResType,
+    [{ id: string } | { roleIds: string[] }]
+  >) {
+    const [payload] = args;
+    const roleIds =
+      'id' in payload
+        ? await this.permissionRepo.getRoleIdsByPermissionIds([payload.id])
+        : payload.roleIds;
+
     if (roleIds.length === 0) {
       return;
     }

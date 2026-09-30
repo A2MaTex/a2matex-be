@@ -11,16 +11,20 @@ import {
 export class PermissionRepo {
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
 
+  private get prisma() {
+    return this.prismaService.getClient();
+  }
+
   async getList(): Promise<GetPermissionListOutputType> {
     const where = {
       deletedAt: null,
     };
 
     const [totalItems, data] = await Promise.all([
-      this.prismaService.permission.count({
+      this.prisma.permission.count({
         where,
       }),
-      this.prismaService.permission.findMany({
+      this.prisma.permission.findMany({
         where,
         orderBy: {
           module: 'asc',
@@ -35,7 +39,7 @@ export class PermissionRepo {
   }
 
   async getDetail(id: string): Promise<PermissionOutputType | null> {
-    const permission = await this.prismaService.permission.findFirst({
+    const permission = await this.prisma.permission.findFirst({
       where: {
         id,
         deletedAt: null,
@@ -46,7 +50,7 @@ export class PermissionRepo {
   }
 
   async create({ data, createdById }: { data: CreatePermissionInputType; createdById: string }) {
-    return this.prismaService.permission.create({
+    return this.prisma.permission.create({
       data: {
         ...data,
         createdById,
@@ -67,7 +71,7 @@ export class PermissionRepo {
     path: string;
     excludeId?: string;
   }) {
-    const permission = await this.prismaService.permission.findFirst({
+    const permission = await this.prisma.permission.findFirst({
       where: {
         method,
         path,
@@ -95,7 +99,7 @@ export class PermissionRepo {
     data: UpdatePermissionInputType;
     updatedById: string;
   }) {
-    return this.prismaService.permission.update({
+    return this.prisma.permission.update({
       where: {
         id,
         deletedAt: null,
@@ -112,7 +116,7 @@ export class PermissionRepo {
   }
 
   async deleteMany({ ids, deletedById }: { ids: string[]; deletedById: string }) {
-    return this.prismaService.permission.updateMany({
+    return this.prisma.permission.updateMany({
       where: {
         id: {
           in: ids,
@@ -127,7 +131,7 @@ export class PermissionRepo {
   }
 
   async getRoleIdsByPermissionIds(permissionIds: string[]) {
-    const rolePermissions = await this.prismaService.rolePermission.findMany({
+    const rolePermissions = await this.prisma.rolePermission.findMany({
       where: {
         permissionId: {
           in: permissionIds,
@@ -144,7 +148,7 @@ export class PermissionRepo {
   }
 
   async softDeleteRolePermissionsByPermissionIds(permissionIds: string[]) {
-    return this.prismaService.rolePermission.updateMany({
+    return this.prisma.rolePermission.updateMany({
       where: {
         permissionId: {
           in: permissionIds,

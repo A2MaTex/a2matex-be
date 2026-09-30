@@ -10,8 +10,12 @@ export class SharedRoleRepository {
 
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
 
+  private get prisma() {
+    return this.prismaService.getClient();
+  }
+
   private async getRole(roleName: string) {
-    const role: RoleType = await this.prismaService.$queryRaw<RoleType[]>`
+    const role: RoleType = await this.prisma.$queryRaw<RoleType[]>`
     SELECT * FROM "Role" WHERE name = ${roleName} AND "deletedAt" IS NULL LIMIT 1;
   `.then((res: RoleType[]) => {
       if (res.length === 0) {
