@@ -6,6 +6,7 @@ import { RoleStatus, UserStatus } from '../shared/constants/auth.constant.ts';
 
 const prisma = new PrismaService();
 const hashingService = new HashingService();
+const ADMIN_PROFILE_FULL_NAME = 'Admin';
 
 const seedRoles = [
   {
@@ -70,7 +71,7 @@ async function findOrCreateAdminUser() {
   });
 }
 
-async function upsertAdminProfile(adminUser: { id: string; username: string; email: string }) {
+async function upsertAdminProfile(adminUser: { id: string; email: string }) {
   const existingProfile = await prisma.profile.findFirst({
     where: {
       userId: adminUser.id,
@@ -87,7 +88,7 @@ async function upsertAdminProfile(adminUser: { id: string; username: string; ema
         id: existingProfile.id,
       },
       data: {
-        fullName: adminUser.username,
+        fullName: ADMIN_PROFILE_FULL_NAME,
         email: adminUser.email,
         updatedById: adminUser.id,
         updatedAt: new Date(),
@@ -100,7 +101,7 @@ async function upsertAdminProfile(adminUser: { id: string; username: string; ema
   await prisma.profile.create({
     data: {
       userId: adminUser.id,
-      fullName: adminUser.username,
+      fullName: ADMIN_PROFILE_FULL_NAME,
       email: adminUser.email,
       createdById: adminUser.id,
       updatedById: adminUser.id,

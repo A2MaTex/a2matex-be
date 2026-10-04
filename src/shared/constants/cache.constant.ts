@@ -1,5 +1,6 @@
 export const ROLE_PERMISSION_CACHE_PREFIX = 'role_permissions:';
 export const DISTRIBUTED_LOCK_CACHE_PREFIX = 'distributed_lock:';
+export const CURRENT_TERM_CACHE_PREFIX = 'terms:';
 
 export const DISTRIBUTED_LOCK_CONFLICT_MESSAGE = 'Error.ConflictingOperation';
 

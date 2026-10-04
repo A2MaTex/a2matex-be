@@ -1,5 +1,4 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { RoleName } from '../../shared/constants/role.constant.ts';
 import { CACHE_PROVIDER } from '../../shared/infrastructure/cache/cache.interface.ts';
 import type { CacheProvider } from '../../shared/infrastructure/cache/cache.interface.ts';
 import { ROLE_PERMISSION_CACHE_PREFIX } from '../../shared/constants/cache.constant.ts';
@@ -18,13 +17,10 @@ import {
 } from './role.model.ts';
 import {
   PermissionNotFoundForRoleException,
-  ProhibitedActionOnBaseRoleException,
   RoleAlreadyExistsException,
   RoleNotFoundException,
 } from './role.error.ts';
 import { RoleRepo } from './role.repo.ts';
-
-const BASE_ROLE_NAMES = [RoleName.Admin, RoleName.Customer, RoleName.Publisher] as string[];
 
 @Injectable()
 export class RoleService {
@@ -83,7 +79,6 @@ export class RoleService {
   }) {
     try {
       const currentRole = await this.getDetail(id);
-      this.validateBaseRoleCanBeChanged(currentRole.name);
 
       await this.validateRoleNameIsUnique({
         name: data.name ?? currentRole.name,
@@ -121,8 +116,6 @@ export class RoleService {
       throw RoleNotFoundException;
     }
 
-    roles.forEach((role) => this.validateBaseRoleCanBeChanged(role.name));
-
     await this.roleRepo.softDeleteRolePermissionsByRoleIds(data.ids);
     await this.roleRepo.softDeleteUserRolesByRoleIds(data.ids);
     await this.roleRepo.deleteMany({
@@ -151,8 +144,7 @@ export class RoleService {
   })
   @Transactional()
   async updatePermissions({ id, data }: { id: string; data: UpdateRolePermissionsInputType }) {
-    const role = await this.validateRoleExists(id);
-    this.validateBaseRoleCanBeChanged(role.name);
+    await this.validateRoleExists(id);
 
     await this.validatePermissionsAreActive(data.permissionIds);
     await this.roleRepo.syncRolePermissions({
@@ -198,12 +190,6 @@ export class RoleService {
     const activePermissionCount = await this.roleRepo.countActivePermissions(uniquePermissionIds);
     if (activePermissionCount !== uniquePermissionIds.length) {
       throw PermissionNotFoundForRoleException;
-    }
-  }
-
-  private validateBaseRoleCanBeChanged(roleName: string) {
-    if (BASE_ROLE_NAMES.includes(roleName)) {
-      throw ProhibitedActionOnBaseRoleException;
     }
   }
 
