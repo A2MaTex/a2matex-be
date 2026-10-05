@@ -59,6 +59,7 @@ model Profile {
   createdById    String    @db.Uuid
   updatedById    String?   @db.Uuid
   deletedById    String?   @db.Uuid
+  Static         Static?   @relation(fields: [avatarStaticId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   createdBy      User      @relation("ProfileCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   deletedBy      User?     @relation("ProfileDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   updatedBy      User?     @relation("ProfileUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -212,6 +213,18 @@ model Term {
   updatedBy            User?                      @relation("Term_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([type, version])
+}
+
+model Static {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  objectKey        String    @unique
+  originalFileName String
+  contentType      String    @db.VarChar(255)
+  size             BigInt
+  createdAt        DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime? @db.Timestamptz(6)
+  deletedAt        DateTime? @db.Timestamptz(6)
+  Profile          Profile[]
 }
 
 enum UserStatus {

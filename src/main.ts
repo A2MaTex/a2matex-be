@@ -47,7 +47,7 @@ function setupSwagger(app: NestExpressApplication) {
   const config = new DocumentBuilder()
     .setTitle('A2MaTeX API')
     .setDescription(
-      'Mọi response thành công đều được bọc trong { data, statusCode }. ' +
+      'Mọi JSON response thành công đều được bọc trong { data, statusCode }; binary stream được trả trực tiếp. ' +
         'Route có ổ khóa cần access token lấy từ POST /auth/login.',
     )
     .setVersion(process.env.npm_package_version ?? '0.0.1')

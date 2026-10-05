@@ -2,6 +2,7 @@ import z from 'zod';
 import fs from 'fs';
 import path from 'path';
 import { config } from 'dotenv';
+import { DEFAULT_STATIC_UPLOAD_MAX_SIZE_MB } from './constants/storage.constant.ts';
 
 // A .env file is a convenience for local development. In containers the values
 // arrive as real environment variables, so a missing file is not an error.
@@ -41,8 +42,28 @@ const configSchema = z
     REDIS_PORT: z.coerce.number().int().positive().default(6379),
     REDIS_PASSWORD: z.string().optional().transform(emptyToUndefined),
     REDIS_PREFIX: z.string().default('a2matex:'),
+    OBJECT_STORAGE_ENDPOINT: z.url().optional().or(z.literal('')).transform(emptyToUndefined),
+    OBJECT_STORAGE_REGION: z.string().default('auto'),
+    OBJECT_STORAGE_BUCKET: z.string().optional().transform(emptyToUndefined),
+    OBJECT_STORAGE_ACCESS_KEY_ID: z.string().optional().transform(emptyToUndefined),
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: z.string().optional().transform(emptyToUndefined),
+    STATIC_UPLOAD_MAX_SIZE_MB: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(DEFAULT_STATIC_UPLOAD_MAX_SIZE_MB),
   })
   .superRefine((cfg, ctx) => {
+    const hasAccessKey = cfg.OBJECT_STORAGE_ACCESS_KEY_ID !== undefined;
+    const hasSecretKey = cfg.OBJECT_STORAGE_SECRET_ACCESS_KEY !== undefined;
+    if (hasAccessKey !== hasSecretKey) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [hasAccessKey ? 'OBJECT_STORAGE_SECRET_ACCESS_KEY' : 'OBJECT_STORAGE_ACCESS_KEY_ID'],
+        message: 'Object storage access key ID and secret access key must be configured together',
+      });
+    }
+
     // Short secrets are tolerated in development so local .env files keep working,
     // but production refuses to start with a guessable JWT key.
     if (cfg.NODE_ENV !== 'production') {
