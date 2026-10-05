@@ -12,6 +12,10 @@ import { EmailService } from './services/email.service.js';
 import { SharedRoleRepository } from './repositories/shared-role.repo.js';
 import { TransactionContext } from './infrastructure/database/transaction/transaction-context.ts';
 import { TransactionService } from './services/transaction.service.ts';
+import { StaticRepository } from './repositories/static.repo.ts';
+import { StaticService } from './services/static.service.ts';
+import { OBJECT_STORAGE_PROVIDER } from './infrastructure/storage/object-storage.interface.ts';
+import { S3ObjectStorageProvider } from './infrastructure/storage/s3/s3-object-storage.provider.ts';
 
 const sharedServices = [
   PrismaService,
@@ -22,7 +26,14 @@ const sharedServices = [
   EmailService,
   SharedUserRepository,
   SharedRoleRepository,
+  StaticRepository,
+  StaticService,
 ];
+
+const objectStorageProvider = {
+  provide: OBJECT_STORAGE_PROVIDER,
+  useClass: S3ObjectStorageProvider,
+};
 
 const cacheProvider = {
   provide: CACHE_PROVIDER,
@@ -40,12 +51,8 @@ const cacheProvider = {
 
 @Global()
 @Module({
-  providers: [
-    ...sharedServices,
-    cacheProvider,
-    AccessTokenGuard,
-  ],
-  exports: [...sharedServices, cacheProvider, AccessTokenGuard],
+  providers: [...sharedServices, cacheProvider, objectStorageProvider, AccessTokenGuard],
+  exports: [...sharedServices, cacheProvider, objectStorageProvider, AccessTokenGuard],
   imports: [JwtModule],
 })
 export class SharedModule {}

@@ -1,0 +1,5 @@
+export const DEFAULT_STATIC_PREFIX = 'index';
+export const STATIC_OBJECT_KEY_CHUNK_LENGTH = 2;
+export const STATIC_CONTENT_TYPE_MAX_LENGTH = 255;
+export const STATIC_PREFIX_SEGMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+export const DEFAULT_STATIC_UPLOAD_MAX_SIZE_MB = 5;

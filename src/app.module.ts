@@ -5,7 +5,10 @@ import { AppService } from './app.service.js';
 import { AuthModule } from './routes/auth/auth.module.js';
 import { PermissionModule } from './routes/permission/permission.module.js';
 import { ProfileModule } from './routes/profile/profile.module.ts';
+import { PublisherModule } from './routes/publisher/publisher.module.ts';
 import { RoleModule } from './routes/role/role.module.ts';
+import { TermModule } from './routes/term/term.module.ts';
+import { StaticModule } from './routes/static/static.module.ts';
 import { CatchEverythingFilter } from './shared/filters/catch-everything.filter.js';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter.js';
 import { AuthenticationGuard } from './shared/guards/authentication.guard.js';
@@ -17,7 +20,16 @@ import CustomZodValidationPipe from './shared/pipes/custom-zod-validation.pipe.j
 import { SharedModule } from './shared/shared.module.js';
 
 @Module({
-  imports: [AuthModule, PermissionModule, ProfileModule, RoleModule, SharedModule],
+  imports: [
+    AuthModule,
+    PermissionModule,
+    ProfileModule,
+    PublisherModule,
+    RoleModule,
+    TermModule,
+    StaticModule,
+    SharedModule,
+  ],
   controllers: [AppController],
   providers: [
     AppService,

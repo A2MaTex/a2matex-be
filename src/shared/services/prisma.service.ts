@@ -16,7 +16,16 @@ export class PrismaService extends PrismaClient {
     const adapter = new PrismaPg({
       connectionString: envConfig.DATABASE_URL,
     });
-    super({ adapter, log: ['info'] });
+    super({
+      adapter,
+      log: [{ emit: 'event', level: 'query' }, 'info', 'error'],
+    });
+
+    const queryClient = this as PrismaClient<'query'>;
+    queryClient.$on('query', (event) => {
+      console.log(`prisma:query ${event.query}`);
+      console.log(`prisma:params ${event.params}`);
+    });
   }
 
   getClient(): PrismaClientOrTransaction {

@@ -23,7 +23,12 @@ export const CreatePermissionInput = Permission.pick({
   module: true,
   path: true,
   method: true,
-}).strict();
+})
+  .extend({
+    path: Permission.shape.path.trim(),
+    method: z.string().trim().pipe(Permission.shape.method),
+  })
+  .strict();
 
 export const CreatePermissionOutput = Permission.pick({
   id: true,
