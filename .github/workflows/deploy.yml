@@ -1,10 +1,10 @@
-# Build the image on every push to main, push it to GHCR, then deploy it to the
+# Build the image on every push to staging, push it to GHCR, then deploy it to the
 # VPS over SSH. Re-run manually with an existing image tag to roll back.
 name: Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [staging]
   workflow_dispatch:
     inputs:
       image_tag:

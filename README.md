@@ -9,7 +9,7 @@ Backend API cho A2MaTeX: NestJS 11, Prisma 7 (PostgreSQL), Redis, Zod.
 | [docs/deployment-spec.md](docs/deployment-spec.md) | muốn hiểu kiến trúc, quyết định và những gì đã kiểm chứng |
 | [docs/deployment-runbook.md](docs/deployment-runbook.md) | cần thao tác thật trên VPS và GitHub: thiết lập lần đầu, deploy, quay lui, sao lưu |
 
-Deploy là tự động: merge vào `main` sẽ build image, đẩy lên GHCR và cập nhật VPS qua workflow `.github/workflows/deploy.yml`.
+Deploy là tự động: merge vào `staging` sẽ build image, đẩy lên GHCR và cập nhật VPS qua workflow `.github/workflows/deploy.yml`.
 
 Tài liệu API (Swagger UI) nằm tại `/api/v1/docs` trên mọi môi trường, bản JSON tại `/api/v1/docs-json`.
 

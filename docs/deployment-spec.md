@@ -68,7 +68,7 @@ sequenceDiagram
     participant GH as GitHub Actions
     participant Reg as GHCR
     participant VPS as VPS
-    Dev->>GH: merge vào main
+    Dev->>GH: merge vào staging
     GH->>GH: lint, test, build
     GH->>Reg: đẩy image kèm tag
     GH->>VPS: SSH chạy lệnh cập nhật
@@ -121,7 +121,7 @@ File Compose cho production, cấu hình proxy, volume cho dữ liệu, tường
 
 Workflow GitHub Actions, thiết lập GHCR, khóa SSH riêng cho deploy, các secrets cần thiết.
 
-**Nghiệm thu:** một commit thử đẩy lên `main` đi được tới VPS mà không ai động tay, và quay về bản trước đó cũng thử được.
+**Nghiệm thu:** một commit thử đẩy lên `staging` đi được tới VPS mà không ai động tay, và quay về bản trước đó cũng thử được.
 
 ### Giai đoạn 5: vận hành
 

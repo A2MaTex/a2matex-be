@@ -203,7 +203,7 @@ Trên máy bạn, ở thư mục repo:
 ```bash
 git add .
 git commit -m "feat: add Docker image, Caddy stack and GitHub Actions deploy pipeline"
-git push origin main
+git push origin staging
 ```
 
 Vào tab Actions của repo, theo dõi workflow **Deploy**. Job đầu build image và đẩy lên GHCR, job sau đồng bộ thư mục `deploy/` sang VPS rồi chạy script. Lần đầu mất khoảng 4 đến 6 phút.
@@ -255,7 +255,7 @@ Tài liệu API dạng Swagger UI mở công khai tại `https://api.tenmien.com
 
 ### Deploy
 
-Merge vào `main`. Không phải làm gì thêm. Theo dõi ở tab Actions.
+Merge vào `staging`. Không phải làm gì thêm. Theo dõi ở tab Actions. Nhánh `main` không còn tự deploy; muốn đưa `main` lên thì merge nó vào `staging`.
 
 ### Sau khi thêm hoặc sửa route
 
