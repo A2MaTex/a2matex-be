@@ -54,12 +54,24 @@ function setupSwagger(app: NestExpressApplication) {
     .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'access-token')
     .build();
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, cleanupOpenApiDoc(document), {
-    useGlobalPrefix: true,
-    jsonDocumentUrl: 'docs-json',
-    swaggerOptions: { persistAuthorization: true },
-  });
+  // Generating the OpenAPI document walks every Zod schema and can throw on a
+  // construct it cannot represent. Documentation must never stop the API from
+  // serving traffic, so a failure here is logged and the app continues without docs.
+  try {
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('docs', app, cleanupOpenApiDoc(document), {
+      useGlobalPrefix: true,
+      jsonDocumentUrl: 'docs-json',
+      swaggerOptions: { persistAuthorization: true },
+    });
+  } catch (error) {
+    Logger.error(
+      `Bỏ qua Swagger vì không sinh được tài liệu OpenAPI: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      'Bootstrap',
+    );
+  }
 }
 
 async function bootstrap() {

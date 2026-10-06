@@ -1,10 +1,19 @@
 import { z } from 'zod';
 
 /**
- * `z.date()` that also documents itself for OpenAPI.
+ * zod v4 refuses to put a Date into a JSON Schema, which would otherwise make
+ * `SwaggerModule.createDocument` throw at startup. zod consults
+ * `_zod.toJSONSchema` before its own type processors, so attaching that hook is
+ * enough for `nestjs-zod` and `@nestjs/swagger` to render the field as a
+ * date-time string. Parsing behaviour is untouched.
  */
-export const zDate = () => {
-  const schema = z.date();
+const asDateTimeInDocs = <T extends z.ZodType>(schema: T): T => {
   schema._zod.toJSONSchema = () => ({ type: 'string', format: 'date-time' });
   return schema;
 };
+
+/** `z.date()` that documents itself as a date-time string. */
+export const zDate = () => asDateTimeInDocs(z.date());
+
+/** `z.coerce.date()` that documents itself as a date-time string. */
+export const zCoerceDate = () => asDateTimeInDocs(z.coerce.date());

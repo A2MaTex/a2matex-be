@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zCoerceDate } from '../../shared/utils/zod.ts';
 import { Profile } from '../../entities/profile.model.ts';
 
 export const ProfileOutput = Profile.pick({
@@ -37,7 +38,7 @@ const PersonalProfileFields = Profile.pick({
   avatarStaticId: z.uuid().nullable(),
   gender: z.string().max(20).nullable(),
   email: z.email().nullable(),
-  birthday: z.coerce.date().nullable(),
+  birthday: zCoerceDate().nullable(),
 });
 
 export const UpdatePersonalProfileInput = PersonalProfileFields.partial().strict();
