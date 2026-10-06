@@ -42,6 +42,11 @@ compose() {
 
 cd "$APP_DIR"
 
+# Remember what is currently pinned so a failed migration can restore the pin.
+PREVIOUS_REPO="$(grep -E '^IMAGE_REPO=' "$DEPLOY_ENV_FILE" 2>/dev/null | cut -d= -f2- || true)"
+PREVIOUS_TAG="$(grep -E '^IMAGE_TAG=' "$DEPLOY_ENV_FILE" 2>/dev/null | cut -d= -f2- || true)"
+PREVIOUS_REPO="${PREVIOUS_REPO:-$IMAGE_REPO}"; PREVIOUS_TAG="${PREVIOUS_TAG:-$IMAGE_TAG}"
+
 log "Pinning image ${IMAGE_REPO}:${IMAGE_TAG}"
 printf 'IMAGE_REPO=%s\nIMAGE_TAG=%s\n' "$IMAGE_REPO" "$IMAGE_TAG" > "$DEPLOY_ENV_FILE"
 
@@ -51,7 +56,18 @@ printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdi
 log "Pulling images"
 compose pull --quiet
 
-log "Starting stack (migrations run before the app switches over)"
+# Run migrations as a one-off job BEFORE touching the running app. If this fails
+# the old app and Caddy keep serving; `up` would otherwise remove the old app
+# container while waiting on the migrate dependency.
+log "Applying database migrations"
+if ! compose run --rm migrate < /dev/null; then
+  echo "Migration failed. The previous app version is still running; nothing was replaced." >&2
+  printf 'IMAGE_REPO=%s\nIMAGE_TAG=%s\n' "$PREVIOUS_REPO" "$PREVIOUS_TAG" > "$DEPLOY_ENV_FILE"
+  docker logout ghcr.io >/dev/null 2>&1 || true
+  exit 1
+fi
+
+log "Starting stack"
 compose up -d --remove-orphans
 
 docker logout ghcr.io >/dev/null 2>&1 || true

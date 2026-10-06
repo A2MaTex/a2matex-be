@@ -7,7 +7,7 @@ CREATE TABLE "Static" (
     "size" BIGINT NOT NULL,
     "createdAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMPTZ(6),
-    "deletedAt" TIMESTAMPTZ(6),
+    "deletedAt" TIMESTAMPTZ(6)
 );
 
 -- CreateIndex
