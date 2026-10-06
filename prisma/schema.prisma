@@ -231,15 +231,29 @@ model Term {
 }
 
 model Static {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  objectKey        String    @unique
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  objectKey        String            @unique
   originalFileName String
-  contentType      String    @db.VarChar(255)
+  contentType      String            @db.VarChar(255)
   size             BigInt
-  createdAt        DateTime  @default(now()) @db.Timestamptz(6)
-  updatedAt        DateTime? @db.Timestamptz(6)
-  deletedAt        DateTime? @db.Timestamptz(6)
+  createdAt        DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime?         @db.Timestamptz(6)
+  deletedAt        DateTime?         @db.Timestamptz(6)
+  launcherReleases LauncherRelease[]
   Profile          Profile[]
+}
+
+model LauncherRelease {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  version      String    @db.VarChar(100)
+  staticId     String    @db.Uuid
+  releaseNotes String?
+  isActive     Boolean   @default(false)
+  publishedAt  DateTime? @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime? @db.Timestamptz(6)
+  deletedAt    DateTime? @db.Timestamptz(6)
+  static       Static    @relation(fields: [staticId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 enum UserStatus {
