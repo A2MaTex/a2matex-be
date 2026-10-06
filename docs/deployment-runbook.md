@@ -257,6 +257,19 @@ Tài liệu API dạng Swagger UI mở công khai tại `https://api.tenmien.com
 
 Merge vào `staging`. Không phải làm gì thêm. Theo dõi ở tab Actions. Nhánh `main` không còn tự deploy; muốn đưa `main` lên thì merge nó vào `staging`.
 
+### Trước khi merge một migration vào staging
+
+Chạy thử toàn bộ thư mục `prisma/migrations` trên một Postgres 17 tạm, vì migration viết tay có thể sai cú pháp mà Prisma không kiểm tra lúc tạo file. Ngày 2026-10-06 một dấu phẩy thừa đã làm deploy thất bại:
+
+```bash
+docker run -d --name pg-test -e POSTGRES_PASSWORD=t -e POSTGRES_DB=t postgres:17-alpine
+sleep 5
+for d in $(ls prisma/migrations | grep -v lock | sort); do
+  docker exec -i pg-test psql -U postgres -d t -v ON_ERROR_STOP=1 -q < "prisma/migrations/$d/migration.sql" && echo "OK $d" || { echo "LỖI $d"; break; }
+done
+docker rm -f pg-test
+```
+
 ### Sau khi thêm hoặc sửa route
 
 Bắt buộc chạy lại seed permission, nếu không route mới trả 403 cho tất cả mọi người kể cả admin:
@@ -333,5 +346,6 @@ docker exec -it a2matex-postgres psql -U a2matex -d a2matex
 | IP trong log là IP nội bộ Docker | `TRUST_PROXY` không phải `1` | sửa env, `a2c up -d app` |
 | Job build fail 403 khi push image | workflow chưa có quyền ghi package | Settings, Actions, General, Read and write permissions |
 | Job deploy fail ở rsync hoặc ssh | khóa hoặc user sai, hoặc thư mục chưa tồn tại | thử `ssh -i ~/.ssh/a2matex-deploy user@ip 'ls /opt/a2matex'` từ máy bạn |
+| Job deploy fail ở bước Applying database migrations | SQL trong migration lỗi, thường là viết tay chưa chạy thử | app cũ vẫn chạy, không mất dịch vụ. Sửa file SQL, rồi trên máy ảo đánh dấu migration hỏng là đã hoàn tác: `IMAGE_TAG=<tag mới> a2c run --rm migrate npx prisma migrate resolve --rolled-back <tên migration> --config prisma7.config.ts`, sau đó push lại |
 | `ssh deploy@ip` bị Permission denied trên Google Cloud | OS Login đang bật nên metadata ssh-keys bị bỏ qua | `gcloud compute instances add-metadata <VM> --metadata enable-oslogin=FALSE` |
 | Tên miền không vào được dù `ufw` đã mở | thiếu firewall rule ở lớp VPC | xem lại lệnh tạo rule `a2matex-allow-web` ở A0 |
