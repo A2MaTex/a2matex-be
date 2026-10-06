@@ -280,6 +280,15 @@ a2c --profile seed run --rm seed-permissions
 
 Không chạy lại `seed-roles` trừ khi muốn đặt lại mật khẩu admin theo giá trị trong `.env.production`.
 
+Script này cũng xóa cache phân quyền trong Redis. Guard đọc permission từ cache và cache không có hạn, nên nếu bỏ qua bước xóa thì route mới vẫn trả 403 dù database đã đúng. Khi cần xóa tay:
+
+```bash
+RP=$(grep -E '^REDIS_PASSWORD=' /opt/a2matex/.env.production | cut -d= -f2-)
+for k in $(docker exec a2matex-redis redis-cli --no-auth-warning -a "$RP" --scan --pattern '*role_permissions*'); do
+  docker exec a2matex-redis redis-cli --no-auth-warning -a "$RP" DEL "$k"
+done
+```
+
 ### Quay lui
 
 1. Tìm tag muốn quay về. Mỗi lần deploy thành công in tag ở phần Summary của workflow, dạng `sha-1a2b3c4`. Hoặc xem danh sách ở trang Packages của org.
@@ -340,7 +349,7 @@ docker exec -it a2matex-postgres psql -U a2matex -d a2matex
 | --- | --- | --- |
 | Job deploy fail ở bước chờ healthy | biến môi trường sai hoặc migration lỗi | script đã in 50 dòng log cuối của migrate và app ngay trong Actions |
 | App khởi động rồi thoát ngay | thiếu hoặc sai biến | `a2c logs app`, thông báo liệt kê đúng tên biến |
-| Mọi request trả 403 dù token hợp lệ | chưa seed permission cho route mới | chạy `seed-permissions` |
+| Mọi request trả 403 dù token hợp lệ | chưa seed permission cho route mới, hoặc cache phân quyền còn bản cũ | chạy `seed-permissions`, script tự xóa cache; nếu vẫn 403 thì xóa cache tay theo lệnh ở mục B |
 | `curl` tên miền trả 502 | `HOST` trong env là `localhost`, hoặc app chưa lên | sửa `HOST=0.0.0.0`, `a2c logs app` |
 | Caddy không xin được chứng chỉ | DNS chưa trỏ, hoặc cổng 80 bị chặn | `dig`, `ufw status`, `a2c logs caddy` |
 | IP trong log là IP nội bộ Docker | `TRUST_PROXY` không phải `1` | sửa env, `a2c up -d app` |

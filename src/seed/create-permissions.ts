@@ -5,6 +5,9 @@ import ts from 'typescript';
 import { RoleName, HTTPMethod } from '../shared/constants/role.constant.ts';
 import { API_PREFIX_PATH } from '../shared/constants/system.constant.ts';
 import { PrismaService } from '../shared/services/prisma.service.ts';
+import envConfig from '../shared/config.ts';
+import { ROLE_PERMISSION_CACHE_PREFIX } from '../shared/constants/cache.constant.ts';
+import { RedisCacheProvider } from '../shared/infrastructure/cache/redis/redis-cache.provider.ts';
 import type { Permission } from '../generated/prisma/client.ts';
 
 type AvailableRoute = {
@@ -290,6 +293,36 @@ async function syncAdminPermissions(prisma: PrismaService, adminRoleId: string) 
   console.log('Assigned permissions to admin role:', result.count);
 }
 
+/**
+ * The access-token guard caches each role's permissions in Redis with no expiry,
+ * so rows written straight to the database here stay invisible until the cache is
+ * dropped. Without this, every deploy that adds a route answers 403 for everyone.
+ */
+async function clearRolePermissionCache() {
+  const cache = new RedisCacheProvider({
+    host: envConfig.REDIS_HOST,
+    port: envConfig.REDIS_PORT,
+    password: envConfig.REDIS_PASSWORD,
+    keyPrefix: `${envConfig.REDIS_PREFIX}${envConfig.NODE_ENV}:`,
+  });
+
+  try {
+    await cache.Connect();
+    await cache.RemoveStatesWithPattern(ROLE_PERMISSION_CACHE_PREFIX, '*');
+    console.log('Cleared role permission cache');
+  } catch (error) {
+    // The database is already correct; a cache that cannot be reached is the
+    // operator's problem to fix, but it must not fail the seed.
+    console.warn(
+      `Could not clear the role permission cache, clear it manually: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  } finally {
+    await cache.Disconnect().catch(() => undefined);
+  }
+}
+
 async function bootstrap() {
   const prisma = new PrismaService();
 
@@ -299,6 +332,7 @@ async function bootstrap() {
 
     await syncPermissions(prisma, routes, auditUserId);
     await syncAdminPermissions(prisma, adminRoleId);
+    await clearRolePermissionCache();
   } finally {
     await prisma.$disconnect();
   }
