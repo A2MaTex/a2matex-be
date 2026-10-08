@@ -17,6 +17,7 @@ export const Profile = BaseWithUserFields.extend({
   address: z.string().nullable(),
   phone: z.string().nullable(),
   email: z.string().nullable(),
+  balance: z.bigint(),
 });
 
 export type ProfileType = z.infer<typeof Profile>;

@@ -53,6 +53,7 @@ model Profile {
   address        String?
   phone          String?
   email          String?
+  balance        BigInt    @default(0)
   createdAt      DateTime  @default(now()) @db.Timestamptz(6)
   updatedAt      DateTime? @db.Timestamptz(6)
   deletedAt      DateTime? @db.Timestamptz(6)
@@ -64,6 +65,20 @@ model Profile {
   deletedBy      User?     @relation("ProfileDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   updatedBy      User?     @relation("ProfileUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   user           User      @relation("ProfileUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model TopUpTransaction {
+  id                     String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                 String?                @db.Uuid
+  referenceCode          String?                @unique(map: "TopUpTransaction_referenceCode_idx")
+  requestedAmount        BigInt?
+  receivedAmount         BigInt?
+  providerTransactionId  String?                @unique(map: "TopUpTransaction_providerTransactionId_idx")
+  rawContent             String?
+  status                 TopUpTransactionStatus
+  creditedAt             DateTime?              @db.Timestamptz(6)
+  createdAt              DateTime               @default(now()) @db.Timestamptz(6)
+  updatedAt              DateTime?              @db.Timestamptz(6)
 }
 
 model VerificationCode {
@@ -270,4 +285,10 @@ enum TermType {
   PUBLISHER_TERMS
   CUSTOMER_TERMS
   PRIVACY_POLICY
+}
+
+enum TopUpTransactionStatus {
+  PENDING
+  CREDITED
+  UNMATCHED
 }
