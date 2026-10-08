@@ -11,6 +11,8 @@ import { RoleModule } from './routes/role/role.module.ts';
 import { TermModule } from './routes/term/term.module.ts';
 import { StaticModule } from './routes/static/static.module.ts';
 import { TopUpModule } from './routes/topup/topup.module.ts';
+import { LauncherReleaseModule } from './routes/launcher-release/launcher-release.module.ts';
+import { NodeCatalogModule } from './routes/node-catalog/node-catalog.module.ts';
 import { CatchEverythingFilter } from './shared/filters/catch-everything.filter.js';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter.js';
 import { AuthenticationGuard } from './shared/guards/authentication.guard.js';
@@ -32,6 +34,8 @@ import { SharedModule } from './shared/shared.module.js';
     TermModule,
     StaticModule,
     TopUpModule,
+    LauncherReleaseModule,
+    NodeCatalogModule,
     SharedModule,
   ],
   controllers: [AppController],

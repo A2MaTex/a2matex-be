@@ -4,9 +4,9 @@ Backend API cho A2MaTeX: NestJS 11, Prisma 7 (PostgreSQL), Redis, Zod.
 
 ## Tài liệu triển khai
 
-| Tài liệu | Dùng khi |
-| --- | --- |
-| [docs/deployment-spec.md](docs/deployment-spec.md) | muốn hiểu kiến trúc, quyết định và những gì đã kiểm chứng |
+| Tài liệu                                                 | Dùng khi                                                                           |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [docs/deployment-spec.md](docs/deployment-spec.md)       | muốn hiểu kiến trúc, quyết định và những gì đã kiểm chứng                          |
 | [docs/deployment-runbook.md](docs/deployment-runbook.md) | cần thao tác thật trên VPS và GitHub: thiết lập lần đầu, deploy, quay lui, sao lưu |
 
 Deploy là tự động: merge vào `staging` sẽ build image, đẩy lên GHCR và cập nhật VPS qua workflow `.github/workflows/deploy.yml`.
@@ -62,6 +62,22 @@ npx prisma db pull --config prisma7.config.ts
 
 ```bash
 npx prisma generate --config prisma7.config.ts
+```
+
+5. Other
+
+Mark a failed migration as rolled-back before retrying
+
+```bash
+npx prisma migrate resolve \
+  --rolled-back 20261005015649_add_static_storage \
+  --config prisma7.config.ts
+```
+
+Verify the checksum of modified migration
+
+```bash
+sha256sum prisma/migrations/20261005015649_add_static_storage/migration.sql
 ```
 
 ## NestJS

@@ -231,15 +231,81 @@ model Term {
 }
 
 model Static {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  objectKey        String    @unique
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  objectKey        String            @unique
   originalFileName String
-  contentType      String    @db.VarChar(255)
+  contentType      String            @db.VarChar(255)
   size             BigInt
-  createdAt        DateTime  @default(now()) @db.Timestamptz(6)
-  updatedAt        DateTime? @db.Timestamptz(6)
-  deletedAt        DateTime? @db.Timestamptz(6)
+  createdAt        DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime?         @db.Timestamptz(6)
+  deletedAt        DateTime?         @db.Timestamptz(6)
+  launcherReleases LauncherRelease[]
   Profile          Profile[]
+}
+
+model LauncherRelease {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  version      String    @db.VarChar(100)
+  staticId     String    @db.Uuid
+  releaseNotes String?
+  isActive     Boolean   @default(false)
+  publishedAt  DateTime? @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime? @db.Timestamptz(6)
+  deletedAt    DateTime? @db.Timestamptz(6)
+  static       Static    @relation(fields: [staticId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model Capability {
+  id                       String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                     String                     @unique @db.VarChar(255)
+  name                     String                     @db.VarChar(255)
+  description              String
+  isSensitive              Boolean                    @default(false)
+  createdAt                DateTime                   @default(now()) @db.Timestamptz(6)
+  updatedAt                DateTime?                  @db.Timestamptz(6)
+  deletedAt                DateTime?                  @db.Timestamptz(6)
+  NodeDefinitionCapability NodeDefinitionCapability[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model NodeDefinition {
+  id                       String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type                     String                     @unique @db.VarChar(255)
+  name                     String                     @db.VarChar(255)
+  description              String
+  category                 String                     @db.VarChar(100)
+  status                   NodeDefinitionStatus       @default(ACTIVE)
+  runtimeHandler           String                     @db.VarChar(255)
+  minimumRuntimeVersion    String                     @db.VarChar(100)
+  defaultTimeoutMs         Int
+  configSchema             Json
+  inputSchema              Json
+  outputSchema             Json
+  outputPorts              Json
+  editorHints              Json
+  supportedErrorPolicies   Json
+  contentHash              String                     @db.VarChar(64)
+  createdAt                DateTime                   @default(now()) @db.Timestamptz(6)
+  updatedAt                DateTime?                  @db.Timestamptz(6)
+  deletedAt                DateTime?                  @db.Timestamptz(6)
+  NodeDefinitionCapability NodeDefinitionCapability[]
+
+  @@index([status, type])
+}
+
+model NodeDefinitionCapability {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nodeDefinitionId String         @db.Uuid
+  capabilityId     String         @db.Uuid
+  createdAt        DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime?      @db.Timestamptz(6)
+  deletedAt        DateTime?      @db.Timestamptz(6)
+  Capability       Capability     @relation(fields: [capabilityId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  NodeDefinition   NodeDefinition @relation(fields: [nodeDefinitionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([nodeDefinitionId, capabilityId], map: "NodeDefinitionCapability_node_capability_key")
+  @@index([capabilityId])
 }
 
 enum UserStatus {
@@ -291,4 +357,9 @@ enum TopUpTransactionStatus {
   PENDING
   CREDITED
   UNMATCHED
+}
+
+enum NodeDefinitionStatus {
+  ACTIVE
+  DISABLED
 }

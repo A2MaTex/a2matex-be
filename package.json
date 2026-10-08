@@ -24,7 +24,8 @@
     "prisma:migrate:create": "prisma migrate dev --create-only --config prisma7.config.ts",
     "prisma:migrate:deploy": "prisma migrate deploy --config prisma7.config.ts",
     "seed:roles": "tsx src/seed/create-role.ts",
-    "seed:permissions": "tsx src/seed/create-permissions.ts"
+    "seed:permissions": "tsx src/seed/create-permissions.ts",
+    "seed:node-catalog": "tsx src/seed/sync-node-catalog.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1146.0",
