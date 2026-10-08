@@ -111,11 +111,51 @@ Không mở cổng 5432 và 6379. Postgres và Redis chỉ nằm trên mạng n�
 
 Tạo bản ghi A cho tên miền API về IP của VPS. Caddy cần tên miền phân giải được và cổng 80 mở để xin chứng chỉ.
 
+Production hiện dùng `api.a2matex.com` trỏ về `34.87.57.207` (chuyển từ `sslip.io` sang ngày
+2026-10-08). Tên miền `a2matex.com` đăng ký tại Nhân Hòa, DNS quản tại `zonedns.vn` với
+nameserver `ns1-4.zonedns.vn`; trang đó đăng nhập bằng **chính tên miền** làm tên tài khoản,
+không phải email.
+
 ```bash
-dig +short api.tenmien.com
+dig +short api.a2matex.com
 ```
 
-**Chưa có tên miền?** Dùng `sslip.io`, dịch vụ DNS công cộng miễn phí: tên `<IP với dấu gạch>.sslip.io` tự phân giải về IP đó, ví dụ `34-87-57-207.sslip.io` về `34.87.57.207`. Let's Encrypt cấp chứng chỉ thật cho tên này nên có HTTPS ngay. Điền tên đó vào `APP_DOMAIN`, sau này có tên miền riêng thì đổi một dòng và Caddy tự xin chứng chỉ mới.
+**Chưa có tên miền?** Dùng `sslip.io`, dịch vụ DNS công cộng miễn phí: tên `<IP với dấu gạch>.sslip.io` tự phân giải về IP đó, ví dụ `34-87-57-207.sslip.io` về `34.87.57.207`. Let's Encrypt cấp chứng chỉ thật cho tên này nên có HTTPS ngay. Điền tên đó vào `APP_DOMAIN`, sau này có tên miền riêng thì làm theo mục ngay dưới.
+
+#### Đổi sang tên miền khác về sau
+
+`deploy/Caddyfile` chỉ có **một** site block khoá theo `APP_DOMAIN`. Đổi biến đó sang tên chưa
+phân giải được thì Caddy vừa ngừng phục vụ tên cũ vừa xin chứng chỉ thất bại, và Let's Encrypt
+giới hạn số lần hỏng mỗi giờ. Luôn làm đúng thứ tự:
+
+1. Tạo bản ghi A cho tên mới về IP của VPS, TTL thấp (300) cho lần đầu.
+2. Xác nhận **mọi** nameserver của zone đã trả đúng IP trước khi đụng VPS. Nhân Hòa đồng bộ
+   lệch nhau vài chục giây giữa `ns1` và `ns4`:
+   ```bash
+   for ns in ns1 ns2 ns3 ns4; do dig +short A api.<tên mới> @$ns.zonedns.vn; done
+   ```
+3. Trên VPS, đổi một dòng rồi khởi động lại Caddy. Lưu ý: `app` cũng đọc chính
+   `.env.production` qua `env_file`, nên Compose phát hiện file đổi và **tạo lại cả `app`**
+   dù bạn chỉ gọi tên `caddy`. Đã kiểm ngày 2026-10-08: `a2matex-app` và `a2matex-caddy`
+   cùng khởi động lại, chấp nhận một nhịp gián đoạn ngắn vài giây. `postgres` và `redis`
+   không bị đụng:
+   ```bash
+   cd /opt/a2matex
+   cp .env.production .env.production.bak
+   sed -i 's/^APP_DOMAIN=.*/APP_DOMAIN=api.<tên mới>/' .env.production
+   a2c up -d caddy && a2c logs -f caddy
+   ```
+   Volume `caddy-data` giữ nguyên nên chứng chỉ cũ không mất.
+4. Kiểm từ ngoài. `curl` trên máy không phân giải được tên mới thì chỉ định IP thủ công, đừng
+   vội kết luận là sập:
+   ```bash
+   curl -sI --resolve api.<tên mới>:443:<IP> https://api.<tên mới>/api/v1/docs
+   echo | openssl s_client -connect <IP>:443 -servername api.<tên mới> 2>/dev/null \
+     | openssl x509 -noout -subject -issuer -dates
+   ```
+
+Sau khi đổi, tên cũ ngừng phục vụ hoàn toàn. Muốn giữ song song hai tên thì phải sửa
+`deploy/Caddyfile` cho site block nhận cả hai hostname, tức là một commit và một lần deploy.
 
 ### A3. Tạo khóa SSH riêng cho CI
 
@@ -184,9 +224,9 @@ Các giá trị bắt buộc phải sửa:
 | Biến | Điền gì |
 | --- | --- |
 | `IMAGE_REPO` | `ghcr.io/<tên org viết thường>/a2matex-be`. Với org `A2MaTex` là `ghcr.io/a2matex/a2matex-be` |
-| `APP_DOMAIN` | tên miền ở A2 |
+| `APP_DOMAIN` | tên miền ở A2. Production hiện là `api.a2matex.com` |
 | `ACME_EMAIL` | email của bạn |
-| `CORS_ORIGIN` | domain frontend, ví dụ `https://app.tenmien.com` |
+| `CORS_ORIGIN` | domain frontend, ví dụ `https://app.a2matex.com` |
 | `POSTGRES_PASSWORD` | mật khẩu mạnh, và sửa cùng chuỗi đó bên trong `DATABASE_URL` |
 | `REDIS_PASSWORD` | mật khẩu mạnh |
 | `ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET` | hai chuỗi vừa sinh |
@@ -236,20 +276,20 @@ Nếu chạy hai job này từ xa bằng `ssh ... 'bash -s' < script`, thêm `< 
 ### A8. Kiểm tra
 
 ```bash
-curl https://api.tenmien.com/api/v1/health
+curl https://api.a2matex.com/api/v1/health
 ```
 
 Phải trả về `{"data":{"status":"ok",...},"statusCode":200}`.
 
 ```bash
-curl -X POST https://api.tenmien.com/api/v1/auth/login \
+curl -X POST https://api.a2matex.com/api/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"account":"<ADMIN_USERNAME>","password":"<ADMIN_PASSWORD>"}'
 ```
 
 Phải trả về `accessToken` và `refreshToken`.
 
-Tài liệu API dạng Swagger UI mở công khai tại `https://api.tenmien.com/api/v1/docs`. Bấm Authorize, dán access token để gọi thử các route có khóa ngay trên trang.
+Tài liệu API dạng Swagger UI mở công khai tại `https://api.a2matex.com/api/v1/docs`. Bấm Authorize, dán access token để gọi thử các route có khóa ngay trên trang.
 
 ## B. Vận hành
 
