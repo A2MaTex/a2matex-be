@@ -1,5 +1,9 @@
 # Spec triển khai a2matex-be lên VPS
 
+> **Đã thay thế.** Nguồn chốt quyết định cho kiến trúc deploy giờ là
+> [`specs/001-vps-deployment/spec.md`](../specs/001-vps-deployment/spec.md), viết theo
+> template của spec-kit (`/speckit-specify`). Tài liệu này giữ lại làm lịch sử thiết kế
+> ban đầu (2026-09-23), không còn được cập nhật.
 
 |            |                                                 |
 | ---------- | ----------------------------------------------- |
