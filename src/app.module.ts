@@ -1,5 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './routes/auth/auth.module.js';
@@ -9,6 +10,7 @@ import { PublisherModule } from './routes/publisher/publisher.module.ts';
 import { RoleModule } from './routes/role/role.module.ts';
 import { TermModule } from './routes/term/term.module.ts';
 import { StaticModule } from './routes/static/static.module.ts';
+import { TopUpModule } from './routes/topup/topup.module.ts';
 import { CatchEverythingFilter } from './shared/filters/catch-everything.filter.js';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter.js';
 import { AuthenticationGuard } from './shared/guards/authentication.guard.js';
@@ -21,6 +23,7 @@ import { SharedModule } from './shared/shared.module.js';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     AuthModule,
     PermissionModule,
     ProfileModule,
@@ -28,6 +31,7 @@ import { SharedModule } from './shared/shared.module.js';
     RoleModule,
     TermModule,
     StaticModule,
+    TopUpModule,
     SharedModule,
   ],
   controllers: [AppController],

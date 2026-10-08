@@ -17,3 +17,15 @@ export const zDate = () => asDateTimeInDocs(z.date());
 
 /** `z.coerce.date()` that documents itself as a date-time string. */
 export const zCoerceDate = () => asDateTimeInDocs(z.coerce.date());
+
+/**
+ * `BigInt` cannot be represented in JSON Schema either (same `transform`
+ * problem as above) and does not survive `JSON.stringify` on the wire, so
+ * response fields backed by a Prisma `BigInt` column must go through this
+ * instead of a bare `z.bigint()`.
+ */
+export const zBigIntAsNumber = () => {
+  const schema = z.bigint().transform(Number);
+  schema._zod.toJSONSchema = () => ({ type: 'integer' });
+  return schema;
+};

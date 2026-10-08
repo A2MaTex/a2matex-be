@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { zCoerceDate } from '../../shared/utils/zod.ts';
+import { zBigIntAsNumber, zCoerceDate } from '../../shared/utils/zod.ts';
 import { Profile } from '../../entities/profile.model.ts';
 
 export const ProfileOutput = Profile.pick({
@@ -18,6 +18,8 @@ export const ProfileOutput = Profile.pick({
   phone: true,
   email: true,
   createdAt: true,
+}).extend({
+  balance: zBigIntAsNumber(),
 });
 
 const PersonalProfileFields = Profile.pick({
@@ -60,6 +62,9 @@ export const ChangePasswordInput = z
     }
   });
 
-export type ProfileOutputType = z.infer<typeof ProfileOutput>;
+// z.input (not z.infer/z.output) so this matches the pre-transform shape coming out of
+// Prisma (balance: bigint) — the transform to `number` only applies when the response
+// interceptor actually serializes the value through `ProfileOutput`.
+export type ProfileOutputType = z.input<typeof ProfileOutput>;
 export type UpdatePersonalProfileInputType = z.infer<typeof UpdatePersonalProfileInput>;
 export type ChangePasswordInputType = z.infer<typeof ChangePasswordInput>;
