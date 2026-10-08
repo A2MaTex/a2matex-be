@@ -66,6 +66,14 @@ npx prisma generate --config prisma7.config.ts
 
 5. Other
 
+Mark a failed migration as rolled-back before retrying
+
+```bash
+npx prisma migrate resolve \
+  --rolled-back 20261005015649_add_static_storage \
+  --config prisma7.config.ts
+```
+
 Verify the checksum of modified migration
 
 ```bash
