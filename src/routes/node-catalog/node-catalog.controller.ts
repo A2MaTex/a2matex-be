@@ -2,6 +2,7 @@ import { Controller, Get, Headers, HttpStatus, Inject, Query, Res } from '@nestj
 import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { ZodResponse } from 'nestjs-zod';
+import CustomZodValidationPipe from '../../shared/pipes/custom-zod-validation.pipe.ts';
 import { GetNodeCatalogInputDTO, GetNodeCatalogOutputDTO } from './node-catalog.dto.ts';
 import { NodeCatalogService } from './node-catalog.service.ts';
 
@@ -17,7 +18,7 @@ export class NodeCatalogController {
   @ApiResponse({ status: HttpStatus.NOT_MODIFIED, description: 'Catalog has not changed' })
   @ZodResponse({ type: GetNodeCatalogOutputDTO })
   async getCatalog(
-    @Query() query: GetNodeCatalogInputDTO,
+    @Query(new CustomZodValidationPipe(GetNodeCatalogInputDTO)) query: GetNodeCatalogInputDTO,
     @Headers('if-none-match') ifNoneMatch: string | undefined,
     @Res({ passthrough: true }) response: Response,
   ) {

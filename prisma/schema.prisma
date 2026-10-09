@@ -53,13 +53,13 @@ model Profile {
   address        String?
   phone          String?
   email          String?
-  balance        BigInt    @default(0)
   createdAt      DateTime  @default(now()) @db.Timestamptz(6)
   updatedAt      DateTime? @db.Timestamptz(6)
   deletedAt      DateTime? @db.Timestamptz(6)
   createdById    String    @db.Uuid
   updatedById    String?   @db.Uuid
   deletedById    String?   @db.Uuid
+  balance        BigInt    @default(0)
   Static         Static?   @relation(fields: [avatarStaticId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   createdBy      User      @relation("ProfileCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   deletedBy      User?     @relation("ProfileDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -68,17 +68,17 @@ model Profile {
 }
 
 model TopUpTransaction {
-  id                     String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId                 String?                @db.Uuid
-  referenceCode          String?                @unique(map: "TopUpTransaction_referenceCode_idx")
-  requestedAmount        BigInt?
-  receivedAmount         BigInt?
-  providerTransactionId  String?                @unique(map: "TopUpTransaction_providerTransactionId_idx")
-  rawContent             String?
-  status                 TopUpTransactionStatus
-  creditedAt             DateTime?              @db.Timestamptz(6)
-  createdAt              DateTime               @default(now()) @db.Timestamptz(6)
-  updatedAt              DateTime?              @db.Timestamptz(6)
+  id                    String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                String?                @db.Uuid
+  referenceCode         String?                @unique(map: "TopUpTransaction_referenceCode_idx")
+  requestedAmount       BigInt?
+  receivedAmount        BigInt?
+  providerTransactionId String?                @unique(map: "TopUpTransaction_providerTransactionId_idx")
+  rawContent            String?
+  status                TopUpTransactionStatus
+  creditedAt            DateTime?              @db.Timestamptz(6)
+  createdAt             DateTime               @default(now()) @db.Timestamptz(6)
+  updatedAt             DateTime?              @db.Timestamptz(6)
 }
 
 model VerificationCode {
