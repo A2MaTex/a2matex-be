@@ -53,14 +53,14 @@ const configSchema = z
       .positive()
       .default(DEFAULT_STATIC_UPLOAD_MAX_SIZE_MB),
     // Shared secret Sepay sends back in the webhook's Authorization header.
-    SEPAY_WEBHOOK_API_KEY: z.string(),
+    SEPAY_WEBHOOK_API_KEY: z.string().optional().transform(emptyToUndefined),
     // Static bank account info shown to the user when they request a top-up.
-    SEPAY_BANK_ACCOUNT_NUMBER: z.string(),
-    SEPAY_BANK_NAME: z.string(),
-    SEPAY_BANK_ACCOUNT_HOLDER: z.string(),
+    SEPAY_BANK_ACCOUNT_NUMBER: z.string().optional().transform(emptyToUndefined),
+    SEPAY_BANK_NAME: z.string().optional().transform(emptyToUndefined),
+    SEPAY_BANK_ACCOUNT_HOLDER: z.string().optional().transform(emptyToUndefined),
     // Used by the reconciliation job to poll Sepay's own transaction list API.
-    SEPAY_API_BASE_URL: z.string(),
-    SEPAY_API_TOKEN: z.string(),
+    SEPAY_API_BASE_URL: z.string().optional().transform(emptyToUndefined),
+    SEPAY_API_TOKEN: z.string().optional().transform(emptyToUndefined),
     SEPAY_RECONCILE_INTERVAL_MINUTES: z.coerce.number().int().positive().default(15),
   })
   .superRefine((cfg, ctx) => {

@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import envConfig from '../../shared/config.ts';
 import { DistributedLock } from '../../shared/decorators/distributed-lock.decorator.ts';
 import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
@@ -17,6 +17,8 @@ const SEPAY_INCOMING_TRANSFER_TYPE = 'in';
 
 @Injectable()
 export class TopUpService {
+  private readonly logger = new Logger(TopUpService.name);
+
   constructor(
     @Inject(TopUpRepo) private readonly topUpRepo: TopUpRepo,
     @Inject(CACHE_PROVIDER) private readonly cacheProvider: CacheProvider,
@@ -24,6 +26,7 @@ export class TopUpService {
   ) {}
 
   async createTopUpRequest({ userId, amount }: { userId: string; amount: number }) {
+    const bankTransferConfig = this.getBankTransferConfig();
     const referenceCode = await this.createPendingRequestWithUniqueCode({
       userId,
       requestedAmount: BigInt(amount),
@@ -32,10 +35,25 @@ export class TopUpService {
     return {
       referenceCode,
       amount,
-      bankAccountNumber: envConfig.SEPAY_BANK_ACCOUNT_NUMBER,
-      bankName: envConfig.SEPAY_BANK_NAME,
-      accountHolderName: envConfig.SEPAY_BANK_ACCOUNT_HOLDER,
+      ...bankTransferConfig,
       transferContent: referenceCode,
+    };
+  }
+
+  private getBankTransferConfig() {
+    const bankAccountNumber = envConfig.SEPAY_BANK_ACCOUNT_NUMBER;
+    const bankName = envConfig.SEPAY_BANK_NAME;
+    const accountHolderName = envConfig.SEPAY_BANK_ACCOUNT_HOLDER;
+
+    if (!bankAccountNumber || !bankName || !accountHolderName) {
+      this.logger.error('Sepay bank transfer configuration is incomplete');
+      throw new ServiceUnavailableException('Error.SepayBankTransferNotConfigured');
+    }
+
+    return {
+      bankAccountNumber,
+      bankName,
+      accountHolderName,
     };
   }
 
@@ -104,9 +122,7 @@ export class TopUpService {
   }
 
   private async findPendingRequestInContent(content: string) {
-    const candidateCodes = content
-      .toUpperCase()
-      .match(/[A-Z0-9]{8}/g);
+    const candidateCodes = content.toUpperCase().match(/[A-Z0-9]{8}/g);
 
     if (!candidateCodes) {
       return null;

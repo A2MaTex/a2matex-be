@@ -1,5 +1,11 @@
 import { timingSafeEqual } from 'node:crypto';
-import { CanActivate, ExecutionContext, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import envConfig from '../../shared/config.ts';
 
@@ -32,7 +38,7 @@ export class SepayWebhookGuard implements CanActivate {
   }
 
   private isValidKey(providedKey: string): boolean {
-    const expectedKey = envConfig.SEPAY_WEBHOOK_API_KEY;
+    const expectedKey = envConfig.SEPAY_WEBHOOK_API_KEY ?? '';
     const provided = Buffer.from(providedKey);
     const expected = Buffer.from(expectedKey);
 

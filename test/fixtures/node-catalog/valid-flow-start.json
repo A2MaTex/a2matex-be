@@ -1,0 +1,38 @@
+{
+  "type": "flow.start",
+  "name": "Start",
+  "description": "Start workflow execution.",
+  "category": "FLOW",
+  "runtimeHandler": "flow.start",
+  "minimumRuntimeVersion": "0.1.0",
+  "defaultTimeoutMs": 1000,
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  },
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": [],
+    "additionalProperties": false
+  },
+  "outputPorts": {
+    "ports": [{ "key": "success", "kind": "CONTROL", "label": "Success" }]
+  },
+  "editorHints": {
+    "icon": "play",
+    "fieldOrder": []
+  },
+  "supportedErrorPolicies": {
+    "supported": ["STOP"]
+  },
+  "capabilities": []
+}
