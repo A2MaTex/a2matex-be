@@ -27,7 +27,6 @@ import {
   UsernameAlreadyExistsException,
 } from './auth.error.js';
 import { SharedRoleRepository } from '../../shared/repositories/shared-role.repo.js';
-import { RoleName } from '../../shared/constants/role.constant.ts';
 import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import {
   ForgotPasswordInputType,
@@ -154,8 +153,6 @@ export class AuthService {
     return this.generateTokens({
       userId: user.id,
       deviceId: device.id,
-      roleId,
-      roleName: RoleName.Customer,
     });
   }
 
@@ -189,7 +186,7 @@ export class AuthService {
   }
 
   async login(body: LoginInputType & { userAgent: string; ip: string }) {
-    const user = await this.authRepository.findUniqueUserIncludeRole({
+    const user = await this.authRepository.findUniqueUserWithActiveRole({
       account: body.account,
     });
     if (!user) {
@@ -206,8 +203,6 @@ export class AuthService {
 
     return this.loginWithSession({
       userId: user.id,
-      roleId: user.roleId,
-      roleName: user.role.name,
       userAgent: body.userAgent,
       ip: body.ip,
     });
@@ -216,8 +211,6 @@ export class AuthService {
   @Transactional()
   private async loginWithSession({
     userId,
-    roleId,
-    roleName,
     userAgent,
     ip,
   }: Omit<AccessTokenPayloadCreate, 'deviceId'> & { userAgent: string; ip: string }) {
@@ -231,8 +224,6 @@ export class AuthService {
     return this.generateTokens({
       userId,
       deviceId: device.id,
-      roleId,
-      roleName,
     });
   }
 
@@ -251,21 +242,17 @@ export class AuthService {
       throw EmailAlreadyExistsException;
     }
 
-    if (
-      existingAccounts.some((account) => account.username.toLowerCase() === normalizedUsername)
-    ) {
+    if (existingAccounts.some((account) => account.username.toLowerCase() === normalizedUsername)) {
       throw UsernameAlreadyExistsException;
     }
   }
 
-  async generateTokens({ userId, deviceId, roleId, roleName }: AccessTokenPayloadCreate) {
+  async generateTokens({ userId, deviceId }: AccessTokenPayloadCreate) {
     const refreshTokenId = randomUUID();
     const [accessToken, refreshToken] = await Promise.all([
       this.tokenService.signAccessToken({
         userId,
         deviceId,
-        roleId,
-        roleName,
       }),
       this.tokenService.signRefreshToken({
         refreshTokenId,
@@ -293,27 +280,19 @@ export class AuthService {
       const { userId } = await this.tokenService.verifyRefreshToken(refreshToken);
 
       const refreshTokenInDb =
-        await this.authRepository.findUniqueRefreshTokenIncludeUserRole(refreshToken);
+        await this.authRepository.findUniqueRefreshTokenIncludeUser(refreshToken);
       if (!refreshTokenInDb) {
         throw RefreshTokenAlreadyUsedException;
       }
       if (refreshTokenInDb.user.status === UserStatus.BANNED) {
         throw AccountBlockedException;
       }
-      const {
-        deviceId,
-        user: {
-          roleId,
-          role: { name: roleName },
-        },
-      } = refreshTokenInDb;
+      const { deviceId } = refreshTokenInDb;
 
       return await this.rotateRefreshToken({
         refreshToken,
         userId,
         deviceId,
-        roleId,
-        roleName,
         userAgent,
         ip,
       });
@@ -330,8 +309,6 @@ export class AuthService {
     refreshToken,
     userId,
     deviceId,
-    roleId,
-    roleName,
     userAgent,
     ip,
   }: AccessTokenPayloadCreate & {
@@ -350,8 +327,6 @@ export class AuthService {
 
     return this.generateTokens({
       userId,
-      roleId,
-      roleName,
       deviceId,
     });
   }

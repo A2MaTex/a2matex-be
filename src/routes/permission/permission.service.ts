@@ -32,6 +32,7 @@ export class PermissionService {
       await this.validatePermissionIsUnique({
         method: data.method,
         path: data.path,
+        scope: data.scope,
       });
 
       return await this.permissionRepo.create({
@@ -81,6 +82,7 @@ export class PermissionService {
       await this.validatePermissionIsUnique({
         method: data.method ?? currentPermission.method,
         path: data.path ?? currentPermission.path,
+        scope: data.scope === undefined ? currentPermission.scope : data.scope,
         excludeId: id,
       });
 
@@ -143,19 +145,12 @@ export class PermissionService {
 
   private async removeRolePermissionCache({
     args,
-  }: PostProcessContext<
-    MessageResType,
-    [{ id: string } | { roleIds: string[] }]
-  >) {
+  }: PostProcessContext<MessageResType, [{ id: string } | { roleIds: string[] }]>) {
     const [payload] = args;
     const roleIds =
       'id' in payload
         ? await this.permissionRepo.getRoleIdsByPermissionIds([payload.id])
         : payload.roleIds;
-
-    if (roleIds.length === 0) {
-      return;
-    }
 
     await this.cacheProvider.RemoveStates(ROLE_PERMISSION_CACHE_PREFIX, roleIds);
   }
@@ -163,15 +158,18 @@ export class PermissionService {
   private async validatePermissionIsUnique({
     method,
     path,
+    scope,
     excludeId,
   }: {
     method: CreatePermissionInputType['method'];
     path: string;
+    scope: CreatePermissionInputType['scope'];
     excludeId?: string;
   }) {
-    const isDuplicated = await this.permissionRepo.existsByMethodPath({
+    const isDuplicated = await this.permissionRepo.existsByMethodPathScope({
       method,
       path,
+      scope,
       excludeId,
     });
     if (isDuplicated) {

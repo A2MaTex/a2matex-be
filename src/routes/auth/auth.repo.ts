@@ -1,8 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
-import { TypeOfVerificationCodeType, UserStatus } from '../../shared/constants/auth.constant.ts';
-import { RoleType } from '../../entities/role.schema.ts';
+import {
+  RoleStatus,
+  TypeOfVerificationCodeType,
+  UserStatus,
+} from '../../shared/constants/auth.constant.ts';
 import { UserType } from '../../entities/user.model.ts';
 import { ProfileType } from '../../entities/profile.model.ts';
 import { WhereUniqueUserType } from '../../shared/repositories/shared-user.repo.ts';
@@ -11,9 +14,8 @@ import { VerificationCodeType } from '../../entities/verification.model.ts';
 import { RefreshTokenType } from '../../entities/refresh_token.ts';
 import { DeviceType } from '../../entities/device.model.ts';
 
-type UserWithRoleType = UserType & { roleId: string; role: RoleType };
-type RefreshTokenWithUserRoleType = RefreshTokenType & {
-  user: UserWithRoleType;
+type RefreshTokenWithUserType = RefreshTokenType & {
+  user: Pick<UserType, 'status' | 'deletedAt'>;
 };
 
 type ExistingRegisterAccountType = Pick<UserType, 'email' | 'username'>;
@@ -105,9 +107,7 @@ export class AuthRepository {
   async createVerificationCode(
     payload: Pick<VerificationCodeType, 'email' | 'type' | 'code' | 'expiresAt'>,
   ): Promise<Pick<VerificationCodeType, 'id'>> {
-    const [verificationCode] = await this.prisma.$queryRaw<
-      Pick<VerificationCodeType, 'id'>[]
-    >`
+    const [verificationCode] = await this.prisma.$queryRaw<Pick<VerificationCodeType, 'id'>[]>`
       INSERT INTO "VerificationCode" (email, type, code, "expiresAt")
       VALUES (${payload.email}, ${payload.type}::"VerificationCodeType", ${payload.code}, ${payload.expiresAt})
       ON CONFLICT (email, type) WHERE "deletedAt" IS NULL
@@ -193,79 +193,55 @@ export class AuthRepository {
       });
   }
 
-  findUniqueUserIncludeRole(
+  findUniqueUserWithActiveRole(
     where: WhereUniqueUserType | { account: string },
-  ): Promise<UserWithRoleType | null> {
-    return this.prisma.user
-      .findFirst({
-        where: {
-          ...('account' in where
-            ? {
-                OR: [
-                  {
-                    email: where.account,
-                  },
-                  {
-                    username: where.account,
-                  },
-                ],
-              }
-            : where),
-          deletedAt: null,
-        },
-        include: {
-          userRoles: {
-            where: {
+  ): Promise<UserType | null> {
+    return this.prisma.user.findFirst({
+      where: {
+        ...('account' in where
+          ? {
+              OR: [
+                {
+                  email: where.account,
+                },
+                {
+                  username: where.account,
+                },
+              ],
+            }
+          : where),
+        deletedAt: null,
+        userRoles: {
+          some: {
+            deletedAt: null,
+            role: {
+              status: RoleStatus.ACTIVE,
               deletedAt: null,
-              role: {
-                deletedAt: null,
-              },
             },
-            include: {
-              role: true,
-            },
-            take: 1,
           },
         },
-      })
-      .then((user) => {
-        if (!user) {
-          return null;
-        }
-
-        const userRole = user.userRoles[0];
-        if (!userRole) {
-          return null;
-        }
-
-        const { userRoles, ...userData } = user;
-        return {
-          ...userData,
-          roleId: userRole.roleId,
-          role: userRole.role as RoleType,
-        };
-      });
+      },
+    });
   }
 
-  findUniqueRefreshTokenIncludeUserRole(
-    token: string,
-  ): Promise<RefreshTokenWithUserRoleType | null> {
+  findUniqueRefreshTokenIncludeUser(token: string): Promise<RefreshTokenWithUserType | null> {
     return this.prisma.refreshToken
       .findUnique({
         where: { token },
         include: {
           user: {
-            include: {
+            select: {
+              status: true,
+              deletedAt: true,
               userRoles: {
                 where: {
                   deletedAt: null,
                   role: {
+                    status: RoleStatus.ACTIVE,
                     deletedAt: null,
                   },
                 },
-                include: {
-                  role: true,
-                },
+                select: { id: true },
                 take: 1,
               },
             },
@@ -277,21 +253,16 @@ export class AuthRepository {
           return null;
         }
 
-        const userRole = refreshToken.user.userRoles[0];
-        if (!userRole) {
+        if (refreshToken.user.deletedAt || refreshToken.user.userRoles.length === 0) {
           return null;
         }
 
-        const { userRoles, ...userData } = refreshToken.user;
+        const { userRoles: _userRoles, ...userData } = refreshToken.user;
         return {
           ...refreshToken,
           userId: refreshToken.userId,
           deviceId: refreshToken.deviceId,
-          user: {
-            ...userData,
-            roleId: userRole.roleId,
-            role: userRole.role as RoleType,
-          },
+          user: userData,
         };
       });
   }

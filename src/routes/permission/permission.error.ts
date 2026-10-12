@@ -9,6 +9,10 @@ export const PermissionAlreadyExistsException = new UnprocessableEntityException
     message: 'Error.PermissionAlreadyExists',
     path: 'method',
   },
+  {
+    message: 'Error.PermissionAlreadyExists',
+    path: 'scope',
+  },
 ]);
 
 export const PermissionNotFoundException = new NotFoundException('Error.PermissionNotFound');

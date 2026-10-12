@@ -26,6 +26,8 @@ export interface CacheProvider {
 
   GetStateObject<T>(prefixKey: string, key: string): Promise<T>;
 
+  GetStateObjects<T>(prefixKey: string, keys: string[]): Promise<Record<string, T>>;
+
   GetStates(prefix: string, cursor?: number): Promise<Record<string, string>>;
 
   GetStatesWithPrefix(prefix: string): Promise<Record<string, unknown>>;

@@ -71,7 +71,7 @@ getMe(@ActiveUser('userId') userId: string) {
 }
 ```
 
-Available fields come from `AccessTokenPayload`: `userId`, `deviceId`, `roleId`, `roleName`, `exp`, and `iat`.
+Available fields come from `AccessTokenPayload`: `userId`, `deviceId`, `exp`, and `iat`.
 
 Do not use `@ActiveUser()` on public routes unless the route manually guarantees that request user data exists.
 
@@ -98,7 +98,7 @@ getPermissions(@ActiveRolePermissions('permissions') permissions: RolePermission
 }
 ```
 
-Available fields are `roleId` and `permissions`.
+Available fields are `roleIds`, `permissions`, and `activeRoutePermissions`. Permissions are grouped by method and path because the same endpoint can be granted with different scopes by different roles.
 
 ## UserAgent
 

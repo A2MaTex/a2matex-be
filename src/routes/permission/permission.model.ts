@@ -14,21 +14,25 @@ export const PermissionOutput = Permission.pick({
   module: true,
   path: true,
   method: true,
+  scope: true,
   createdAt: true,
 });
 
-export const CreatePermissionInput = Permission.pick({
+const PermissionMutationInput = Permission.pick({
   name: true,
   description: true,
   module: true,
   path: true,
   method: true,
-})
-  .extend({
-    path: Permission.shape.path.trim(),
-    method: z.string().trim().pipe(Permission.shape.method),
-  })
-  .strict();
+  scope: true,
+}).extend({
+  path: Permission.shape.path.trim(),
+  method: z.string().trim().pipe(Permission.shape.method),
+});
+
+export const CreatePermissionInput = PermissionMutationInput.extend({
+  scope: Permission.shape.scope.optional().default(null),
+}).strict();
 
 export const CreatePermissionOutput = Permission.pick({
   id: true,
@@ -41,7 +45,7 @@ export const GetPermissionListOutput = z.object({
 
 export const GetPermissionDetailOutput = PermissionOutput;
 
-export const UpdatePermissionInput = CreatePermissionInput.partial().strict();
+export const UpdatePermissionInput = PermissionMutationInput.partial().strict();
 
 export const DeleteManyPermissionInput = z
   .object({

@@ -134,10 +134,13 @@ model Permission {
   createdAt       DateTime         @default(now()) @db.Timestamptz(6)
   updatedAt       DateTime?        @db.Timestamptz(6)
   deletedAt       DateTime?        @db.Timestamptz(6)
+  scope           PermissionScope?
   createdBy       User             @relation("PermissionCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   deletedBy       User?            @relation("PermissionDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   updatedBy       User?            @relation("PermissionUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   rolePermissions RolePermission[]
+
+  @@unique([method, path, scope], map: "Permission_method_path_scope_idx", where: raw("((scope IS NOT NULL) AND (\"deletedAt\" IS NULL))"))
 }
 
 model Role {
@@ -362,4 +365,8 @@ enum TopUpTransactionStatus {
 enum NodeDefinitionStatus {
   ACTIVE
   DISABLED
+}
+
+enum PermissionScope {
+  OWN
 }

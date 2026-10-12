@@ -13,3 +13,9 @@ export const HTTPMethod = {
   OPTIONS: 'OPTIONS',
   HEAD: 'HEAD',
 } as const;
+
+export const PermissionScope = {
+  OWN: 'OWN',
+} as const;
+
+export type PermissionScopeType = (typeof PermissionScope)[keyof typeof PermissionScope];
