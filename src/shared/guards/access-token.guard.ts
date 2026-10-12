@@ -8,7 +8,6 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
-import type { PermissionType } from '../../entities/permission.model.ts';
 import { CACHE_PROVIDER } from '../infrastructure/cache/cache.interface.ts';
 import type { CacheProvider } from '../infrastructure/cache/cache.interface.ts';
 import {
@@ -23,11 +22,18 @@ import {
   UserStatus,
 } from '../constants/auth.constant.js';
 import { ROLE_PERMISSION_CACHE_PREFIX } from '../constants/cache.constant.ts';
+import { PermissionScope } from '../constants/role.constant.ts';
 import { API_PREFIX_PATH } from '../constants/system.constant.js';
 import { PrismaService } from '../services/prisma.service.ts';
 import { TokenService } from '../services/token.service.ts';
 import type { AccessTokenPayload } from '../types/jwt.type.js';
-import type { RolePermissionPayload } from '../types/role-permission.type.ts';
+import type {
+  PermissionGrant,
+  RolePermissionCacheValue,
+  RolePermissionPayload,
+} from '../types/role-permission.type.ts';
+
+const VALID_PERMISSION_SCOPES = new Set<string>(Object.values(PermissionScope));
 
 type AuthRequest = Request & {
   route?: {
@@ -149,25 +155,33 @@ export class AccessTokenGuard implements CanActivate {
   }
 
   private async validateUserPermission(roleIds: string[], request: AuthRequest): Promise<void> {
-    const rolePermissions = await this.getRolePermissions(roleIds);
-    const permissionKey = this.buildPermissionKey(request.method, this.getRequestPath(request));
-    const activeRoutePermissions = rolePermissions.permissions[permissionKey] ?? [];
-    if (activeRoutePermissions.length === 0) {
+    const routeKey = this.buildPermissionKey(request.method, this.getRequestPath(request));
+    const rolePermissions = await this.getRolePermissions(roleIds, routeKey);
+    if (rolePermissions.grants.length === 0) {
       throw new ForbiddenException();
     }
 
-    request[REQUEST_ROLE_PERMISSIONS] = {
-      ...rolePermissions,
-      activeRoutePermissions,
-    };
+    request[REQUEST_ROLE_PERMISSIONS] = rolePermissions;
   }
 
-  private async getRolePermissions(roleIds: string[]): Promise<RolePermissionPayload> {
+  private async getRolePermissions(
+    roleIds: string[],
+    routeKey: string,
+  ): Promise<RolePermissionPayload> {
     const uniqueRoleIds = [...new Set(roleIds)];
-    const permissionsByRoleId = await this.cacheProvider.GetStateObjects<PermissionType[]>(
+    const cachedValues = await this.cacheProvider.GetStateObjects<unknown>(
       ROLE_PERMISSION_CACHE_PREFIX,
       uniqueRoleIds,
     );
+    const permissionsByRoleId: Record<string, RolePermissionCacheValue> = {};
+
+    for (const roleId of uniqueRoleIds) {
+      const cachedValue = cachedValues[roleId];
+      if (this.isRolePermissionCacheValue(cachedValue)) {
+        permissionsByRoleId[roleId] = cachedValue;
+      }
+    }
+
     const missingRoleIds = uniqueRoleIds.filter(
       (roleId) => !Object.hasOwn(permissionsByRoleId, roleId),
     );
@@ -183,6 +197,7 @@ export class AccessTokenGuard implements CanActivate {
         },
         select: {
           id: true,
+          name: true,
           rolePermissions: {
             where: {
               deletedAt: null,
@@ -191,7 +206,14 @@ export class AccessTokenGuard implements CanActivate {
               },
             },
             select: {
-              permission: true,
+              permission: {
+                select: {
+                  id: true,
+                  path: true,
+                  method: true,
+                  scope: true,
+                },
+              },
             },
           },
         },
@@ -202,36 +224,72 @@ export class AccessTokenGuard implements CanActivate {
 
       await Promise.all(
         roles.map(async (role) => {
-          const permissions = role.rolePermissions.map(
-            ({ permission }) => permission as PermissionType,
+          const routes = role.rolePermissions.reduce<Record<string, PermissionGrant[]>>(
+            (result, { permission }) => {
+              const permissionKey = this.buildPermissionKey(permission.method, permission.path);
+              const grants = (result[permissionKey] ??= []);
+              grants.push({
+                permissionId: permission.id,
+                scope: permission.scope,
+              });
+              return result;
+            },
+            {},
           );
-          permissionsByRoleId[role.id] = permissions;
+          const cacheValue: RolePermissionCacheValue = {
+            roleName: role.name,
+            routes,
+          };
+          permissionsByRoleId[role.id] = cacheValue;
           await this.cacheProvider.SetStateObject(
             ROLE_PERMISSION_CACHE_PREFIX,
             role.id,
-            permissions,
+            cacheValue,
           );
         }),
       );
     }
 
-    const rolePermissionSets = uniqueRoleIds.map((roleId) => permissionsByRoleId[roleId]);
-    const grantedPermissions = new Map(
-      rolePermissionSets.flat().map((permission) => [permission.id, permission]),
+    const grants = new Map(
+      uniqueRoleIds
+        .flatMap((roleId) => permissionsByRoleId[roleId].routes[routeKey] ?? [])
+        .map((grant) => [grant.permissionId, grant]),
     ).values();
-    const permissions = [...grantedPermissions].reduce<Record<string, PermissionType[]>>(
-      (result, permission) => {
-        const permissionKey = this.buildPermissionKey(permission.method, permission.path);
-        result[permissionKey] = [...(result[permissionKey] ?? []), permission];
-        return result;
-      },
-      {},
-    );
 
     return {
       roleIds: uniqueRoleIds,
-      permissions,
+      routeKey,
+      grants: [...grants],
     };
+  }
+
+  private isRolePermissionCacheValue(value: unknown): value is RolePermissionCacheValue {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return false;
+    }
+
+    const cacheValue = value as Partial<RolePermissionCacheValue>;
+    if (
+      typeof cacheValue.roleName !== 'string' ||
+      !cacheValue.routes ||
+      typeof cacheValue.routes !== 'object' ||
+      Array.isArray(cacheValue.routes)
+    ) {
+      return false;
+    }
+
+    return Object.values(cacheValue.routes).every(
+      (grants) =>
+        Array.isArray(grants) &&
+        grants.every(
+          (grant) =>
+            !!grant &&
+            typeof grant === 'object' &&
+            typeof grant.permissionId === 'string' &&
+            (grant.scope === null ||
+              (typeof grant.scope === 'string' && VALID_PERMISSION_SCOPES.has(grant.scope))),
+        ),
+    );
   }
 
   private getRequestPath(request: AuthRequest) {

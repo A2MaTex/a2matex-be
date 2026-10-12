@@ -10,6 +10,6 @@ export const ActivePermissionScopes = createParamDecorator(
     const request = context.switchToHttp().getRequest();
     const rolePermissions: RolePermissionPayload | undefined = request[REQUEST_ROLE_PERMISSIONS];
 
-    return [...new Set(rolePermissions?.activeRoutePermissions?.map(({ scope }) => scope) ?? [])];
+    return [...new Set(rolePermissions?.grants.map(({ scope }) => scope) ?? [])];
   },
 );
