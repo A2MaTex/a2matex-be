@@ -475,4 +475,21 @@ export class PublisherRepo {
       },
     });
   }
+
+  softDeletePublisherRole({ userId, deletedAt }: { userId: string; deletedAt: Date }) {
+    return this.prisma.userRole.updateMany({
+      where: {
+        userId,
+        deletedAt: null,
+        role: {
+          name: RoleName.Publisher,
+          deletedAt: null,
+        },
+      },
+      data: {
+        deletedAt,
+        updatedAt: deletedAt,
+      },
+    });
+  }
 }

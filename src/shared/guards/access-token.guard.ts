@@ -8,8 +8,6 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
-import type { PermissionType } from '../../entities/permission.model.ts';
-import { CacheKeyNotFoundError } from '../infrastructure/cache/cache.error.ts';
 import { CACHE_PROVIDER } from '../infrastructure/cache/cache.interface.ts';
 import type { CacheProvider } from '../infrastructure/cache/cache.interface.ts';
 import {
@@ -24,11 +22,18 @@ import {
   UserStatus,
 } from '../constants/auth.constant.js';
 import { ROLE_PERMISSION_CACHE_PREFIX } from '../constants/cache.constant.ts';
+import { PermissionScope } from '../constants/role.constant.ts';
 import { API_PREFIX_PATH } from '../constants/system.constant.js';
 import { PrismaService } from '../services/prisma.service.ts';
 import { TokenService } from '../services/token.service.ts';
 import type { AccessTokenPayload } from '../types/jwt.type.js';
-import type { RolePermissionPayload } from '../types/role-permission.type.ts';
+import type {
+  PermissionGrant,
+  RolePermissionCacheValue,
+  RolePermissionPayload,
+} from '../types/role-permission.type.ts';
+
+const VALID_PERMISSION_SCOPES = new Set<string>(Object.values(PermissionScope));
 
 type AuthRequest = Request & {
   route?: {
@@ -41,7 +46,7 @@ type AuthRequest = Request & {
 @Injectable()
 /**
  * Validates the Bearer access token, active user session, active device, and
- * cached role permission before allowing a protected API request.
+ * merged permissions from all active user roles before allowing a protected API request.
  */
 export class AccessTokenGuard implements CanActivate {
   constructor(
@@ -55,12 +60,12 @@ export class AccessTokenGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<AuthRequest>();
     const decodedAccessToken = await this.extractAndValidateToken(request);
 
-    await this.validateUserSession(decodedAccessToken);
+    const roleIds = await this.validateUserSession(decodedAccessToken);
     if (this.shouldSkipPermissionCheck(context)) {
       return true;
     }
 
-    await this.validateUserPermission(decodedAccessToken, request);
+    await this.validateUserPermission(roleIds, request);
     return true;
   }
 
@@ -73,24 +78,35 @@ export class AccessTokenGuard implements CanActivate {
     );
   }
 
-  private async validateUserSession({
-    userId,
-    roleId,
-    deviceId,
-  }: AccessTokenPayload): Promise<void> {
+  private async validateUserSession({ userId, deviceId }: AccessTokenPayload): Promise<string[]> {
     const user = await this.prismaService.user.findFirst({
       where: {
         id: userId,
         deletedAt: null,
         userRoles: {
           some: {
-            roleId,
             deletedAt: null,
+            role: {
+              status: RoleStatus.ACTIVE,
+              deletedAt: null,
+            },
           },
         },
       },
       select: {
         status: true,
+        userRoles: {
+          where: {
+            deletedAt: null,
+            role: {
+              status: RoleStatus.ACTIVE,
+              deletedAt: null,
+            },
+          },
+          select: {
+            roleId: true,
+          },
+        },
       },
     });
     if (!user) {
@@ -114,6 +130,8 @@ export class AccessTokenGuard implements CanActivate {
     if (!device) {
       throw UnauthorizedAccessException;
     }
+
+    return user.userRoles.map(({ roleId }) => roleId);
   }
 
   private async extractAndValidateToken(request: AuthRequest): Promise<AccessTokenPayload> {
@@ -136,72 +154,142 @@ export class AccessTokenGuard implements CanActivate {
     return accessToken;
   }
 
-  private async validateUserPermission(
-    decodedAccessToken: AccessTokenPayload,
-    request: AuthRequest,
-  ): Promise<void> {
-    const rolePermissions = await this.getRolePermissions(decodedAccessToken.roleId);
-    request[REQUEST_ROLE_PERMISSIONS] = rolePermissions;
-
-    const permissionKey = this.buildPermissionKey(request.method, this.getRequestPath(request));
-    const canAccess = rolePermissions.permissions[permissionKey];
-    if (!canAccess) {
+  private async validateUserPermission(roleIds: string[], request: AuthRequest): Promise<void> {
+    const routeKey = this.buildPermissionKey(request.method, this.getRequestPath(request));
+    const rolePermissions = await this.getRolePermissions(roleIds, routeKey);
+    if (rolePermissions.grants.length === 0) {
       throw new ForbiddenException();
     }
+
+    request[REQUEST_ROLE_PERMISSIONS] = rolePermissions;
   }
 
-  private async getRolePermissions(roleId: string) {
-    try {
-      return await this.cacheProvider.GetStateObject<RolePermissionPayload>(
-        ROLE_PERMISSION_CACHE_PREFIX,
-        roleId,
-      );
-    } catch (error) {
-      if (!(error instanceof CacheKeyNotFoundError)) {
-        throw error;
+  private async getRolePermissions(
+    roleIds: string[],
+    routeKey: string,
+  ): Promise<RolePermissionPayload> {
+    const uniqueRoleIds = [...new Set(roleIds)];
+    const cachedValues = await this.cacheProvider.GetStateObjects<unknown>(
+      ROLE_PERMISSION_CACHE_PREFIX,
+      uniqueRoleIds,
+    );
+    const permissionsByRoleId: Record<string, RolePermissionCacheValue> = {};
+
+    for (const roleId of uniqueRoleIds) {
+      const cachedValue = cachedValues[roleId];
+      if (this.isRolePermissionCacheValue(cachedValue)) {
+        permissionsByRoleId[roleId] = cachedValue;
       }
     }
 
-    const role = await this.prismaService.role.findFirst({
-      where: {
-        id: roleId,
-        deletedAt: null,
-        status: RoleStatus.ACTIVE,
-      },
-      include: {
-        rolePermissions: {
-          where: {
-            deletedAt: null,
-            permission: {
-              deletedAt: null,
-            },
-          },
-          include: {
-            permission: true,
-          },
-        },
-      },
-    });
-    if (!role) {
-      throw new ForbiddenException();
-    }
-
-    const permissions = role.rolePermissions.reduce<Record<string, PermissionType>>(
-      (result, rolePermission) => {
-        const permission = rolePermission.permission as PermissionType;
-        result[this.buildPermissionKey(permission.method, permission.path)] = permission;
-        return result;
-      },
-      {},
+    const missingRoleIds = uniqueRoleIds.filter(
+      (roleId) => !Object.hasOwn(permissionsByRoleId, roleId),
     );
 
-    const rolePermissions = {
-      roleId,
-      permissions,
-    };
-    await this.cacheProvider.SetStateObject(ROLE_PERMISSION_CACHE_PREFIX, roleId, rolePermissions);
+    if (missingRoleIds.length > 0) {
+      const roles = await this.prismaService.role.findMany({
+        where: {
+          id: {
+            in: missingRoleIds,
+          },
+          deletedAt: null,
+          status: RoleStatus.ACTIVE,
+        },
+        select: {
+          id: true,
+          name: true,
+          rolePermissions: {
+            where: {
+              deletedAt: null,
+              permission: {
+                deletedAt: null,
+              },
+            },
+            select: {
+              permission: {
+                select: {
+                  id: true,
+                  path: true,
+                  method: true,
+                  scope: true,
+                },
+              },
+            },
+          },
+        },
+      });
+      if (roles.length !== missingRoleIds.length) {
+        throw new ForbiddenException();
+      }
 
-    return rolePermissions;
+      await Promise.all(
+        roles.map(async (role) => {
+          const routes = role.rolePermissions.reduce<Record<string, PermissionGrant[]>>(
+            (result, { permission }) => {
+              const permissionKey = this.buildPermissionKey(permission.method, permission.path);
+              const grants = (result[permissionKey] ??= []);
+              grants.push({
+                permissionId: permission.id,
+                scope: permission.scope,
+              });
+              return result;
+            },
+            {},
+          );
+          const cacheValue: RolePermissionCacheValue = {
+            roleName: role.name,
+            routes,
+          };
+          permissionsByRoleId[role.id] = cacheValue;
+          await this.cacheProvider.SetStateObject(
+            ROLE_PERMISSION_CACHE_PREFIX,
+            role.id,
+            cacheValue,
+          );
+        }),
+      );
+    }
+
+    const grants = new Map(
+      uniqueRoleIds
+        .flatMap((roleId) => permissionsByRoleId[roleId].routes[routeKey] ?? [])
+        .map((grant) => [grant.permissionId, grant]),
+    ).values();
+
+    return {
+      roleIds: uniqueRoleIds,
+      routeKey,
+      grants: [...grants],
+    };
+  }
+
+  private isRolePermissionCacheValue(value: unknown): value is RolePermissionCacheValue {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return false;
+    }
+
+    const cacheValue = value as Partial<RolePermissionCacheValue>;
+    if (
+      typeof cacheValue.roleName !== 'string' ||
+      !cacheValue.routes ||
+      typeof cacheValue.routes !== 'object' ||
+      Array.isArray(cacheValue.routes)
+    ) {
+      return false;
+    }
+
+    return Object.values(cacheValue.routes).every(
+      (grants) =>
+        Array.isArray(grants) &&
+        grants.every(
+          (grant) =>
+            !!grant &&
+            typeof grant === 'object' &&
+            typeof grant.permissionId === 'string' &&
+            (grant.scope === null ||
+              (typeof grant.scope === 'string' && VALID_PERMISSION_SCOPES.has(grant.scope))),
+        ),
+    );
   }
 
   private getRequestPath(request: AuthRequest) {

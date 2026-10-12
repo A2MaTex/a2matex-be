@@ -25,8 +25,7 @@ export const ConditionGuard = {
   Or: 'or',
 } as const;
 
-export type ConditionGuardType =
-  (typeof ConditionGuard)[keyof typeof ConditionGuard];
+export type ConditionGuardType = (typeof ConditionGuard)[keyof typeof ConditionGuard];
 
 export const TypeOfVerificationCode = {
   REGISTER: 'REGISTER',
@@ -37,3 +36,8 @@ export const TypeOfVerificationCode = {
 
 export type TypeOfVerificationCodeType =
   (typeof TypeOfVerificationCode)[keyof typeof TypeOfVerificationCode];
+
+export const EmailSubject = {
+  REGISTER: 'Mã OTP đăng ký',
+  FORGOT_PASSWORD: 'Mã OTP quên mật khẩu',
+} as const;

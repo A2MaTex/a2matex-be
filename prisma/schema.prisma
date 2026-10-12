@@ -10,31 +10,34 @@ datasource db {
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model User {
-  id                       String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  username                 String             @db.VarChar(255)
-  email                    String
-  password                 String             @db.VarChar(255)
-  status                   UserStatus         @default(INACTIVE)
-  createdAt                DateTime           @default(now()) @db.Timestamptz(6)
-  updatedAt                DateTime?          @db.Timestamptz(6)
-  deletedAt                DateTime?          @db.Timestamptz(6)
-  device                   Device[]
-  createdPermissions       Permission[]       @relation("PermissionCreatedBy")
-  deletedPermissions       Permission[]       @relation("PermissionDeletedBy")
-  updatedPermissions       Permission[]       @relation("PermissionUpdatedBy")
-  createdProfiles          Profile[]          @relation("ProfileCreatedBy")
-  deletedProfiles          Profile[]          @relation("ProfileDeletedBy")
-  updatedProfiles          Profile[]          @relation("ProfileUpdatedBy")
-  profile                  Profile?           @relation("ProfileUser")
-  blockedPublisherAccounts PublisherAccount[] @relation("PublisherAccount_blockedByIdToUser")
-  publisherAccount         PublisherAccount?  @relation("PublisherAccount_userIdToUser")
-  refreshTokens            RefreshToken[]
-  createdRoles             Role[]             @relation("RoleCreatedBy")
-  deletedRoles             Role[]             @relation("RoleDeletedBy")
-  updatedRoles             Role[]             @relation("RoleUpdatedBy")
-  createdTerms             Term[]             @relation("Term_createdByIdToUser")
-  updatedTerms             Term[]             @relation("Term_updatedByIdToUser")
-  userRoles                UserRole[]
+  id                                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username                          String             @db.VarChar(255)
+  email                             String
+  password                          String             @db.VarChar(255)
+  status                            UserStatus         @default(INACTIVE)
+  createdAt                         DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt                         DateTime?          @db.Timestamptz(6)
+  deletedAt                         DateTime?          @db.Timestamptz(6)
+  device                            Device[]
+  createdPermissions                Permission[]       @relation("PermissionCreatedBy")
+  deletedPermissions                Permission[]       @relation("PermissionDeletedBy")
+  updatedPermissions                Permission[]       @relation("PermissionUpdatedBy")
+  createdProfiles                   Profile[]          @relation("ProfileCreatedBy")
+  deletedProfiles                   Profile[]          @relation("ProfileDeletedBy")
+  updatedProfiles                   Profile[]          @relation("ProfileUpdatedBy")
+  profile                           Profile?           @relation("ProfileUser")
+  Project_Project_createdByIdToUser Project[]          @relation("Project_createdByIdToUser")
+  Project_Project_deletedByIdToUser Project[]          @relation("Project_deletedByIdToUser")
+  Project_Project_updatedByIdToUser Project[]          @relation("Project_updatedByIdToUser")
+  blockedPublisherAccounts          PublisherAccount[] @relation("PublisherAccount_blockedByIdToUser")
+  publisherAccount                  PublisherAccount?  @relation("PublisherAccount_userIdToUser")
+  refreshTokens                     RefreshToken[]
+  createdRoles                      Role[]             @relation("RoleCreatedBy")
+  deletedRoles                      Role[]             @relation("RoleDeletedBy")
+  updatedRoles                      Role[]             @relation("RoleUpdatedBy")
+  createdTerms                      Term[]             @relation("Term_createdByIdToUser")
+  updatedTerms                      Term[]             @relation("Term_updatedByIdToUser")
+  userRoles                         UserRole[]
 }
 
 model Profile {
@@ -134,10 +137,13 @@ model Permission {
   createdAt       DateTime         @default(now()) @db.Timestamptz(6)
   updatedAt       DateTime?        @db.Timestamptz(6)
   deletedAt       DateTime?        @db.Timestamptz(6)
+  scope           PermissionScope?
   createdBy       User             @relation("PermissionCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   deletedBy       User?            @relation("PermissionDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   updatedBy       User?            @relation("PermissionUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   rolePermissions RolePermission[]
+
+  @@unique([method, path, scope], map: "Permission_method_path_scope_idx", where: raw("((scope IS NOT NULL) AND (\"deletedAt\" IS NULL))"))
 }
 
 model Role {
@@ -193,6 +199,7 @@ model PublisherAccount {
   createdAt        DateTime                   @default(now()) @db.Timestamptz(6)
   updatedAt        DateTime?                  @db.Timestamptz(6)
   deletedAt        DateTime?                  @db.Timestamptz(6)
+  Project          Project[]
   blockedBy        User?                      @relation("PublisherAccount_blockedByIdToUser", fields: [blockedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   user             User                       @relation("PublisherAccount_userIdToUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   termsAcceptances PublisherTermsAcceptance[]
@@ -308,6 +315,26 @@ model NodeDefinitionCapability {
   @@index([capabilityId])
 }
 
+model Project {
+  id                             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  publisherAccountId             String           @db.Uuid
+  name                           String           @db.VarChar(255)
+  description                    String?
+  status                         ProjectStatus    @default(ACTIVE)
+  createdAt                      DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt                      DateTime?        @db.Timestamptz(6)
+  deletedAt                      DateTime?        @db.Timestamptz(6)
+  createdById                    String           @db.Uuid
+  updatedById                    String?          @db.Uuid
+  deletedById                    String?          @db.Uuid
+  User_Project_createdByIdToUser User             @relation("Project_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User_Project_deletedByIdToUser User?            @relation("Project_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  PublisherAccount               PublisherAccount @relation(fields: [publisherAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User_Project_updatedByIdToUser User?            @relation("Project_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([publisherAccountId, status], where: raw("(\"deletedAt\" IS NULL)"))
+}
+
 enum UserStatus {
   ACTIVE
   INACTIVE
@@ -362,4 +389,13 @@ enum TopUpTransactionStatus {
 enum NodeDefinitionStatus {
   ACTIVE
   DISABLED
+}
+
+enum PermissionScope {
+  OWN
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
 }

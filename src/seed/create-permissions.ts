@@ -194,6 +194,7 @@ async function syncPermissions(
   const permissionsInDb = await prisma.permission.findMany({
     where: {
       deletedAt: null,
+      scope: null,
     },
   });
   const permissionsInDbMap = permissionsInDb.reduce<Record<string, Permission>>((result, item) => {
@@ -263,6 +264,7 @@ async function syncAdminPermissions(prisma: PrismaService, adminRoleId: string) 
   const permissions = await prisma.permission.findMany({
     where: {
       deletedAt: null,
+      scope: null,
     },
     select: {
       id: true,
@@ -274,6 +276,9 @@ async function syncAdminPermissions(prisma: PrismaService, adminRoleId: string) 
     where: {
       roleId: adminRoleId,
       deletedAt: null,
+      permission: {
+        scope: null,
+      },
       permissionId: {
         notIn: permissionIds,
       },

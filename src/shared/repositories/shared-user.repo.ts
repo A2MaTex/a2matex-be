@@ -82,9 +82,7 @@ export class SharedUserRepository {
           ...userData,
           role: {
             ...roleData,
-            permissions: rolePermissions.map(
-              ({ permission }) => permission as PermissionType,
-            ),
+            permissions: rolePermissions.map(({ permission }) => permission as PermissionType),
           } as RoleType & { permissions: PermissionType[] },
         };
       });

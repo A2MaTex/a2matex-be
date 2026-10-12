@@ -220,6 +220,11 @@ export class PublisherService {
         throw PublisherRoleUnavailableException;
       }
       await this.publisherRepo.ensureUserRole({ userId: account.userId, roleId: role.id });
+    } else {
+      await this.publisherRepo.softDeletePublisherRole({
+        userId: account.userId,
+        deletedAt: new Date(),
+      });
     }
 
     await this.publisherRepo.updateStatus({

@@ -1,6 +1,17 @@
-import { PermissionType } from '../../entities/permission.model.ts';
+import type { PermissionScopeType } from '../constants/role.constant.ts';
+
+export type PermissionGrant = {
+  permissionId: string;
+  scope: PermissionScopeType | null;
+};
+
+export type RolePermissionCacheValue = {
+  roleName: string;
+  routes: Record<string, PermissionGrant[]>;
+};
 
 export type RolePermissionPayload = {
-  roleId: string;
-  permissions: Record<string, PermissionType>;
+  roleIds: string[];
+  routeKey: string;
+  grants: PermissionGrant[];
 };

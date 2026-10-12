@@ -197,12 +197,7 @@ export class RoleService {
     args,
   }: PostProcessContext<MessageResType, [{ id: string } | { data: DeleteManyRoleInputType }]>) {
     const [payload] = args;
-    const roleIds = 'id' in payload ? [payload.id] : payload.data.ids;
-
-    if (roleIds.length === 0) {
-      return;
-    }
-
+    const roleIds = 'data' in payload ? payload.data.ids : [payload.id];
     await this.cacheProvider.RemoveStates(ROLE_PERMISSION_CACHE_PREFIX, roleIds);
   }
 }

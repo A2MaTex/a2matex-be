@@ -71,13 +71,14 @@ getMe(@ActiveUser('userId') userId: string) {
 }
 ```
 
-Available fields come from `AccessTokenPayload`: `userId`, `deviceId`, `roleId`, `roleName`, `exp`, and `iat`.
+Available fields come from `AccessTokenPayload`: `userId`, `deviceId`, `exp`, and `iat`.
 
 Do not use `@ActiveUser()` on public routes unless the route manually guarantees that request user data exists.
 
 ## ActiveRolePermissions
 
-Use `@ActiveRolePermissions()` to read the role permission payload attached by `AccessTokenGuard`.
+Use `@ActiveRolePermissions()` to read the current route's permission payload attached by
+`AccessTokenGuard`.
 
 ```ts
 import { ActiveRolePermissions } from '../../shared/decorators/active-role-permissions.decorator.js';
@@ -93,12 +94,13 @@ You can also extract a single field.
 
 ```ts
 @Get('me/permissions')
-getPermissions(@ActiveRolePermissions('permissions') permissions: RolePermissionPayload['permissions']) {
-  return permissions;
+getPermissions(@ActiveRolePermissions('grants') grants: RolePermissionPayload['grants']) {
+  return grants;
 }
 ```
 
-Available fields are `roleId` and `permissions`.
+Available fields are `roleIds`, `routeKey`, and `grants`. The payload contains only grants for the
+current route; each grant contains the permission ID and scope resolved from the user's active roles.
 
 ## UserAgent
 

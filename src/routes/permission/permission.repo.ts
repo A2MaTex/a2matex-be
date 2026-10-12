@@ -62,19 +62,22 @@ export class PermissionRepo {
     });
   }
 
-  async existsByMethodPath({
+  async existsByMethodPathScope({
     method,
     path,
+    scope,
     excludeId,
   }: {
     method: CreatePermissionInputType['method'];
     path: string;
+    scope: CreatePermissionInputType['scope'];
     excludeId?: string;
   }) {
     const permission = await this.prisma.permission.findFirst({
       where: {
         method,
         path,
+        scope,
         deletedAt: null,
         id: excludeId
           ? {

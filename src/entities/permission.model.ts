@@ -1,4 +1,4 @@
-import { HTTPMethod } from './../shared/constants/role.constant.js';
+import { HTTPMethod, PermissionScope } from './../shared/constants/role.constant.js';
 import { z } from 'zod';
 import { BaseWithUserFields } from './base.model.ts';
 
@@ -16,6 +16,7 @@ export const Permission = BaseWithUserFields.extend({
     HTTPMethod.OPTIONS,
     HTTPMethod.HEAD,
   ]),
+  scope: z.enum([PermissionScope.OWN]).nullable(),
 });
 
 export type PermissionType = z.infer<typeof Permission>;

@@ -92,6 +92,35 @@ export class RedisCacheProvider implements CacheProvider {
     }
   }
 
+  async GetStateObjects<T>(prefixKey: string, keys: string[]): Promise<Record<string, T>> {
+    if (keys.length === 0) {
+      return {};
+    }
+
+    const fullKeys = keys.map((key) => this.buildKey(prefixKey, key));
+    const values = await this.client.mGet(fullKeys);
+    const result: Record<string, T> = {};
+    const invalidKeys: string[] = [];
+
+    values.forEach((value, index) => {
+      if (value === null) {
+        return;
+      }
+
+      try {
+        result[keys[index]] = JSON.parse(value) as T;
+      } catch {
+        invalidKeys.push(fullKeys[index]);
+      }
+    });
+
+    if (invalidKeys.length > 0) {
+      await this.client.del(invalidKeys);
+    }
+
+    return result;
+  }
+
   async GetStates(prefix: string, cursor = 0) {
     const result: Record<string, string> = {};
     const { keys } = await this.client.scan(cursor.toString(), {

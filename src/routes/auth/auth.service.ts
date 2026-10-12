@@ -8,6 +8,7 @@ import { TokenService } from '../../shared/services/token.service.js';
 import ms, { StringValue } from 'ms';
 import envConfig from '../../shared/config.js';
 import {
+  EmailSubject,
   TypeOfVerificationCode,
   TypeOfVerificationCodeType,
   UserStatus,
@@ -27,7 +28,6 @@ import {
   UsernameAlreadyExistsException,
 } from './auth.error.js';
 import { SharedRoleRepository } from '../../shared/repositories/shared-role.repo.js';
-import { RoleName } from '../../shared/constants/role.constant.ts';
 import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import {
   ForgotPasswordInputType,
@@ -154,8 +154,6 @@ export class AuthService {
     return this.generateTokens({
       userId: user.id,
       deviceId: device.id,
-      roleId,
-      roleName: RoleName.Customer,
     });
   }
 
@@ -178,9 +176,22 @@ export class AuthService {
       expiresAt: addMilliseconds(new Date(), ms(envConfig.OTP_EXPIRES_IN as StringValue)),
     });
 
+    let subject: string;
+    switch (body.type) {
+      case TypeOfVerificationCode.REGISTER:
+        subject = EmailSubject.REGISTER;
+        break;
+      case TypeOfVerificationCode.FORGOT_PASSWORD:
+        subject = EmailSubject.FORGOT_PASSWORD;
+        break;
+      default:
+        throw new Error('Invalid verification code type');
+    }
+
     const { error } = await this.emailService.sendOTP({
       email: body.email,
       code,
+      subject,
     });
     if (error) {
       throw FailedToSendOTPException;
@@ -189,7 +200,7 @@ export class AuthService {
   }
 
   async login(body: LoginInputType & { userAgent: string; ip: string }) {
-    const user = await this.authRepository.findUniqueUserIncludeRole({
+    const user = await this.authRepository.findUniqueUserWithActiveRole({
       account: body.account,
     });
     if (!user) {
@@ -206,8 +217,6 @@ export class AuthService {
 
     return this.loginWithSession({
       userId: user.id,
-      roleId: user.roleId,
-      roleName: user.role.name,
       userAgent: body.userAgent,
       ip: body.ip,
     });
@@ -216,8 +225,6 @@ export class AuthService {
   @Transactional()
   private async loginWithSession({
     userId,
-    roleId,
-    roleName,
     userAgent,
     ip,
   }: Omit<AccessTokenPayloadCreate, 'deviceId'> & { userAgent: string; ip: string }) {
@@ -231,8 +238,6 @@ export class AuthService {
     return this.generateTokens({
       userId,
       deviceId: device.id,
-      roleId,
-      roleName,
     });
   }
 
@@ -251,21 +256,17 @@ export class AuthService {
       throw EmailAlreadyExistsException;
     }
 
-    if (
-      existingAccounts.some((account) => account.username.toLowerCase() === normalizedUsername)
-    ) {
+    if (existingAccounts.some((account) => account.username.toLowerCase() === normalizedUsername)) {
       throw UsernameAlreadyExistsException;
     }
   }
 
-  async generateTokens({ userId, deviceId, roleId, roleName }: AccessTokenPayloadCreate) {
+  async generateTokens({ userId, deviceId }: AccessTokenPayloadCreate) {
     const refreshTokenId = randomUUID();
     const [accessToken, refreshToken] = await Promise.all([
       this.tokenService.signAccessToken({
         userId,
         deviceId,
-        roleId,
-        roleName,
       }),
       this.tokenService.signRefreshToken({
         refreshTokenId,
@@ -293,27 +294,19 @@ export class AuthService {
       const { userId } = await this.tokenService.verifyRefreshToken(refreshToken);
 
       const refreshTokenInDb =
-        await this.authRepository.findUniqueRefreshTokenIncludeUserRole(refreshToken);
+        await this.authRepository.findUniqueRefreshTokenIncludeUser(refreshToken);
       if (!refreshTokenInDb) {
         throw RefreshTokenAlreadyUsedException;
       }
       if (refreshTokenInDb.user.status === UserStatus.BANNED) {
         throw AccountBlockedException;
       }
-      const {
-        deviceId,
-        user: {
-          roleId,
-          role: { name: roleName },
-        },
-      } = refreshTokenInDb;
+      const { deviceId } = refreshTokenInDb;
 
       return await this.rotateRefreshToken({
         refreshToken,
         userId,
         deviceId,
-        roleId,
-        roleName,
         userAgent,
         ip,
       });
@@ -330,8 +323,6 @@ export class AuthService {
     refreshToken,
     userId,
     deviceId,
-    roleId,
-    roleName,
     userAgent,
     ip,
   }: AccessTokenPayloadCreate & {
@@ -350,8 +341,6 @@ export class AuthService {
 
     return this.generateTokens({
       userId,
-      roleId,
-      roleName,
       deviceId,
     });
   }
