@@ -8,6 +8,7 @@ import { TokenService } from '../../shared/services/token.service.js';
 import ms, { StringValue } from 'ms';
 import envConfig from '../../shared/config.js';
 import {
+  EmailSubject,
   TypeOfVerificationCode,
   TypeOfVerificationCodeType,
   UserStatus,
@@ -175,9 +176,22 @@ export class AuthService {
       expiresAt: addMilliseconds(new Date(), ms(envConfig.OTP_EXPIRES_IN as StringValue)),
     });
 
+    let subject: string;
+    switch (body.type) {
+      case TypeOfVerificationCode.REGISTER:
+        subject = EmailSubject.REGISTER;
+        break;
+      case TypeOfVerificationCode.FORGOT_PASSWORD:
+        subject = EmailSubject.FORGOT_PASSWORD;
+        break;
+      default:
+        throw new Error('Invalid verification code type');
+    }
+
     const { error } = await this.emailService.sendOTP({
       email: body.email,
       code,
+      subject,
     });
     if (error) {
       throw FailedToSendOTPException;
