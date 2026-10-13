@@ -7,7 +7,6 @@ import type {
   CreateProjectInputType,
   GetProjectListInputType,
   GetProjectListOutputType,
-  ProjectOutputType,
   UpdateProjectInputType,
 } from './project.model.ts';
 
@@ -61,7 +60,9 @@ export class ProjectRepo {
         status: ProjectStatus.ACTIVE,
         createdById: userId,
       },
-      select: PROJECT_SELECT,
+      select: {
+        id: true,
+      },
     });
   }
 
@@ -74,29 +75,20 @@ export class ProjectRepo {
   }): Promise<GetProjectListOutputType> {
     const { page, limit, skip, take } = getPagination(query);
     const where = this.buildAccessWhere(access, query.status);
-    const accessSql = access.unrestricted
-      ? Prisma.sql``
-      : Prisma.sql`AND "publisherAccountId" = ${access.publisherAccountId}::uuid`;
 
     const [totalItems, projects] = await Promise.all([
       this.prisma.project.count({ where }),
-      this.prisma.$queryRaw<ProjectOutputType[]>(Prisma.sql`
-        SELECT
-          id,
-          "publisherAccountId",
-          name,
-          description,
-          status,
-          "createdAt",
-          "updatedAt"
-        FROM "Project"
-        WHERE "deletedAt" IS NULL
-          AND status = ${query.status}::"ProjectStatus"
-          ${accessSql}
-        ORDER BY COALESCE("updatedAt", "createdAt") DESC, id DESC
-        LIMIT ${take}
-        OFFSET ${skip}
-      `),
+      this.prisma.project.findMany({
+        where,
+        select: PROJECT_SELECT,
+        orderBy: [
+          { updatedAt: { sort: 'desc', nulls: 'last' } },
+          { createdAt: 'desc' },
+          { id: 'desc' },
+        ],
+        skip,
+        take,
+      }),
     ]);
 
     return {
@@ -129,7 +121,7 @@ export class ProjectRepo {
     access: ProjectAccess;
     userId: string;
   }) {
-    const projects = await this.prisma.project.updateManyAndReturn({
+    return this.prisma.project.updateMany({
       where: {
         id,
         ...this.buildAccessWhere(access, ProjectStatus.ACTIVE),
@@ -139,10 +131,7 @@ export class ProjectRepo {
         updatedById: userId,
         updatedAt: new Date(),
       },
-      select: PROJECT_SELECT,
     });
-
-    return projects[0] ?? null;
   }
 
   async archiveActive({
@@ -154,7 +143,7 @@ export class ProjectRepo {
     access: ProjectAccess;
     userId: string;
   }) {
-    const projects = await this.prisma.project.updateManyAndReturn({
+    return this.prisma.project.updateMany({
       where: {
         id,
         ...this.buildAccessWhere(access, ProjectStatus.ACTIVE),
@@ -164,10 +153,7 @@ export class ProjectRepo {
         updatedById: userId,
         updatedAt: new Date(),
       },
-      select: PROJECT_SELECT,
     });
-
-    return projects[0] ?? null;
   }
 
   private buildAccessWhere(
