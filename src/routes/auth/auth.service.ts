@@ -32,7 +32,6 @@ import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import {
   ForgotPasswordInputType,
   LoginInputType,
-  RefreshTokenInputType,
   RegisterInputType,
   SendOTPInputType,
 } from './auth.model.ts';
@@ -289,7 +288,11 @@ export class AuthService {
     refreshToken,
     userAgent,
     ip,
-  }: RefreshTokenInputType & { userAgent: string; ip: string }) {
+  }: {
+    refreshToken: string;
+    userAgent: string;
+    ip: string;
+  }) {
     try {
       const { userId } = await this.tokenService.verifyRefreshToken(refreshToken);
 

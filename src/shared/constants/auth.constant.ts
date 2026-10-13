@@ -12,6 +12,11 @@ export const RoleStatus = {
 export const REQUEST_USER_KEY = 'user';
 export const REQUEST_ROLE_PERMISSIONS = 'role_permissions';
 
+export const AuthCookieName = {
+  AccessToken: 'access_token',
+  RefreshToken: 'refresh_token',
+} as const;
+
 export const AuthType = {
   Bearer: 'Bearer',
   None: 'None',

@@ -1,26 +1,28 @@
 import {
   Body,
   Controller,
-  Get,
   HttpCode,
   HttpStatus,
   Inject,
   Ip,
   Post,
-  Query,
   Req,
   Res,
+  UnauthorizedException,
 } from '@nestjs/common';
-import { Response } from 'express';
+import type { Request, Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
 import { AuthService } from './auth.service.js';
-import envConfig from '../../shared/config.js';
-import { ActiveUser } from '../../shared/decorators/active-user.decorator.js';
+import { AuthCookieName } from '../../shared/constants/auth.constant.ts';
 import { IsPublic } from '../../shared/decorators/auth.decorator.js';
 import { UserAgent } from '../../shared/decorators/user-agent.decorator.js';
-import { EmptyBodyDTO } from '../../shared/dtos/request.dto.js';
 import { MessageResDTO } from '../../shared/dtos/response.dto.js';
+import {
+  clearAuthCookies,
+  getRequestCookie,
+  setAuthCookies,
+} from '../../shared/utils/auth-cookie.ts';
 import {
   ForgotPasswordInputDTO,
   LoginInputDTO,
@@ -41,12 +43,20 @@ export class AuthController {
   @Post('register')
   @IsPublic()
   @ZodResponse({ type: RegisterOutputDTO })
-  register(@Body() body: RegisterInputDTO, @UserAgent() userAgent: string, @Ip() ip: string) {
-    return this.authService.register({
+  async register(
+    @Body() body: RegisterInputDTO,
+    @UserAgent() userAgent: string,
+    @Ip() ip: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const tokens = await this.authService.register({
       ...body,
       userAgent,
       ip,
     });
+    setAuthCookies(response, tokens);
+
+    return tokens;
   }
 
   @Post('otp')
@@ -59,35 +69,57 @@ export class AuthController {
   @Post('login')
   @IsPublic()
   @ZodResponse({ type: LoginOutputDTO })
-  login(@Body() body: LoginInputDTO, @UserAgent() userAgent: string, @Ip() ip: string) {
-    return this.authService.login({
+  async login(
+    @Body() body: LoginInputDTO,
+    @UserAgent() userAgent: string,
+    @Ip() ip: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const tokens = await this.authService.login({
       ...body,
       userAgent,
       ip,
     });
+    setAuthCookies(response, tokens);
+
+    return tokens;
   }
 
   @Post('refresh-token')
   @IsPublic()
   @HttpCode(HttpStatus.OK)
   @ZodResponse({ type: RefreshTokenOutputDTO })
-  refreshToken(
+  async refreshToken(
     @Body() body: RefreshTokenInputDTO,
+    @Req() request: Request,
     @UserAgent() userAgent: string,
     @Ip() ip: string,
+    @Res({ passthrough: true }) response: Response,
   ) {
-    return this.authService.refreshToken({
-      refreshToken: body.refreshToken,
+    const refreshToken = this.resolveRefreshToken(body.refreshToken, request);
+    const tokens = await this.authService.refreshToken({
+      refreshToken,
       userAgent,
       ip,
     });
+    setAuthCookies(response, tokens);
+
+    return tokens;
   }
 
   @Post('logout')
   @ApiBearerAuth('access-token')
   @ZodResponse({ type: MessageResDTO })
-  logout(@Body() body: LogoutInputDTO) {
-    return this.authService.logout(body.refreshToken);
+  async logout(
+    @Body() body: LogoutInputDTO,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const refreshToken = this.resolveRefreshToken(body.refreshToken, request);
+    const result = await this.authService.logout(refreshToken);
+    clearAuthCookies(response);
+
+    return result;
   }
 
   @Post('forgot-password')
@@ -95,5 +127,14 @@ export class AuthController {
   @ZodResponse({ type: MessageResDTO })
   forgotPassword(@Body() body: ForgotPasswordInputDTO) {
     return this.authService.forgotPassword(body);
+  }
+
+  private resolveRefreshToken(bodyToken: string | undefined, request: Request): string {
+    const refreshToken = bodyToken ?? getRequestCookie(request, AuthCookieName.RefreshToken);
+    if (!refreshToken) {
+      throw new UnauthorizedException('Error.MissingRefreshToken');
+    }
+
+    return refreshToken;
   }
 }

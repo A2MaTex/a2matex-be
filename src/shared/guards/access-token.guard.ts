@@ -18,6 +18,7 @@ import { SKIP_PERMISSION_CHECK_KEY } from '../decorators/auth.decorator.ts';
 import {
   REQUEST_ROLE_PERMISSIONS,
   REQUEST_USER_KEY,
+  AuthCookieName,
   RoleStatus,
   UserStatus,
 } from '../constants/auth.constant.js';
@@ -27,6 +28,7 @@ import { API_PREFIX_PATH } from '../constants/system.constant.js';
 import { PrismaService } from '../services/prisma.service.ts';
 import { TokenService } from '../services/token.service.ts';
 import type { AccessTokenPayload } from '../types/jwt.type.js';
+import { getRequestCookie } from '../utils/auth-cookie.ts';
 import type {
   PermissionGrant,
   RolePermissionCacheValue,
@@ -148,10 +150,16 @@ export class AccessTokenGuard implements CanActivate {
 
   private extractAccessTokenFromHeader(request: AuthRequest): string {
     const [type, accessToken] = request.headers.authorization?.split(' ') ?? [];
-    if (type !== 'Bearer' || !accessToken) {
-      throw new UnauthorizedException('Error.MissingAccessToken');
+    if (type === 'Bearer' && accessToken) {
+      return accessToken;
     }
-    return accessToken;
+
+    const cookieAccessToken = getRequestCookie(request, AuthCookieName.AccessToken);
+    if (cookieAccessToken) {
+      return cookieAccessToken;
+    }
+
+    throw new UnauthorizedException('Error.MissingAccessToken');
   }
 
   private async validateUserPermission(roleIds: string[], request: AuthRequest): Promise<void> {
