@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { zBigIntAsNumber, zCoerceDate } from '../../shared/utils/zod.ts';
 import { Profile } from '../../entities/profile.model.ts';
+import { Role } from '../../entities/role.schema.ts';
+
+export const ProfileRoleOutput = Role.pick({
+  id: true,
+  name: true,
+});
 
 export const ProfileOutput = Profile.pick({
   id: true,
@@ -20,6 +26,7 @@ export const ProfileOutput = Profile.pick({
   createdAt: true,
 }).extend({
   balance: zBigIntAsNumber(),
+  roles: z.array(ProfileRoleOutput),
 });
 
 const PersonalProfileFields = Profile.pick({

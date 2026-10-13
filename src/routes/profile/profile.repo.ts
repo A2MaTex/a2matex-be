@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { RoleStatus } from '../../shared/constants/auth.constant.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
 import {
   ProfileOutputType,
@@ -15,9 +16,60 @@ export class ProfileRepo {
         userId,
         deletedAt: null,
       },
+      select: {
+        id: true,
+        fullName: true,
+        avatarStaticId: true,
+        bio: true,
+        website: true,
+        twitter: true,
+        linkedin: true,
+        github: true,
+        instagram: true,
+        gender: true,
+        birthday: true,
+        address: true,
+        phone: true,
+        email: true,
+        balance: true,
+        createdAt: true,
+        user: {
+          select: {
+            userRoles: {
+              where: {
+                deletedAt: null,
+                role: {
+                  status: RoleStatus.ACTIVE,
+                  deletedAt: null,
+                },
+              },
+              select: {
+                role: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     });
 
-    return profile as ProfileOutputType | null;
+    if (!profile) {
+      return null;
+    }
+
+    const { user, ...profileData } = profile;
+    const roles = [
+      ...new Map(user.userRoles.map(({ role }) => [role.id, role] as const)).values(),
+    ].sort((left, right) => left.name.localeCompare(right.name));
+
+    return {
+      ...profileData,
+      roles,
+    };
   }
 
   async updatePersonalProfile({
