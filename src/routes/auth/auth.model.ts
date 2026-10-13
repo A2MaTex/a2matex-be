@@ -46,9 +46,10 @@ export const RegisterOutput = LoginOutput;
 
 export const RefreshTokenInput = z
   .object({
-    refreshToken: z.string(),
+    refreshToken: z.string().optional(),
   })
-  .strict();
+  .strict()
+  .default({});
 
 export const RefreshTokenOutput = z.object({
   accessToken: z.string(),
