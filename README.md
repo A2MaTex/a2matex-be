@@ -117,3 +117,9 @@ npx tsx src/seed/create-role.ts
 ```bash
 npx tsx src/seed/create-permissions.ts
 ```
+
+### Sync node catalog
+
+```bash
+npx tsx src/seed/sync-node-catalog.ts
+```

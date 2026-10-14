@@ -5,7 +5,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { cleanupOpenApiDoc } from 'nestjs-zod';
 import { AppModule } from './app.module.js';
 import envConfig from './shared/config.js';
-import { API_PREFIX } from './shared/constants/system.constant.js';
+import { API_PREFIX, JSON_TRANSPORT_LIMIT } from './shared/constants/system.constant.js';
 
 /**
  * Explicit origins are allowed with credentials. A wildcard (or nothing) keeps
@@ -76,6 +76,8 @@ function setupSwagger(app: NestExpressApplication) {
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  app.useBodyParser('json', { limit: JSON_TRANSPORT_LIMIT });
 
   app.set('trust proxy', parseTrustProxy(envConfig.TRUST_PROXY));
   app.setGlobalPrefix(API_PREFIX);

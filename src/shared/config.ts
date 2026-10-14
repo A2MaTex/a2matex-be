@@ -37,7 +37,7 @@ const configSchema = z
     REFRESH_TOKEN_SECRET: z.string().min(1),
     OTP_EXPIRES_IN: z.string().default('5m'),
     RESEND_API_KEY: z.string(),
-    EMAIL_FROM: z.string().default('A2MaTeX <onboarding@resend.dev>'),
+    EMAIL_FROM: z.string().default('A2MaTeX <no-reply@a2matex.com>'),
     REDIS_HOST: z.string().default('localhost'),
     REDIS_PORT: z.coerce.number().int().positive().default(6379),
     REDIS_PASSWORD: z.string().optional().transform(emptyToUndefined),
