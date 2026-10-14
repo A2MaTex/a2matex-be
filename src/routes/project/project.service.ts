@@ -1,39 +1,26 @@
 import { Inject, Injectable } from '@nestjs/common';
-import {
-  PublisherAccountStatus,
-  type PublisherAccountStatusType,
-} from '../../shared/constants/publisher.constant.ts';
-import { PermissionScope } from '../../shared/constants/role.constant.ts';
 import type { ActivePermissionScope } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import { getPagination } from '../../shared/utils/pagination.ts';
 import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
-import {
-  PublisherBlockedException,
-  PublisherNotActivatedException,
-} from '../publisher/publisher.error.ts';
-import {
-  ProjectAccessDeniedException,
-  ProjectArchivedException,
-  ProjectNotFoundException,
-} from './project.error.ts';
+import { ProjectArchivedException, ProjectNotFoundException } from './project.error.ts';
 import type {
   CreateProjectInputType,
   GetProjectListInputType,
   UpdateProjectInputType,
 } from './project.model.ts';
-import { ProjectRepo, type ProjectAccess } from './project.repo.ts';
-
-type PublisherAccount = {
-  id: string;
-  status: PublisherAccountStatusType;
-};
+import type { ProjectAccess } from './project-access.model.ts';
+import { ProjectAccessPolicy } from './project-access.policy.ts';
+import { ProjectRepo } from './project.repo.ts';
 
 @Injectable()
 export class ProjectService {
-  constructor(@Inject(ProjectRepo) private readonly projectRepo: ProjectRepo) {}
+  constructor(
+    @Inject(ProjectRepo) private readonly projectRepo: ProjectRepo,
+    @Inject(ProjectAccessPolicy) private readonly projectAccessPolicy: ProjectAccessPolicy,
+  ) {}
 
   async create({ data, userId }: { data: CreateProjectInputType; userId: string }) {
-    const publisherAccount = await this.getActivePublisherAccount(userId);
+    const publisherAccount = await this.projectAccessPolicy.getActivePublisherAccount(userId);
     return this.projectRepo.create({
       data,
       publisherAccountId: publisherAccount.id,
@@ -50,7 +37,7 @@ export class ProjectService {
     userId: string;
     scopes: ActivePermissionScope[];
   }) {
-    const access = await this.resolveReadAccess(userId, scopes);
+    const access = await this.projectAccessPolicy.resolveReadAccess(userId, scopes);
     if (!access) {
       const { page, limit } = getPagination(query);
       return {
@@ -74,7 +61,7 @@ export class ProjectService {
     userId: string;
     scopes: ActivePermissionScope[];
   }) {
-    const access = await this.resolveReadAccess(userId, scopes);
+    const access = await this.projectAccessPolicy.resolveReadAccess(userId, scopes);
     if (!access) {
       throw ProjectNotFoundException;
     }
@@ -97,7 +84,7 @@ export class ProjectService {
     userId: string;
     scopes: ActivePermissionScope[];
   }) {
-    const access = await this.resolveMutationAccess(userId, scopes);
+    const access = await this.projectAccessPolicy.resolveMutationAccess(userId, scopes);
     const result = await this.projectRepo.updateActive({ id, data, access, userId });
     if (result.count === 0) {
       await this.throwMutationFailure(id, access);
@@ -115,7 +102,7 @@ export class ProjectService {
     userId: string;
     scopes: ActivePermissionScope[];
   }) {
-    const access = await this.resolveMutationAccess(userId, scopes);
+    const access = await this.projectAccessPolicy.resolveMutationAccess(userId, scopes);
     const result = await this.projectRepo.archiveActive({ id, access, userId });
     if (result.count === 0) {
       const existingProject = await this.projectRepo.getById({ id, access });
@@ -125,49 +112,6 @@ export class ProjectService {
     }
 
     return SUCCESS_RESPONSE;
-  }
-
-  private async resolveReadAccess(
-    userId: string,
-    scopes: ActivePermissionScope[],
-  ): Promise<ProjectAccess | null> {
-    if (scopes.includes(null)) {
-      return { unrestricted: true };
-    }
-    if (!scopes.includes(PermissionScope.OWN)) {
-      throw ProjectAccessDeniedException;
-    }
-
-    const publisherAccount = await this.projectRepo.getPublisherAccount(userId);
-    return publisherAccount
-      ? { unrestricted: false, publisherAccountId: publisherAccount.id }
-      : null;
-  }
-
-  private async resolveMutationAccess(
-    userId: string,
-    scopes: ActivePermissionScope[],
-  ): Promise<ProjectAccess> {
-    if (scopes.includes(null)) {
-      return { unrestricted: true };
-    }
-    if (!scopes.includes(PermissionScope.OWN)) {
-      throw ProjectAccessDeniedException;
-    }
-
-    const publisherAccount = await this.getActivePublisherAccount(userId);
-    return { unrestricted: false, publisherAccountId: publisherAccount.id };
-  }
-
-  private async getActivePublisherAccount(userId: string): Promise<PublisherAccount> {
-    const publisherAccount = await this.projectRepo.getPublisherAccount(userId);
-    if (!publisherAccount) {
-      throw PublisherNotActivatedException;
-    }
-    if (publisherAccount.status === PublisherAccountStatus.BLOCKED) {
-      throw PublisherBlockedException;
-    }
-    return publisherAccount;
   }
 
   private async throwMutationFailure(id: string, access: ProjectAccess): Promise<never> {

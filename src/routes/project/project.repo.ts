@@ -9,9 +9,7 @@ import type {
   GetProjectListOutputType,
   UpdateProjectInputType,
 } from './project.model.ts';
-
-export type ProjectAccess =
-  { unrestricted: true } | { unrestricted: false; publisherAccountId: string };
+import { buildProjectAccessWhere, type ProjectAccess } from './project-access.model.ts';
 
 const PROJECT_SELECT = {
   id: true,
@@ -74,7 +72,7 @@ export class ProjectRepo {
     access: ProjectAccess;
   }): Promise<GetProjectListOutputType> {
     const { page, limit, skip, take } = getPagination(query);
-    const where = this.buildAccessWhere(access, query.status);
+    const where = buildProjectAccessWhere(access, query.status);
 
     const [totalItems, projects] = await Promise.all([
       this.prisma.project.count({ where }),
@@ -104,7 +102,7 @@ export class ProjectRepo {
     return this.prisma.project.findFirst({
       where: {
         id,
-        ...this.buildAccessWhere(access),
+        ...buildProjectAccessWhere(access),
       },
       select: PROJECT_SELECT,
     });
@@ -124,7 +122,7 @@ export class ProjectRepo {
     return this.prisma.project.updateMany({
       where: {
         id,
-        ...this.buildAccessWhere(access, ProjectStatus.ACTIVE),
+        ...buildProjectAccessWhere(access, ProjectStatus.ACTIVE),
       },
       data: {
         ...data,
@@ -146,7 +144,7 @@ export class ProjectRepo {
     return this.prisma.project.updateMany({
       where: {
         id,
-        ...this.buildAccessWhere(access, ProjectStatus.ACTIVE),
+        ...buildProjectAccessWhere(access, ProjectStatus.ACTIVE),
       },
       data: {
         status: ProjectStatus.ARCHIVED,
@@ -154,16 +152,5 @@ export class ProjectRepo {
         updatedAt: new Date(),
       },
     });
-  }
-
-  private buildAccessWhere(
-    access: ProjectAccess,
-    status?: GetProjectListInputType['status'],
-  ): Prisma.ProjectWhereInput {
-    return {
-      deletedAt: null,
-      status,
-      ...(access.unrestricted ? {} : { publisherAccountId: access.publisherAccountId }),
-    };
   }
 }

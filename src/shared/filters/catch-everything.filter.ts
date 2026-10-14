@@ -11,7 +11,10 @@ import { isUniqueConstraintPrismaError } from '../utils/prisma.ts';
 
 type ExceptionResponse = {
   message?: unknown;
+  details?: unknown;
 };
+
+type SafeExceptionDetails = Record<string, string | number | boolean | null>;
 
 @Catch()
 /**
@@ -30,32 +33,51 @@ export class CatchEverythingFilter implements ExceptionFilter {
 
     let httpStatus =
       exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
-    let message =
+    let normalizedResponse =
       exception instanceof HttpException
-        ? this.normalizeExceptionMessage(exception.getResponse())
-        : 'Internal Server Error';
+        ? this.normalizeExceptionResponse(exception.getResponse())
+        : { message: 'Internal Server Error' };
     if (isUniqueConstraintPrismaError(exception)) {
       httpStatus = HttpStatus.CONFLICT;
-      message = 'Record already exist';
+      normalizedResponse = { message: 'Record already exist' };
     }
     const responseBody = {
       statusCode: httpStatus,
-      message,
+      ...normalizedResponse,
     };
     httpAdapter.reply(ctx.getResponse(), responseBody, httpStatus);
   }
 
-  private normalizeExceptionMessage(response: string | object): unknown {
+  private normalizeExceptionResponse(response: string | object): {
+    message: unknown;
+    details?: SafeExceptionDetails;
+  } {
     if (typeof response === 'string') {
-      return response;
+      return { message: response };
     }
 
-    const { message } = response as ExceptionResponse;
-    if (Array.isArray(message)) {
-      return message.map((item) => this.normalizeErrorItem(item));
+    const { message, details } = response as ExceptionResponse;
+    const normalizedMessage = Array.isArray(message)
+      ? message.map((item) => this.normalizeErrorItem(item))
+      : (message ?? response);
+
+    return this.isSafeDetails(details)
+      ? { message: normalizedMessage, details }
+      : { message: normalizedMessage };
+  }
+
+  private isSafeDetails(details: unknown): details is SafeExceptionDetails {
+    if (!details || typeof details !== 'object' || Array.isArray(details)) {
+      return false;
     }
 
-    return message ?? response;
+    return Object.values(details).every(
+      (value) =>
+        value === null ||
+        typeof value === 'string' ||
+        typeof value === 'boolean' ||
+        (typeof value === 'number' && Number.isFinite(value)),
+    );
   }
 
   private normalizeErrorItem(item: unknown): unknown {
