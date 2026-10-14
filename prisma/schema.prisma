@@ -29,6 +29,7 @@ model User {
   Project_Project_createdByIdToUser Project[]          @relation("Project_createdByIdToUser")
   Project_Project_deletedByIdToUser Project[]          @relation("Project_deletedByIdToUser")
   Project_Project_updatedByIdToUser Project[]          @relation("Project_updatedByIdToUser")
+  ProjectDraft                      ProjectDraft[]
   blockedPublisherAccounts          PublisherAccount[] @relation("PublisherAccount_blockedByIdToUser")
   publisherAccount                  PublisherAccount?  @relation("PublisherAccount_userIdToUser")
   refreshTokens                     RefreshToken[]
@@ -315,6 +316,7 @@ model NodeDefinitionCapability {
   @@index([capabilityId])
 }
 
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model Project {
   id                             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   publisherAccountId             String           @db.Uuid
@@ -331,8 +333,29 @@ model Project {
   User_Project_deletedByIdToUser User?            @relation("Project_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   PublisherAccount               PublisherAccount @relation(fields: [publisherAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_Project_updatedByIdToUser User?            @relation("Project_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ProjectDraft                   ProjectDraft?
 
   @@index([publisherAccountId, status], where: raw("(\"deletedAt\" IS NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model ProjectDraft {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId         String    @unique @db.Uuid
+  version           Int       @default(1)
+  editorGraph       Json
+  inputSchema       Json
+  runtimeIr         Json?
+  validationSummary Json      @default("{}")
+  testSummary       Json      @default("{}")
+  contentHash       String    @db.VarChar(64)
+  savedAt           DateTime  @default(now()) @db.Timestamptz(6)
+  savedById         String    @db.Uuid
+  createdAt         DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime? @db.Timestamptz(6)
+  deletedAt         DateTime? @db.Timestamptz(6)
+  Project           Project   @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User              User      @relation(fields: [savedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 enum UserStatus {

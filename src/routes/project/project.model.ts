@@ -38,10 +38,10 @@ export const CreateProjectInput = z
   })
   .strict();
 
-export const CreateProjectOutput = ProjectOutput;
+export const CreateProjectOutput = Project.pick({ id: true });
 
 export const GetProjectListInput = PaginationQuerySchema.extend({
-  status: z.enum([ProjectStatus.ACTIVE, ProjectStatus.ARCHIVED]).default(ProjectStatus.ACTIVE),
+  status: z.enum([ProjectStatus.ACTIVE, ProjectStatus.ARCHIVED]).optional(),
 }).strict();
 
 export const GetProjectListOutput = z.object({
@@ -63,9 +63,6 @@ export const UpdateProjectInput = z
   .refine((value) => value.name !== undefined || value.description !== undefined, {
     message: 'At least one field is required',
   });
-
-export const UpdateProjectOutput = ProjectOutput;
-export const ArchiveProjectOutput = ProjectOutput;
 
 export type ProjectOutputType = z.infer<typeof ProjectOutput>;
 export type CreateProjectInputType = z.infer<typeof CreateProjectInput>;

@@ -1,11 +1,11 @@
 import { Body, Controller, Get, Inject, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
+import { MessageResDTO } from '../../shared/dtos/response.dto.ts';
 import { ActivePermissionScopes } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import type { ActivePermissionScope } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import { ActiveUser } from '../../shared/decorators/active-user.decorator.ts';
 import {
-  ArchiveProjectOutputDTO,
   CreateProjectInputDTO,
   CreateProjectOutputDTO,
   GetProjectDetailOutputDTO,
@@ -13,7 +13,6 @@ import {
   GetProjectListOutputDTO,
   ProjectIdParamDTO,
   UpdateProjectInputDTO,
-  UpdateProjectOutputDTO,
 } from './project.dto.ts';
 import { ProjectService } from './project.service.ts';
 
@@ -25,12 +24,8 @@ export class ProjectController {
 
   @Post()
   @ZodResponse({ type: CreateProjectOutputDTO })
-  create(
-    @Body() body: CreateProjectInputDTO,
-    @ActiveUser('userId') userId: string,
-    @ActivePermissionScopes() scopes: ActivePermissionScope[],
-  ) {
-    return this.projectService.create({ data: body, userId, scopes });
+  create(@Body() body: CreateProjectInputDTO, @ActiveUser('userId') userId: string) {
+    return this.projectService.create({ data: body, userId });
   }
 
   @Get()
@@ -54,7 +49,7 @@ export class ProjectController {
   }
 
   @Put(':projectId')
-  @ZodResponse({ type: UpdateProjectOutputDTO })
+  @ZodResponse({ type: MessageResDTO })
   update(
     @Param() params: ProjectIdParamDTO,
     @Body() body: UpdateProjectInputDTO,
@@ -65,7 +60,7 @@ export class ProjectController {
   }
 
   @Put(':projectId/archive')
-  @ZodResponse({ type: ArchiveProjectOutputDTO })
+  @ZodResponse({ type: MessageResDTO })
   archive(
     @Param() params: ProjectIdParamDTO,
     @ActiveUser('userId') userId: string,
