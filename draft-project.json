@@ -1,0 +1,318 @@
+{
+  "data": {
+    "projectStatus": "ARCHIVED",
+    "draft": {
+      "id": "1d4919f8-3cc9-49ad-a943-48c843dd9047",
+      "version": 2,
+      "contentHash": "d6bb91249769bb228fc0ae222c04c2760f9d5d39660c3cdcbf1046f22018f4fb",
+      "savedAt": "2026-10-14T10:37:16.860Z",
+      "projectId": "32e50b1c-57fb-4e7e-b812-ed2b385027ac",
+      "editorGraph": {
+        "edges": [
+          {
+            "id": "e730208e-20da-47a2-a0e0-1d71888f67d2",
+            "sourcePort": "success",
+            "sourceNodeId": "4f488856-1c95-40de-a97a-e29222ef9a4d",
+            "targetNodeId": "201c2f49-9d92-4e91-9931-fc4b9b303d8f"
+          },
+          {
+            "id": "02def41a-123b-4244-9558-21f705f93db8",
+            "sourcePort": "success",
+            "sourceNodeId": "201c2f49-9d92-4e91-9931-fc4b9b303d8f",
+            "targetNodeId": "548ea410-9650-4848-8357-91b3bfb176d3"
+          },
+          {
+            "id": "8f0deedf-e35a-4171-98eb-e001dfeac69f",
+            "sourcePort": "success",
+            "sourceNodeId": "548ea410-9650-4848-8357-91b3bfb176d3",
+            "targetNodeId": "413efb7c-1393-46fe-8e64-dcce38baa9d0"
+          },
+          {
+            "id": "529c3cef-cd09-467a-b98f-c388c6a0ed1c",
+            "sourcePort": "success",
+            "sourceNodeId": "413efb7c-1393-46fe-8e64-dcce38baa9d0",
+            "targetNodeId": "a9a4c6f3-2ffe-44a0-b76d-354fe8384e5f"
+          },
+          {
+            "id": "b3c21e92-ba8e-46f0-bca1-d4b39bb4c321",
+            "sourcePort": "success",
+            "sourceNodeId": "a9a4c6f3-2ffe-44a0-b76d-354fe8384e5f",
+            "targetNodeId": "efb77d78-83a0-4d56-a7fb-8fae3eb64a89"
+          },
+          {
+            "id": "9cd88e1b-99dc-4106-8ac1-6a7c7929eca5",
+            "sourcePort": "success",
+            "sourceNodeId": "efb77d78-83a0-4d56-a7fb-8fae3eb64a89",
+            "targetNodeId": "cbf75d61-db1d-4783-b9dd-8027cba3286c"
+          },
+          {
+            "id": "509c8400-f195-4a18-9d1a-c1e93e905c44",
+            "sourcePort": "success",
+            "sourceNodeId": "cbf75d61-db1d-4783-b9dd-8027cba3286c",
+            "targetNodeId": "64d209a9-c48a-4e41-9f0e-5e9abbf44127"
+          },
+          {
+            "id": "bfc75efa-6643-49f4-ab42-f594b89a6b3a",
+            "sourcePort": "success",
+            "sourceNodeId": "64d209a9-c48a-4e41-9f0e-5e9abbf44127",
+            "targetNodeId": "c2d0801b-e02a-4830-a373-5736a59f86bb"
+          },
+          {
+            "id": "91e1cd68-f6ff-45f0-b12e-a0582d0b026e",
+            "sourcePort": "success",
+            "sourceNodeId": "c2d0801b-e02a-4830-a373-5736a59f86bb",
+            "targetNodeId": "f3ec3b2c-27d0-45b9-9d80-0feedbda6c0e"
+          },
+          {
+            "id": "5a5c8e7b-ffce-4428-bf8c-b20cf03c5944",
+            "sourcePort": "success",
+            "sourceNodeId": "f3ec3b2c-27d0-45b9-9d80-0feedbda6c0e",
+            "targetNodeId": "98a30963-a2c5-4ae1-b183-d31d71dc603a"
+          },
+          {
+            "id": "791bad13-2c38-4f1c-af49-e012e7aeef68",
+            "sourcePort": "success",
+            "sourceNodeId": "98a30963-a2c5-4ae1-b183-d31d71dc603a",
+            "targetNodeId": "c4c49319-aca5-4052-ad09-2bd914d228c4"
+          },
+          {
+            "id": "865d9e9c-5785-4877-9940-725387f4b7f7",
+            "sourcePort": "success",
+            "sourceNodeId": "c4c49319-aca5-4052-ad09-2bd914d228c4",
+            "targetNodeId": "32c36c56-240b-4c88-91d0-79a3ee528fa7"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "4f488856-1c95-40de-a97a-e29222ef9a4d",
+            "type": "flow.start",
+            "config": {},
+            "editor": {
+              "x": 100,
+              "y": 180
+            },
+            "bindings": {},
+            "errorPolicy": "STOP"
+          },
+          {
+            "id": "201c2f49-9d92-4e91-9931-fc4b9b303d8f",
+            "type": "android.press_home",
+            "config": {},
+            "editor": {
+              "x": 340,
+              "y": 180
+            },
+            "bindings": {},
+            "errorPolicy": "STOP"
+          },
+          {
+            "id": "548ea410-9650-4848-8357-91b3bfb176d3",
+            "type": "flow.delay",
+            "config": {},
+            "editor": {
+              "x": 580,
+              "y": 180
+            },
+            "bindings": {
+              "durationMs": {
+                "kind": "constant",
+                "value": 500
+              }
+            },
+            "errorPolicy": "STOP"
+          },
+          {
+            "id": "413efb7c-1393-46fe-8e64-dcce38baa9d0",
+            "type": "android.launch_app",
+            "config": {},
+            "editor": {
+              "x": 820,
+              "y": 180
+            },
+            "bindings": {
+              "packageName": {
+                "kind": "constant",
+                "value": "com.okinc.okex.gp"
+              }
+            },
+            "errorPolicy": "STOP"
+          },
+          {
+            "id": "a9a4c6f3-2ffe-44a0-b76d-354fe8384e5f",
+            "type": "flow.delay",
+            "config": {},
+            "editor": {
+              "x": 1060,
+              "y": 180
+            },
+            "bindings": {
+              "durationMs": {
+                "kind": "constant",
+                "value": 3000
+              }
+            },
+            "errorPolicy": "STOP"
+          },
+          {
+            "id": "efb77d78-83a0-4d56-a7fb-8fae3eb64a89",
+            "type": "android.tap",
+            "config": {},
+            "editor": {
+              "x": 1300,
+              "y": 180
+            },
+            "bindings": {
+              "x": {
+                "kind": "constant",
+                "value": 270
+              },
+              "y": {
+                "kind": "constant",
+                "value": 1760
+              }
+            },
+            "errorPolicy": "STOP"
+          },
+          {
+            "id": "cbf75d61-db1d-4783-b9dd-8027cba3286c",
+            "type": "flow.delay",
+            "config": {},
+            "editor": {
+              "x": 1540,
+              "y": 180
+            },
+            "bindings": {
+              "durationMs": {
+                "kind": "constant",
+                "value": 1500
+              }
+            },
+            "errorPolicy": "STOP"
+          },
+          {
+            "id": "64d209a9-c48a-4e41-9f0e-5e9abbf44127",
+            "type": "android.screenshot",
+            "config": {},
+            "editor": {
+              "x": 1780,
+              "y": 180
+            },
+            "bindings": {},
+            "errorPolicy": "STOP"
+          },
+          {
+            "id": "c2d0801b-e02a-4830-a373-5736a59f86bb",
+            "type": "android.swipe",
+            "config": {},
+            "editor": {
+              "x": 2020,
+              "y": 180
+            },
+            "bindings": {
+              "endX": {
+                "kind": "constant",
+                "value": 540
+              },
+              "endY": {
+                "kind": "constant",
+                "value": 650
+              },
+              "startX": {
+                "kind": "constant",
+                "value": 540
+              },
+              "startY": {
+                "kind": "constant",
+                "value": 1500
+              },
+              "durationMs": {
+                "kind": "constant",
+                "value": 600
+              }
+            },
+            "errorPolicy": "STOP"
+          },
+          {
+            "id": "f3ec3b2c-27d0-45b9-9d80-0feedbda6c0e",
+            "type": "flow.delay",
+            "config": {},
+            "editor": {
+              "x": 2260,
+              "y": 180
+            },
+            "bindings": {
+              "durationMs": {
+                "kind": "constant",
+                "value": 750
+              }
+            },
+            "errorPolicy": "STOP"
+          },
+          {
+            "id": "98a30963-a2c5-4ae1-b183-d31d71dc603a",
+            "type": "android.screenshot",
+            "config": {},
+            "editor": {
+              "x": 2500,
+              "y": 180
+            },
+            "bindings": {},
+            "errorPolicy": "STOP"
+          },
+          {
+            "id": "c4c49319-aca5-4052-ad09-2bd914d228c4",
+            "type": "utility.log",
+            "config": {},
+            "editor": {
+              "x": 2740,
+              "y": 180
+            },
+            "bindings": {
+              "message": {
+                "kind": "constant",
+                "value": "OKX market price screenshots captured"
+              }
+            },
+            "errorPolicy": "STOP"
+          },
+          {
+            "id": "32c36c56-240b-4c88-91d0-79a3ee528fa7",
+            "type": "flow.end",
+            "config": {},
+            "editor": {
+              "x": 2980,
+              "y": 180
+            },
+            "bindings": {},
+            "errorPolicy": "STOP"
+          }
+        ],
+        "entryNodeId": "4f488856-1c95-40de-a97a-e29222ef9a4d",
+        "schemaVersion": 1
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [],
+        "properties": {},
+        "additionalProperties": false
+      },
+      "runtimeIr": null,
+      "validationSummary": {
+        "errors": [],
+        "status": "NOT_VALIDATED",
+        "warnings": [
+          {
+            "code": "SEED_COORDINATES_DEVICE_DEPENDENT",
+            "message": "Tap and swipe coordinates assume a 1080x1920 portrait device and may require calibration for the installed OKX version."
+          }
+        ]
+      },
+      "testSummary": {
+        "status": "NOT_RUN",
+        "failedRuns": 0,
+        "successfulRuns": 0
+      }
+    }
+  },
+  "statusCode": 200
+}
