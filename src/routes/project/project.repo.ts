@@ -64,6 +64,23 @@ export class ProjectRepo {
     });
   }
 
+  getByNormalizedName({ name, publisherAccountId }: { name: string; publisherAccountId: string }) {
+    return this.prisma.project.findFirst({
+      where: {
+        publisherAccountId,
+        name: {
+          equals: name,
+          mode: 'insensitive',
+        },
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+  }
+
   async getList({
     query,
     access,
