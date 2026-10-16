@@ -9,7 +9,10 @@ import type {
   GetProjectListOutputType,
   UpdateProjectInputType,
 } from './project.model.ts';
-import { buildProjectAccessWhere, type ProjectAccess } from './project-access.model.ts';
+import {
+  buildProjectAccessWhere,
+  type ProjectAccess,
+} from '../../shared/models/project-access.model.ts';
 
 const PROJECT_SELECT = {
   id: true,
@@ -27,19 +30,6 @@ export class ProjectRepo {
 
   private get prisma() {
     return this.prismaService.getClient();
-  }
-
-  getPublisherAccount(userId: string) {
-    return this.prisma.publisherAccount.findFirst({
-      where: {
-        userId,
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        status: true,
-      },
-    });
   }
 
   create({

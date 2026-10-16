@@ -1,6 +1,6 @@
 import { Prisma } from '../../../generated/prisma/client.ts';
 import { ProjectStatus } from '../../../shared/constants/project.constant.ts';
-import { ProjectAccessPolicy } from '../project-access.policy.ts';
+import { ProjectAccessPolicy } from '../../../shared/services/project-access.policy.ts';
 import { ProjectArchivedException } from '../project.error.ts';
 import { ProjectRepo } from '../project.repo.ts';
 import { ProjectService } from '../project.service.ts';

@@ -12,7 +12,7 @@ import { CACHE_PROVIDER } from '../../shared/infrastructure/cache/cache.interfac
 import type { CacheProvider } from '../../shared/infrastructure/cache/cache.interface.ts';
 import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import { TransactionService } from '../../shared/services/transaction.service.ts';
-import { NotFoundRecordException } from '../../shared/types/error.type.ts';
+import { NotFoundRecordException } from '../../shared/errors/common.error.ts';
 import {
   createPublisherProfileIncompleteException,
   PublicPublisherNotFoundException,

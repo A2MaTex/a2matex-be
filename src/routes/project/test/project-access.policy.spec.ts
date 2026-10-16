@@ -1,9 +1,9 @@
 import { PermissionScope } from '../../../shared/constants/role.constant.ts';
-import { ProjectAccessPolicy } from '../project-access.policy.ts';
-import { ProjectRepo } from '../project.repo.ts';
+import { ProjectAccessRepo } from '../../../shared/repositories/project-access.repo.ts';
+import { ProjectAccessPolicy } from '../../../shared/services/project-access.policy.ts';
 
-vi.mock('../project.repo.ts', () => ({
-  ProjectRepo: class ProjectRepo {},
+vi.mock('../../../shared/repositories/project-access.repo.ts', () => ({
+  ProjectAccessRepo: class ProjectAccessRepo {},
 }));
 
 describe('ProjectAccessPolicy', () => {
@@ -12,7 +12,7 @@ describe('ProjectAccessPolicy', () => {
 
   beforeEach(() => {
     getPublisherAccount.mockReset();
-    policy = new ProjectAccessPolicy({ getPublisherAccount } as unknown as ProjectRepo);
+    policy = new ProjectAccessPolicy({ getPublisherAccount } as unknown as ProjectAccessRepo);
   });
 
   it('lets unrestricted read access win without querying a Publisher account', async () => {

@@ -2,7 +2,10 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.ts';
 import { ProjectStatus } from '../../shared/constants/project.constant.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
-import { buildProjectAccessWhere, type ProjectAccess } from '../project/project-access.model.ts';
+import {
+  buildProjectAccessWhere,
+  type ProjectAccess,
+} from '../../shared/models/project-access.model.ts';
 import type { ProjectDraftOutputType, SaveProjectDraftInputType } from './project-draft.model.ts';
 
 const PROJECT_DRAFT_SELECT = {
