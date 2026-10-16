@@ -4,14 +4,14 @@ import type { ActivePermissionScope } from '../../shared/decorators/active-permi
 import { getPagination } from '../../shared/utils/pagination.ts';
 import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import { isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
+import type { ProjectAccess } from '../../shared/models/project-access.model.ts';
+import { ProjectAccessPolicy } from '../../shared/services/project-access.policy.ts';
 import { ProjectArchivedException, ProjectNotFoundException } from './project.error.ts';
 import type {
   CreateProjectInputType,
   GetProjectListInputType,
   UpdateProjectInputType,
 } from './project.model.ts';
-import type { ProjectAccess } from './project-access.model.ts';
-import { ProjectAccessPolicy } from './project-access.policy.ts';
 import { ProjectRepo } from './project.repo.ts';
 
 @Injectable()

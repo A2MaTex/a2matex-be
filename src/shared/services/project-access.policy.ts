@@ -2,16 +2,16 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   PublisherAccountStatus,
   type PublisherAccountStatusType,
-} from '../../shared/constants/publisher.constant.ts';
-import { PermissionScope } from '../../shared/constants/role.constant.ts';
-import type { ActivePermissionScope } from '../../shared/decorators/active-permission-scopes.decorator.ts';
+} from '../constants/publisher.constant.ts';
+import { PermissionScope } from '../constants/role.constant.ts';
+import type { ActivePermissionScope } from '../decorators/active-permission-scopes.decorator.ts';
 import {
+  ProjectAccessDeniedException,
   PublisherBlockedException,
   PublisherNotActivatedException,
-} from '../publisher/publisher.error.ts';
-import { ProjectAccessDeniedException } from './project.error.ts';
-import type { ProjectAccess } from './project-access.model.ts';
-import { ProjectRepo } from './project.repo.ts';
+} from '../errors/project-access.error.ts';
+import type { ProjectAccess } from '../models/project-access.model.ts';
+import { ProjectAccessRepo } from '../repositories/project-access.repo.ts';
 
 type PublisherAccount = {
   id: string;
@@ -20,7 +20,7 @@ type PublisherAccount = {
 
 @Injectable()
 export class ProjectAccessPolicy {
-  constructor(@Inject(ProjectRepo) private readonly projectRepo: ProjectRepo) {}
+  constructor(@Inject(ProjectAccessRepo) private readonly projectAccessRepo: ProjectAccessRepo) {}
 
   async resolveReadAccess(
     userId: string,
@@ -33,7 +33,7 @@ export class ProjectAccessPolicy {
       throw ProjectAccessDeniedException;
     }
 
-    const publisherAccount = await this.projectRepo.getPublisherAccount(userId);
+    const publisherAccount = await this.projectAccessRepo.getPublisherAccount(userId);
     return publisherAccount
       ? { unrestricted: false, publisherAccountId: publisherAccount.id }
       : null;
@@ -67,7 +67,7 @@ export class ProjectAccessPolicy {
   }
 
   async getActivePublisherAccount(userId: string): Promise<PublisherAccount> {
-    const publisherAccount = await this.projectRepo.getPublisherAccount(userId);
+    const publisherAccount = await this.projectAccessRepo.getPublisherAccount(userId);
     if (!publisherAccount) {
       throw PublisherNotActivatedException;
     }

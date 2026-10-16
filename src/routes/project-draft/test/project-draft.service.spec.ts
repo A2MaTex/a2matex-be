@@ -1,12 +1,12 @@
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client.ts';
 import { PermissionScope } from '../../../shared/constants/role.constant.ts';
-import { ProjectAccessPolicy } from '../../project/project-access.policy.ts';
+import { ProjectAccessPolicy } from '../../../shared/services/project-access.policy.ts';
 import { ProjectDraftRepo } from '../project-draft.repo.ts';
 import { ProjectDraftService } from '../project-draft.service.ts';
 import { prepareProjectDraftContent } from '../project-draft.util.ts';
 
-vi.mock('../../project/project-access.policy.ts', () => ({
+vi.mock('../../../shared/services/project-access.policy.ts', () => ({
   ProjectAccessPolicy: class ProjectAccessPolicy {},
 }));
 vi.mock('../project-draft.repo.ts', () => ({
