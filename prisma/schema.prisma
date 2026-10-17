@@ -10,35 +10,38 @@ datasource db {
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model User {
-  id                                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  username                          String             @db.VarChar(255)
-  email                             String
-  password                          String             @db.VarChar(255)
-  status                            UserStatus         @default(INACTIVE)
-  createdAt                         DateTime           @default(now()) @db.Timestamptz(6)
-  updatedAt                         DateTime?          @db.Timestamptz(6)
-  deletedAt                         DateTime?          @db.Timestamptz(6)
-  device                            Device[]
-  createdPermissions                Permission[]       @relation("PermissionCreatedBy")
-  deletedPermissions                Permission[]       @relation("PermissionDeletedBy")
-  updatedPermissions                Permission[]       @relation("PermissionUpdatedBy")
-  createdProfiles                   Profile[]          @relation("ProfileCreatedBy")
-  deletedProfiles                   Profile[]          @relation("ProfileDeletedBy")
-  updatedProfiles                   Profile[]          @relation("ProfileUpdatedBy")
-  profile                           Profile?           @relation("ProfileUser")
-  Project_Project_createdByIdToUser Project[]          @relation("Project_createdByIdToUser")
-  Project_Project_deletedByIdToUser Project[]          @relation("Project_deletedByIdToUser")
-  Project_Project_updatedByIdToUser Project[]          @relation("Project_updatedByIdToUser")
-  ProjectDraft                      ProjectDraft[]
-  blockedPublisherAccounts          PublisherAccount[] @relation("PublisherAccount_blockedByIdToUser")
-  publisherAccount                  PublisherAccount?  @relation("PublisherAccount_userIdToUser")
-  refreshTokens                     RefreshToken[]
-  createdRoles                      Role[]             @relation("RoleCreatedBy")
-  deletedRoles                      Role[]             @relation("RoleDeletedBy")
-  updatedRoles                      Role[]             @relation("RoleUpdatedBy")
-  createdTerms                      Term[]             @relation("Term_createdByIdToUser")
-  updatedTerms                      Term[]             @relation("Term_updatedByIdToUser")
-  userRoles                         UserRole[]
+  id                                                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username                                            String             @db.VarChar(255)
+  email                                               String
+  password                                            String             @db.VarChar(255)
+  status                                              UserStatus         @default(INACTIVE)
+  createdAt                                           DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt                                           DateTime?          @db.Timestamptz(6)
+  deletedAt                                           DateTime?          @db.Timestamptz(6)
+  device                                              Device[]
+  createdPermissions                                  Permission[]       @relation("PermissionCreatedBy")
+  deletedPermissions                                  Permission[]       @relation("PermissionDeletedBy")
+  updatedPermissions                                  Permission[]       @relation("PermissionUpdatedBy")
+  createdProfiles                                     Profile[]          @relation("ProfileCreatedBy")
+  deletedProfiles                                     Profile[]          @relation("ProfileDeletedBy")
+  updatedProfiles                                     Profile[]          @relation("ProfileUpdatedBy")
+  profile                                             Profile?           @relation("ProfileUser")
+  Project_Project_createdByIdToUser                   Project[]          @relation("Project_createdByIdToUser")
+  Project_Project_deletedByIdToUser                   Project[]          @relation("Project_deletedByIdToUser")
+  Project_Project_updatedByIdToUser                   Project[]          @relation("Project_updatedByIdToUser")
+  ProjectDraft                                        ProjectDraft[]
+  blockedPublisherAccounts                            PublisherAccount[] @relation("PublisherAccount_blockedByIdToUser")
+  publisherAccount                                    PublisherAccount?  @relation("PublisherAccount_userIdToUser")
+  refreshTokens                                       RefreshToken[]
+  createdRoles                                        Role[]             @relation("RoleCreatedBy")
+  deletedRoles                                        Role[]             @relation("RoleDeletedBy")
+  updatedRoles                                        Role[]             @relation("RoleUpdatedBy")
+  createdTerms                                        Term[]             @relation("Term_createdByIdToUser")
+  updatedTerms                                        Term[]             @relation("Term_updatedByIdToUser")
+  userRoles                                           UserRole[]
+  WorkflowRevision_WorkflowRevision_createdByIdToUser WorkflowRevision[] @relation("WorkflowRevision_createdByIdToUser")
+  WorkflowRevision_WorkflowRevision_deletedByIdToUser WorkflowRevision[] @relation("WorkflowRevision_deletedByIdToUser")
+  WorkflowRevision_WorkflowRevision_updatedByIdToUser WorkflowRevision[] @relation("WorkflowRevision_updatedByIdToUser")
 }
 
 model Profile {
@@ -318,22 +321,23 @@ model NodeDefinitionCapability {
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model Project {
-  id                             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  publisherAccountId             String           @db.Uuid
-  name                           String           @db.VarChar(255)
+  id                             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  publisherAccountId             String             @db.Uuid
+  name                           String             @db.VarChar(255)
   description                    String?
-  status                         ProjectStatus    @default(ACTIVE)
-  createdAt                      DateTime         @default(now()) @db.Timestamptz(6)
-  updatedAt                      DateTime?        @db.Timestamptz(6)
-  deletedAt                      DateTime?        @db.Timestamptz(6)
-  createdById                    String           @db.Uuid
-  updatedById                    String?          @db.Uuid
-  deletedById                    String?          @db.Uuid
-  User_Project_createdByIdToUser User             @relation("Project_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  User_Project_deletedByIdToUser User?            @relation("Project_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  PublisherAccount               PublisherAccount @relation(fields: [publisherAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  User_Project_updatedByIdToUser User?            @relation("Project_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  status                         ProjectStatus      @default(ACTIVE)
+  createdAt                      DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt                      DateTime?          @db.Timestamptz(6)
+  deletedAt                      DateTime?          @db.Timestamptz(6)
+  createdById                    String             @db.Uuid
+  updatedById                    String?            @db.Uuid
+  deletedById                    String?            @db.Uuid
+  User_Project_createdByIdToUser User               @relation("Project_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User_Project_deletedByIdToUser User?              @relation("Project_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  PublisherAccount               PublisherAccount   @relation(fields: [publisherAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User_Project_updatedByIdToUser User?              @relation("Project_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   ProjectDraft                   ProjectDraft?
+  WorkflowRevision               WorkflowRevision[]
 
   @@index([publisherAccountId, status], where: raw("(\"deletedAt\" IS NULL)"))
 }
@@ -356,6 +360,34 @@ model ProjectDraft {
   deletedAt         DateTime? @db.Timestamptz(6)
   Project           Project   @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User              User      @relation(fields: [savedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model WorkflowRevision {
+  id                                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId                               String    @db.Uuid
+  sourceDraftVersion                      Int
+  sourceDraftContentHash                  String    @db.VarChar(64)
+  editorGraph                             Json
+  runtimeIr                               Json
+  inputSchema                             Json
+  nodeDefinitionManifest                  Json
+  capabilityManifest                      Json
+  validationSummary                       Json
+  testSummary                             Json      @default("{}")
+  contentHash                             String    @db.VarChar(64)
+  createdAt                               DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt                               DateTime? @db.Timestamptz(6)
+  deletedAt                               DateTime? @db.Timestamptz(6)
+  createdById                             String    @db.Uuid
+  updatedById                             String?   @db.Uuid
+  deletedById                             String?   @db.Uuid
+  User_WorkflowRevision_createdByIdToUser User      @relation("WorkflowRevision_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User_WorkflowRevision_deletedByIdToUser User?     @relation("WorkflowRevision_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Project                                 Project   @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User_WorkflowRevision_updatedByIdToUser User?     @relation("WorkflowRevision_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([projectId, sourceDraftVersion], map: "WorkflowRevision_project_draftVersion_key")
 }
 
 enum UserStatus {
