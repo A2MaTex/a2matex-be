@@ -1,29 +1,16 @@
 # Production stack. Images are built by GitHub Actions and pulled from GHCR;
 # nothing is built on the VPS. IMAGE_REPO and IMAGE_TAG come from .env.production
 # and .env.deploy (written by deploy/vps-deploy.sh on every deploy).
+#
+# Postgres is NOT part of this stack. It runs on Cloud SQL and every job reaches it
+# through DATABASE_URL over the VPC private IP (specs/004-cloud-sql-postgres). Only
+# Redis stays local. Services that talk to Postgres must also join the `edge`
+# network: `backend` is internal and has no route to the VPC.
 name: a2matex
 
 x-app-image: &app-image ${IMAGE_REPO:-ghcr.io/a2matex/a2matex-be}:${IMAGE_TAG:-latest}
 
 services:
-  postgres:
-    image: postgres:17-alpine
-    container_name: a2matex-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks:
-      - backend
-
   redis:
     image: redis:7-alpine
     container_name: a2matex-redis
@@ -31,6 +18,10 @@ services:
     command: ['redis-server', '--appendonly', 'yes', '--requirepass', '${REDIS_PASSWORD}']
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+    # Loopback only, so the dbtunnel SSH user can forward to it (runbook A10.2).
+    # Never bind 0.0.0.0 here: the cloud firewall has no rule for 6379 on purpose.
+    ports:
+      - '127.0.0.1:6379:6379'
     volumes:
       - redis-data:/data
     healthcheck:
@@ -40,9 +31,10 @@ services:
       retries: 10
     networks:
       - backend
+      - edge
 
-  # One-shot job: applies pending migrations, then exits. The app only starts
-  # after it succeeds, so a failed migration leaves the previous app running.
+  # One-shot job: applies pending migrations against Cloud SQL, then exits. The app
+  # only starts after it succeeds, so a failed migration leaves the previous app running.
   migrate:
     image: *app-image
     container_name: a2matex-migrate
@@ -53,11 +45,9 @@ services:
     environment:
       PRISMA_HIDE_UPDATE_MESSAGE: '1'
       CHECKPOINT_DISABLE: '1'
-    depends_on:
-      postgres:
-        condition: service_healthy
     networks:
       - backend
+      - edge
 
   app:
     image: *app-image
@@ -66,8 +56,6 @@ services:
     env_file:
       - ../.env.production
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
       migrate:
@@ -107,11 +95,9 @@ services:
     command: ['npx', 'tsx', 'src/seed/create-role.ts']
     env_file:
       - ../.env.production
-    depends_on:
-      postgres:
-        condition: service_healthy
     networks:
       - backend
+      - edge
 
   seed-permissions:
     image: *app-image
@@ -121,13 +107,13 @@ services:
     env_file:
       - ../.env.production
     depends_on:
-      postgres:
+      redis:
         condition: service_healthy
     networks:
       - backend
+      - edge
 
 volumes:
-  postgres-data:
   redis-data:
   caddy-data:
   caddy-config:
