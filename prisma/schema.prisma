@@ -242,16 +242,17 @@ model Term {
 }
 
 model Static {
-  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  objectKey        String            @unique
-  originalFileName String
-  contentType      String            @db.VarChar(255)
-  size             BigInt
-  createdAt        DateTime          @default(now()) @db.Timestamptz(6)
-  updatedAt        DateTime?         @db.Timestamptz(6)
-  deletedAt        DateTime?         @db.Timestamptz(6)
-  launcherReleases LauncherRelease[]
-  Profile          Profile[]
+  id                 String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  objectKey          String               @unique
+  originalFileName   String
+  contentType        String               @db.VarChar(255)
+  size               BigInt
+  createdAt          DateTime             @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime?            @db.Timestamptz(6)
+  deletedAt          DateTime?            @db.Timestamptz(6)
+  launcherReleases   LauncherRelease[]
+  Profile            Profile[]
+  StaticImageVariant StaticImageVariant[]
 }
 
 model LauncherRelease {
@@ -390,6 +391,22 @@ model WorkflowRevision {
   @@unique([projectId, sourceDraftVersion], map: "WorkflowRevision_project_draftVersion_key")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model StaticImageVariant {
+  id          String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  staticId    String                 @db.Uuid
+  variant     StaticImageVariantType
+  objectKey   String                 @unique
+  contentType String                 @db.VarChar(255)
+  size        BigInt
+  width       Int
+  height      Int
+  createdAt   DateTime               @default(now()) @db.Timestamptz(6)
+  Static      Static                 @relation(fields: [staticId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([staticId, variant])
+}
+
 enum UserStatus {
   ACTIVE
   INACTIVE
@@ -453,4 +470,9 @@ enum PermissionScope {
 enum ProjectStatus {
   ACTIVE
   ARCHIVED
+}
+
+enum StaticImageVariantType {
+  SMALL
+  MEDIUM
 }

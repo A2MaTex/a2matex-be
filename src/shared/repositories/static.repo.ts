@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { Prisma } from '../../generated/prisma/client.ts';
 import type { StaticEntityType } from '../../entities/static.model.ts';
 import { PrismaService } from '../services/prisma.service.ts';
 
@@ -12,6 +13,19 @@ export type CreateStaticInput = {
 
 export type CreateStaticOutput = {
   id: string;
+};
+
+export type StaticImageVariantRecord = {
+  objectKey: string;
+  contentType: string;
+  size: bigint;
+  width: number;
+  height: number;
+};
+
+export type CreateStaticImageVariantInput = StaticImageVariantRecord & {
+  id: string;
+  variant: 'SMALL' | 'MEDIUM';
 };
 
 @Injectable()
@@ -31,6 +45,44 @@ export class StaticRepository {
     });
   }
 
+  async createImage({
+    staticRecord,
+    variants,
+  }: {
+    staticRecord: CreateStaticInput;
+    variants: CreateStaticImageVariantInput[];
+  }): Promise<CreateStaticOutput> {
+    const createdStatic = await this.create(staticRecord);
+    const values = variants.map((variant) => {
+      return Prisma.sql`(
+        ${variant.id}::uuid,
+        ${staticRecord.id}::uuid,
+        ${variant.variant}::"StaticImageVariantType",
+        ${variant.objectKey},
+        ${variant.contentType},
+        ${variant.size},
+        ${variant.width},
+        ${variant.height}
+      )`;
+    });
+
+    await this.prisma.$executeRaw(Prisma.sql`
+      INSERT INTO "StaticImageVariant" (
+        "id",
+        "staticId",
+        "variant",
+        "objectKey",
+        "contentType",
+        "size",
+        "width",
+        "height"
+      )
+      VALUES ${Prisma.join(values)}
+    `);
+
+    return createdStatic;
+  }
+
   findById(id: string): Promise<StaticEntityType | null> {
     return this.prisma.static.findFirst({
       where: {
@@ -48,6 +100,25 @@ export class StaticRepository {
         deletedAt: true,
       },
     });
+  }
+
+  async findImageVariant(
+    staticId: string,
+    variant: 'SMALL' | 'MEDIUM',
+  ): Promise<StaticImageVariantRecord | null> {
+    const records = await this.prisma.$queryRaw<StaticImageVariantRecord[]>(Prisma.sql`
+      SELECT
+        "objectKey",
+        "contentType",
+        "size",
+        "width",
+        "height"
+      FROM "StaticImageVariant"
+      WHERE "staticId" = ${staticId}::uuid
+        AND "variant" = ${variant}::"StaticImageVariantType"
+      LIMIT 1
+    `);
+    return records[0] ?? null;
   }
 
   async hardDelete(id: string): Promise<void> {
