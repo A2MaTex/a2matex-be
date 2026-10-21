@@ -1,16 +1,46 @@
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  PayloadTooLargeException,
+} from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
+import sharp from 'sharp';
 import { validate as isUuid } from 'uuid';
 import type { StaticEntityType } from '../../entities/static.model.ts';
-import { STATIC_CONTENT_TYPE_MAX_LENGTH } from '../constants/storage.constant.ts';
+import {
+  STATIC_CONTENT_TYPE_MAX_LENGTH,
+  STATIC_IMAGE_CONTENT_TYPES,
+  STATIC_IMAGE_INPUT_FORMATS,
+  STATIC_IMAGE_MAX_ENCODE_ATTEMPTS,
+  STATIC_IMAGE_MAX_INPUT_PIXELS,
+  STATIC_IMAGE_MIN_QUALITY,
+  STATIC_IMAGE_OUTPUT_CONTENT_TYPE,
+  STATIC_IMAGE_PREFIX,
+  STATIC_IMAGE_QUALITY_STEP,
+  STATIC_IMAGE_RESIZE_SAFETY_FACTOR,
+  STATIC_IMAGE_VARIANT_CONFIG,
+  STATIC_IMAGE_VARIANTS,
+  type GeneratedStaticImageVariant,
+  type StaticImageVariant,
+} from '../constants/storage.constant.ts';
 import {
   OBJECT_STORAGE_PROVIDER,
   type ObjectStorageProvider,
 } from '../infrastructure/storage/object-storage.interface.ts';
-import { StaticRepository } from '../repositories/static.repo.ts';
+import {
+  StaticRepository,
+  type CreateStaticImageVariantInput,
+} from '../repositories/static.repo.ts';
+import {
+  InvalidStaticImageTypeException,
+  StaticImageVariantNotFoundException,
+} from '../types/error.type.ts';
 import { buildStaticObjectKey } from '../utils/utils.ts';
+import { TransactionService } from './transaction.service.ts';
 
 export type UploadStaticFileInput = {
   body: Readable | Uint8Array;
@@ -24,9 +54,29 @@ export type UploadStaticFileOutput = {
   id: string;
 };
 
+export type UploadStaticImageInput = {
+  filePath: string;
+  originalFileName: string;
+  contentType: string;
+  size: number;
+};
+
 export type GetStaticFileOutput = {
   static: StaticEntityType;
   body: Readable;
+};
+
+export type GetStaticImageOutput = {
+  body: Readable;
+  contentType: string;
+  size: number;
+};
+
+type GeneratedImage = {
+  variant: StaticImageVariant;
+  body: Uint8Array;
+  width: number;
+  height: number;
 };
 
 @Injectable()
@@ -38,6 +88,8 @@ export class StaticService {
     private readonly storageProvider: ObjectStorageProvider,
     @Inject(StaticRepository)
     private readonly staticRepository: StaticRepository,
+    @Inject(TransactionService)
+    private readonly transactionService: TransactionService,
   ) {}
 
   async uploadFile(input: UploadStaticFileInput): Promise<UploadStaticFileOutput> {
@@ -70,15 +122,80 @@ export class StaticService {
     return createdStatic;
   }
 
-  async getFile(id: string): Promise<GetStaticFileOutput> {
-    if (!isUuid(id)) {
-      throw new NotFoundException('Error.StaticNotFound');
+  async uploadImage(input: UploadStaticImageInput): Promise<UploadStaticFileOutput> {
+    const contentType = input.contentType.trim().toLowerCase();
+    this.assertImageContentType(contentType);
+    this.validateFileMetadata(input);
+    await this.assertSupportedImage(input.filePath);
+
+    const id = randomUUID();
+    const objectKeyPrefix = buildStaticObjectKey(id, STATIC_IMAGE_PREFIX);
+    const generatedImages: GeneratedImage[] = [];
+    for (const variant of STATIC_IMAGE_VARIANTS) {
+      generatedImages.push(await this.generateImage(input.filePath, variant));
+    }
+    const storedImages = generatedImages.map((image) => ({
+      ...image,
+      objectKey: `${objectKeyPrefix}/${image.variant}.webp`,
+    }));
+
+    const uploadResults = await Promise.allSettled(
+      storedImages.map((image) => {
+        return this.storageProvider.uploadFile({
+          objectKey: image.objectKey,
+          contentType: STATIC_IMAGE_OUTPUT_CONTENT_TYPE,
+          body: image.body,
+          size: image.body.byteLength,
+        });
+      }),
+    );
+    const failedUpload = uploadResults.find((result) => result.status === 'rejected');
+    if (failedUpload?.status === 'rejected') {
+      await this.cleanupImageObjects(storedImages.map(({ objectKey }) => objectKey));
+      throw failedUpload.reason;
+    }
+    const largeImage = storedImages.find(({ variant }) => variant === 'large');
+    if (!largeImage) {
+      await this.cleanupImageObjects(storedImages.map(({ objectKey }) => objectKey));
+      throw new Error('Large image variant was not generated');
     }
 
-    const staticRecord = await this.staticRepository.findById(id);
-    if (!staticRecord) {
-      throw new NotFoundException('Error.StaticNotFound');
+    try {
+      return await this.transactionService.runInTransaction(() => {
+        return this.staticRepository.createImage({
+          staticRecord: {
+            id,
+            objectKey: largeImage.objectKey,
+            originalFileName: path.basename(input.originalFileName.trim()),
+            contentType: STATIC_IMAGE_OUTPUT_CONTENT_TYPE,
+            size: BigInt(largeImage.body.byteLength),
+          },
+          variants: storedImages
+            .filter(
+              (image): image is typeof image & { variant: GeneratedStaticImageVariant } =>
+                image.variant !== 'large',
+            )
+            .map((image): CreateStaticImageVariantInput => {
+              return {
+                id: randomUUID(),
+                variant: image.variant.toUpperCase() as 'SMALL' | 'MEDIUM',
+                objectKey: image.objectKey,
+                contentType: STATIC_IMAGE_OUTPUT_CONTENT_TYPE,
+                size: BigInt(image.body.byteLength),
+                width: image.width,
+                height: image.height,
+              };
+            }),
+        });
+      });
+    } catch (error) {
+      await this.cleanupImageObjects(storedImages.map(({ objectKey }) => objectKey));
+      throw error;
     }
+  }
+
+  async getFile(id: string): Promise<GetStaticFileOutput> {
+    const staticRecord = await this.getStaticRecord(id);
 
     const storedFile = await this.storageProvider.getFile(staticRecord.objectKey);
     return {
@@ -87,7 +204,42 @@ export class StaticService {
     };
   }
 
+  async getImage(id: string, variant: StaticImageVariant = 'large'): Promise<GetStaticImageOutput> {
+    const staticRecord = await this.getStaticRecord(id);
+    this.assertImageContentType(staticRecord.contentType);
+
+    const imageRecord =
+      variant === 'large'
+        ? {
+            objectKey: staticRecord.objectKey,
+            contentType: staticRecord.contentType,
+            size: staticRecord.size,
+          }
+        : await this.staticRepository.findImageVariant(
+            id,
+            variant.toUpperCase() as 'SMALL' | 'MEDIUM',
+          );
+    if (!imageRecord) {
+      throw StaticImageVariantNotFoundException;
+    }
+
+    const storedFile = await this.storageProvider.getFile(imageRecord.objectKey);
+    return {
+      body: storedFile.body,
+      contentType: imageRecord.contentType,
+      size: Number(imageRecord.size),
+    };
+  }
+
   private validateUpload(input: UploadStaticFileInput): void {
+    this.validateFileMetadata(input);
+  }
+
+  private validateFileMetadata(input: {
+    originalFileName: string;
+    contentType: string;
+    size: number;
+  }): void {
     const originalFileName = path.basename(input.originalFileName.trim());
     if (originalFileName.length === 0 || originalFileName === '.' || originalFileName === '..') {
       throw new Error('Original file name is required');
@@ -99,6 +251,99 @@ export class StaticService {
     if (!Number.isSafeInteger(input.size) || input.size < 0) {
       throw new Error('File size must be a non-negative safe integer');
     }
+  }
+
+  private async getStaticRecord(id: string): Promise<StaticEntityType> {
+    if (!isUuid(id)) {
+      throw new NotFoundException('Error.StaticNotFound');
+    }
+
+    const staticRecord = await this.staticRepository.findById(id);
+    if (!staticRecord) {
+      throw new NotFoundException('Error.StaticNotFound');
+    }
+    return staticRecord;
+  }
+
+  private assertImageContentType(contentType: string): void {
+    if (!STATIC_IMAGE_CONTENT_TYPES.has(contentType.trim().toLowerCase())) {
+      throw InvalidStaticImageTypeException;
+    }
+  }
+
+  private async assertSupportedImage(filePath: string): Promise<void> {
+    try {
+      const metadata = await sharp(filePath, {
+        limitInputPixels: STATIC_IMAGE_MAX_INPUT_PIXELS,
+      }).metadata();
+      if (!metadata.format || !STATIC_IMAGE_INPUT_FORMATS.has(metadata.format)) {
+        throw InvalidStaticImageTypeException;
+      }
+    } catch (error) {
+      if (error === InvalidStaticImageTypeException) {
+        throw error;
+      }
+      throw InvalidStaticImageTypeException;
+    }
+  }
+
+  private async generateImage(
+    filePath: string,
+    variant: StaticImageVariant,
+  ): Promise<GeneratedImage> {
+    const config = STATIC_IMAGE_VARIANT_CONFIG[variant];
+    let maxDimension = config.maxDimension;
+    let quality = config.quality;
+
+    for (let attempt = 0; attempt < STATIC_IMAGE_MAX_ENCODE_ATTEMPTS; attempt += 1) {
+      const { data, info } = await sharp(filePath, {
+        animated: false,
+        limitInputPixels: STATIC_IMAGE_MAX_INPUT_PIXELS,
+      })
+        .rotate()
+        .resize({
+          width: maxDimension,
+          height: maxDimension,
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .webp({ quality })
+        .toBuffer({ resolveWithObject: true });
+
+      if (data.byteLength <= config.maxSizeBytes) {
+        return {
+          variant,
+          body: data,
+          width: info.width,
+          height: info.height,
+        };
+      }
+
+      const currentMaxDimension = Math.max(info.width, info.height);
+      const sizeRatio = Math.sqrt(config.maxSizeBytes / data.byteLength);
+      maxDimension = Math.max(
+        1,
+        Math.floor(currentMaxDimension * sizeRatio * STATIC_IMAGE_RESIZE_SAFETY_FACTOR),
+      );
+      quality = Math.max(STATIC_IMAGE_MIN_QUALITY, quality - STATIC_IMAGE_QUALITY_STEP);
+    }
+
+    throw new PayloadTooLargeException('Error.ImageVariantTooLarge');
+  }
+
+  private async cleanupImageObjects(objectKeys: string[]): Promise<void> {
+    const cleanupResults = await Promise.allSettled(
+      objectKeys.map((objectKey) => this.storageProvider.deleteFile(objectKey)),
+    );
+
+    cleanupResults.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        this.logger.error(
+          `Failed to clean up image object ${objectKeys[index]}`,
+          result.reason instanceof Error ? result.reason.stack : undefined,
+        );
+      }
+    });
   }
 
   private async cleanupFailedUpload({ id, objectKey }: { id: string; objectKey: string }) {
