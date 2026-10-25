@@ -59,6 +59,8 @@ export type UploadStaticImageInput = {
   originalFileName: string;
   contentType: string;
   size: number;
+  /** The authenticated uploader; used to derive optional Publisher ownership. */
+  userId: string;
 };
 
 export type GetStaticFileOutput = {
@@ -128,6 +130,12 @@ export class StaticService {
     this.validateFileMetadata(input);
     await this.assertSupportedImage(input.filePath);
 
+    // Best effort on purpose: a Customer uploading an avatar has no Publisher
+    // account and must still succeed, so a missing account means null ownership.
+    const publisherAccountId = await this.staticRepository.findPublisherAccountIdByUserId(
+      input.userId,
+    );
+
     const id = randomUUID();
     const objectKeyPrefix = buildStaticObjectKey(id, STATIC_IMAGE_PREFIX);
     const generatedImages: GeneratedImage[] = [];
@@ -169,6 +177,7 @@ export class StaticService {
             originalFileName: path.basename(input.originalFileName.trim()),
             contentType: STATIC_IMAGE_OUTPUT_CONTENT_TYPE,
             size: BigInt(largeImage.body.byteLength),
+            publisherAccountId,
           },
           variants: storedImages
             .filter(

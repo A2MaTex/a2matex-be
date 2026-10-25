@@ -9,6 +9,12 @@ export type CreateStaticInput = {
   originalFileName: string;
   contentType: string;
   size: bigint;
+  /**
+   * Set only for images uploaded by a user who owns a Publisher account. Plain file
+   * uploads, system rows and Customer avatars stay null, which keeps them ineligible
+   * for ProductMedia.
+   */
+  publisherAccountId?: string | null;
 };
 
 export type CreateStaticOutput = {
@@ -34,6 +40,19 @@ export class StaticRepository {
 
   private get prisma() {
     return this.prismaService.getClient();
+  }
+
+  async findPublisherAccountIdByUserId(userId: string): Promise<string | null> {
+    const publisherAccount = await this.prisma.publisherAccount.findFirst({
+      where: {
+        userId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+      },
+    });
+    return publisherAccount?.id ?? null;
   }
 
   create(input: CreateStaticInput): Promise<CreateStaticOutput> {
@@ -98,6 +117,7 @@ export class StaticRepository {
         createdAt: true,
         updatedAt: true,
         deletedAt: true,
+        publisherAccountId: true,
       },
     });
   }

@@ -7,6 +7,7 @@ export const Static = Base.extend({
   originalFileName: z.string().min(1),
   contentType: z.string().min(1).max(STATIC_CONTENT_TYPE_MAX_LENGTH),
   size: z.bigint().nonnegative(),
+  publisherAccountId: z.uuid().nullable(),
 });
 
 export type StaticEntityType = z.infer<typeof Static>;

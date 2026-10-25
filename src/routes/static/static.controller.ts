@@ -30,6 +30,7 @@ import { tmpdir } from 'node:os';
 import { ZodResponse } from 'nestjs-zod';
 import envConfig from '../../shared/config.ts';
 import CustomZodValidationPipe from '../../shared/pipes/custom-zod-validation.pipe.ts';
+import { ActiveUser } from '../../shared/decorators/active-user.decorator.ts';
 import { StaticService } from '../../shared/services/static.service.ts';
 import {
   GetStaticImageQueryDTO,
@@ -163,12 +164,14 @@ export class StaticController {
       }),
     )
     image: UploadedStaticFile,
+    @ActiveUser('userId') userId: string,
   ) {
     return this.staticService.uploadImage({
       filePath: image.path,
       originalFileName: image.originalname,
       contentType: image.mimetype,
       size: image.size,
+      userId,
     });
   }
 
