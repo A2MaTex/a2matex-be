@@ -97,6 +97,29 @@ export const CreateProductInput = z
   })
   .strict();
 
+export const UpdateProductInput = z
+  .object({
+    name: ProductNameInput.nullable().optional(),
+    slug: ProductSlugInput.nullable().optional(),
+    shortDescription: ProductShortDescriptionInput.nullable().optional(),
+    description: ProductDescriptionInput.nullable().optional(),
+    usageInstructions: ProductUsageInstructionsInput.nullable().optional(),
+    media: ProductMediaSetInput.optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.name !== undefined ||
+      value.slug !== undefined ||
+      value.shortDescription !== undefined ||
+      value.description !== undefined ||
+      value.usageInstructions !== undefined ||
+      value.media !== undefined,
+    {
+      message: 'At least one field is required',
+    },
+  );
+
 export const ProductProjectSummary = z.object({
   id: z.uuid(),
   name: z.string(),
@@ -132,4 +155,5 @@ export const ProductManagementOutput = Product.pick({
 
 export type ProductMediaInputType = z.infer<typeof ProductMediaInput>;
 export type CreateProductInputType = z.infer<typeof CreateProductInput>;
+export type UpdateProductInputType = z.infer<typeof UpdateProductInput>;
 export type ProductManagementOutputType = z.infer<typeof ProductManagementOutput>;

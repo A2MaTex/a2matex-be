@@ -4,7 +4,12 @@ import { ProductStatus } from '../../shared/constants/product.constant.ts';
 import { ProjectStatus } from '../../shared/constants/project.constant.ts';
 import { STATIC_IMAGE_OUTPUT_CONTENT_TYPE } from '../../shared/constants/storage.constant.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
-import type { CreateProductInputType, ProductManagementOutputType } from './product.model.ts';
+import type {
+  CreateProductInputType,
+  ProductManagementOutputType,
+  ProductMediaInputType,
+  UpdateProductInputType,
+} from './product.model.ts';
 
 const PRODUCT_SELECT = {
   id: true,
@@ -151,6 +156,99 @@ export class ProductRepo {
       select: PRODUCT_SELECT,
     });
     return this.toManagementOutput(product);
+  }
+
+  async getOwnedById({
+    id,
+    publisherAccountId,
+  }: {
+    id: string;
+    publisherAccountId: string;
+  }): Promise<ProductManagementOutputType | null> {
+    const product = await this.prisma.product.findFirst({
+      where: {
+        id,
+        publisherAccountId,
+        deletedAt: null,
+      },
+      select: PRODUCT_SELECT,
+    });
+    return product ? this.toManagementOutput(product) : null;
+  }
+
+  // Returns null when no row matched, which the service turns into not-found,
+  // archived or suspended through one ownership-safe read.
+  async updateEditable({
+    id,
+    data,
+    publisherAccountId,
+    userId,
+  }: {
+    id: string;
+    data: UpdateProductInputType;
+    publisherAccountId: string;
+    userId: string;
+  }): Promise<ProductManagementOutputType | null> {
+    const { media, ...fields } = data;
+
+    const result = await this.prisma.product.updateMany({
+      where: {
+        id,
+        publisherAccountId,
+        deletedAt: null,
+        status: {
+          in: [ProductStatus.DRAFT, ProductStatus.ACTIVE],
+        },
+      },
+      data: {
+        ...fields,
+        updatedById: userId,
+        updatedAt: new Date(),
+      },
+    });
+    if (result.count === 0) {
+      return null;
+    }
+
+    if (media !== undefined) {
+      await this.replaceMedia({ productId: id, media });
+    }
+
+    return this.getOwnedById({ id, publisherAccountId });
+  }
+
+  // Soft-delete first: the partial unique indexes only consider live rows, so
+  // clearing them is what lets a previously removed image be attached again.
+  private async replaceMedia({
+    productId,
+    media,
+  }: {
+    productId: string;
+    media: ProductMediaInputType[];
+  }) {
+    await this.prisma.productMedia.updateMany({
+      where: {
+        productId,
+        deletedAt: null,
+      },
+      data: {
+        deletedAt: new Date(),
+      },
+    });
+
+    if (media.length === 0) {
+      return;
+    }
+
+    await this.prisma.productMedia.createMany({
+      data: media.map((item) => ({
+        productId,
+        staticId: item.staticId,
+        type: item.type,
+        sortOrder: item.sortOrder,
+        altText: item.altText ?? null,
+      })),
+    });
   }
 
   private toManagementOutput(product: ProductRow): ProductManagementOutputType {
