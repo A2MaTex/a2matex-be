@@ -15,6 +15,15 @@ export const ProductMediaType = {
 
 export type ProductMediaTypeValue = (typeof ProductMediaType)[keyof typeof ProductMediaType];
 
+export const ProductLifecycleAction = {
+  ARCHIVE: 'ARCHIVE',
+  SUSPEND: 'SUSPEND',
+  REACTIVATE: 'REACTIVATE',
+} as const;
+
+export type ProductLifecycleActionType =
+  (typeof ProductLifecycleAction)[keyof typeof ProductLifecycleAction];
+
 export const PRODUCT_NAME_MAX_LENGTH = 255;
 export const PRODUCT_SLUG_MAX_LENGTH = 255;
 export const PRODUCT_SHORT_DESCRIPTION_MAX_LENGTH = 500;

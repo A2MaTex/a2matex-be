@@ -15,6 +15,26 @@ export const ProductSlugConflictException = new ConflictException('Error.Product
 
 export const ProductAccessDeniedException = new ForbiddenException('Error.ProductAccessDenied');
 
+export const ProductLifecycleActionDeniedException = new ForbiddenException(
+  'Error.ProductLifecycleActionDenied',
+);
+
+export const ProductCannotBeArchivedException = new ConflictException(
+  'Error.ProductCannotBeArchived',
+);
+
+export const ProductCannotBeSuspendedException = new ConflictException(
+  'Error.ProductCannotBeSuspended',
+);
+
+export const ProductCannotBeReactivatedException = new ConflictException(
+  'Error.ProductCannotBeReactivated',
+);
+
+export const ProductReleaseUnavailableException = new ConflictException(
+  'Error.ProductReleaseUnavailable',
+);
+
 export const ProductMediaInvalidException = new UnprocessableEntityException([
   {
     message: 'Error.ProductMediaInvalid',

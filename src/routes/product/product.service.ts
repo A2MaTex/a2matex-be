@@ -1,16 +1,22 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { ProductStatus } from '../../shared/constants/product.constant.ts';
+import { ProductLifecycleAction, ProductStatus } from '../../shared/constants/product.constant.ts';
 import type { ActivePermissionScope } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
 import { TransactionService } from '../../shared/services/transaction.service.ts';
+import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import { getPagination } from '../../shared/utils/pagination.ts';
 import { isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
 import { ProjectNotFoundException } from '../project/project.error.ts';
+import type { ProductAccess } from './product-access.model.ts';
 import { ProductAccessPolicy } from './product-access.policy.ts';
 import {
   ProductArchivedException,
+  ProductCannotBeArchivedException,
+  ProductCannotBeReactivatedException,
+  ProductCannotBeSuspendedException,
   ProductMediaInvalidException,
   ProductNotFoundException,
+  ProductReleaseUnavailableException,
   ProductSlugConflictException,
   ProductSuspendedException,
 } from './product.error.ts';
@@ -21,6 +27,7 @@ import type {
   ProductManagementOutputType,
   ProductMediaInputType,
   UpdateProductInputType,
+  UpdateProductLifecycleInputType,
 } from './product.model.ts';
 import { ProductRepo } from './product.repo.ts';
 import { isProductProjectConflict, isProductSlugConflict } from './product.util.ts';
@@ -165,6 +172,132 @@ export class ProductService {
       throw ProductNotFoundException;
     }
     return product;
+  }
+
+  async applyLifecycle({
+    id,
+    data,
+    userId,
+    scopes,
+  }: {
+    id: string;
+    data: UpdateProductLifecycleInputType;
+    userId: string;
+    scopes: ActivePermissionScope[];
+  }) {
+    const access = await this.productAccessPolicy.resolveLifecycleAccess(
+      userId,
+      scopes,
+      data.action,
+    );
+
+    if (data.action === ProductLifecycleAction.ARCHIVE) {
+      return this.archive({ id, access, userId });
+    }
+    if (data.action === ProductLifecycleAction.SUSPEND) {
+      const { reason } = data;
+      if (reason === undefined) {
+        // Unreachable through the request schema, which requires a reason here.
+        // Refusing beats writing a suspension record with no stated cause.
+        throw ProductCannotBeSuspendedException;
+      }
+      return this.suspend({ id, access, userId, reason });
+    }
+    return this.reactivate({ id, access, userId });
+  }
+
+  private async archive({
+    id,
+    access,
+    userId,
+  }: {
+    id: string;
+    access: ProductAccess;
+    userId: string;
+  }) {
+    const result = await this.productRepo.archiveDraft({ id, access, userId });
+    if (result.count === 0) {
+      await this.assertLifecycleOutcome({
+        id,
+        access,
+        idempotentStatus: ProductStatus.ARCHIVED,
+        conflict: ProductCannotBeArchivedException,
+      });
+    }
+    return SUCCESS_RESPONSE;
+  }
+
+  private async suspend({
+    id,
+    access,
+    userId,
+    reason,
+  }: {
+    id: string;
+    access: ProductAccess;
+    userId: string;
+    reason: string;
+  }) {
+    const result = await this.productRepo.suspendActive({ id, access, userId, reason });
+    if (result.count === 0) {
+      // Repeating a suspension keeps the original actor, timestamp and reason.
+      await this.assertLifecycleOutcome({
+        id,
+        access,
+        idempotentStatus: ProductStatus.SUSPENDED,
+        conflict: ProductCannotBeSuspendedException,
+      });
+    }
+    return SUCCESS_RESPONSE;
+  }
+
+  private async reactivate({
+    id,
+    access,
+    userId,
+  }: {
+    id: string;
+    access: ProductAccess;
+    userId: string;
+  }) {
+    const result = await this.productRepo.reactivateSuspended({ id, access, userId });
+    if (result.count === 0) {
+      const product = await this.productRepo.getById({ id, access });
+      if (!product) {
+        throw ProductNotFoundException;
+      }
+      if (product.status === ProductStatus.ACTIVE) {
+        return SUCCESS_RESPONSE;
+      }
+      if (product.status !== ProductStatus.SUSPENDED) {
+        throw ProductCannotBeReactivatedException;
+      }
+      // Suspended but the release pointer failed the predicate.
+      throw ProductReleaseUnavailableException;
+    }
+    return SUCCESS_RESPONSE;
+  }
+
+  // One authorization-safe read separates idempotent completion from not found and
+  // from an invalid source status, without revealing cross-owner data.
+  private async assertLifecycleOutcome({
+    id,
+    access,
+    idempotentStatus,
+    conflict,
+  }: {
+    id: string;
+    access: ProductAccess;
+    idempotentStatus: ProductManagementOutputType['status'];
+    conflict: Error;
+  }) {
+    const product = await this.productRepo.getById({ id, access });
+    if (!product) {
+      throw ProductNotFoundException;
+    }
+    if (product.status !== idempotentStatus) {
+      throw conflict;
+    }
   }
 
   @Transactional()

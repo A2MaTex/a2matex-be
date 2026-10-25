@@ -269,6 +269,71 @@ export class ProductRepo {
 
   // Soft-delete first: the partial unique indexes only consider live rows, so
   // clearing them is what lets a previously removed image be attached again.
+  archiveDraft({ id, access, userId }: { id: string; access: ProductAccess; userId: string }) {
+    return this.prisma.product.updateMany({
+      where: {
+        id,
+        ...buildProductAccessWhere(access, ProductStatus.DRAFT),
+      },
+      data: {
+        status: ProductStatus.ARCHIVED,
+        updatedById: userId,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  suspendActive({
+    id,
+    access,
+    userId,
+    reason,
+  }: {
+    id: string;
+    access: ProductAccess;
+    userId: string;
+    reason: string;
+  }) {
+    const now = new Date();
+    return this.prisma.product.updateMany({
+      where: {
+        id,
+        ...buildProductAccessWhere(access, ProductStatus.ACTIVE),
+      },
+      data: {
+        status: ProductStatus.SUSPENDED,
+        statusReason: reason,
+        suspendedAt: now,
+        suspendedById: userId,
+        updatedById: userId,
+        updatedAt: now,
+      },
+    });
+  }
+
+  // The release pointer is part of the predicate so the transition stays a single
+  // atomic write. The Product Release feature tightens this to also require that
+  // the release is PUBLISHED and belongs to this Product.
+  reactivateSuspended({ id, access, userId }: { id: string; access: ProductAccess; userId: string }) {
+    return this.prisma.product.updateMany({
+      where: {
+        id,
+        ...buildProductAccessWhere(access, ProductStatus.SUSPENDED),
+        currentReleaseId: {
+          not: null,
+        },
+      },
+      data: {
+        status: ProductStatus.ACTIVE,
+        statusReason: null,
+        suspendedAt: null,
+        suspendedById: null,
+        updatedById: userId,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
   private async replaceMedia({
     productId,
     media,

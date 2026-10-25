@@ -7,12 +7,14 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Res,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { ZodResponse } from 'nestjs-zod';
+import { MessageResDTO } from '../../shared/dtos/response.dto.ts';
 import { ActivePermissionScopes } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import type { ActivePermissionScope } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import { ActiveUser } from '../../shared/decorators/active-user.decorator.ts';
@@ -23,6 +25,7 @@ import {
   ProductIdParamDTO,
   ProductManagementOutputDTO,
   UpdateProductInputDTO,
+  UpdateProductLifecycleInputDTO,
 } from './product.dto.ts';
 import { ProductService } from './product.service.ts';
 
@@ -77,5 +80,16 @@ export class ProductController {
     @ActivePermissionScopes() scopes: ActivePermissionScope[],
   ) {
     return this.productService.update({ id: params.productId, data: body, userId, scopes });
+  }
+
+  @Put(':productId/lifecycle')
+  @ZodResponse({ type: MessageResDTO })
+  applyLifecycle(
+    @Param() params: ProductIdParamDTO,
+    @Body() body: UpdateProductLifecycleInputDTO,
+    @ActiveUser('userId') userId: string,
+    @ActivePermissionScopes() scopes: ActivePermissionScope[],
+  ) {
+    return this.productService.applyLifecycle({ id: params.productId, data: body, userId, scopes });
   }
 }

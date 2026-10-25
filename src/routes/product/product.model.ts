@@ -6,6 +6,8 @@ import {
   PRODUCT_SHORT_DESCRIPTION_MAX_LENGTH,
   PRODUCT_SLUG_MAX_LENGTH,
   PRODUCT_SLUG_PATTERN,
+  PRODUCT_STATUS_REASON_MAX_LENGTH,
+  ProductLifecycleAction,
   ProductMediaType,
   ProductStatus,
 } from '../../shared/constants/product.constant.ts';
@@ -155,6 +157,33 @@ export const ProductManagementOutput = Product.pick({
   media: z.array(ProductMediaOutput),
 });
 
+export const UpdateProductLifecycleInput = z
+  .object({
+    action: z.enum([
+      ProductLifecycleAction.ARCHIVE,
+      ProductLifecycleAction.SUSPEND,
+      ProductLifecycleAction.REACTIVATE,
+    ]),
+    reason: z.string().trim().min(1).max(PRODUCT_STATUS_REASON_MAX_LENGTH).optional(),
+  })
+  .strict()
+  .superRefine(({ action, reason }, ctx) => {
+    if (action === ProductLifecycleAction.SUSPEND && !reason) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Reason is required when suspending a product',
+        path: ['reason'],
+      });
+    }
+    if (action !== ProductLifecycleAction.SUSPEND && reason !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Reason is only allowed when suspending a product',
+        path: ['reason'],
+      });
+    }
+  });
+
 export const GetProductListInput = PaginationQuerySchema.extend({
   status: z
     .enum([
@@ -177,6 +206,7 @@ export const GetProductListOutput = z.object({
 export type ProductMediaInputType = z.infer<typeof ProductMediaInput>;
 export type CreateProductInputType = z.infer<typeof CreateProductInput>;
 export type UpdateProductInputType = z.infer<typeof UpdateProductInput>;
+export type UpdateProductLifecycleInputType = z.infer<typeof UpdateProductLifecycleInput>;
 export type GetProductListInputType = z.infer<typeof GetProductListInput>;
 export type GetProductListOutputType = z.infer<typeof GetProductListOutput>;
 export type ProductManagementOutputType = z.infer<typeof ProductManagementOutput>;
