@@ -4,8 +4,12 @@ import { ProductStatus } from '../../shared/constants/product.constant.ts';
 import { ProjectStatus } from '../../shared/constants/project.constant.ts';
 import { STATIC_IMAGE_OUTPUT_CONTENT_TYPE } from '../../shared/constants/storage.constant.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
+import { getPagination } from '../../shared/utils/pagination.ts';
+import { buildProductAccessWhere, type ProductAccess } from './product-access.model.ts';
 import type {
   CreateProductInputType,
+  GetProductListInputType,
+  GetProductListOutputType,
   ProductManagementOutputType,
   ProductMediaInputType,
   UpdateProductInputType,
@@ -158,22 +162,68 @@ export class ProductRepo {
     return this.toManagementOutput(product);
   }
 
-  async getOwnedById({
+  getPublisherAccount(userId: string) {
+    return this.prisma.publisherAccount.findFirst({
+      where: {
+        userId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+  }
+
+  async getById({
     id,
-    publisherAccountId,
+    access,
   }: {
     id: string;
-    publisherAccountId: string;
+    access: ProductAccess;
   }): Promise<ProductManagementOutputType | null> {
     const product = await this.prisma.product.findFirst({
       where: {
         id,
-        publisherAccountId,
-        deletedAt: null,
+        ...buildProductAccessWhere(access),
       },
       select: PRODUCT_SELECT,
     });
     return product ? this.toManagementOutput(product) : null;
+  }
+
+  async getList({
+    query,
+    access,
+  }: {
+    query: GetProductListInputType;
+    access: ProductAccess;
+  }): Promise<GetProductListOutputType> {
+    const { page, limit, skip, take } = getPagination(query);
+    const where = buildProductAccessWhere(access, query.status);
+
+    const [totalItems, products] = await Promise.all([
+      this.prisma.product.count({ where }),
+      this.prisma.product.findMany({
+        where,
+        select: PRODUCT_SELECT,
+        orderBy: [
+          { updatedAt: { sort: 'desc', nulls: 'last' } },
+          { createdAt: 'desc' },
+          { id: 'desc' },
+        ],
+        skip,
+        take,
+      }),
+    ]);
+
+    return {
+      items: products.map((product) => this.toManagementOutput(product)),
+      totalItems,
+      page,
+      limit,
+      totalPages: Math.ceil(totalItems / limit),
+    };
   }
 
   // Returns null when no row matched, which the service turns into not-found,
@@ -214,7 +264,7 @@ export class ProductRepo {
       await this.replaceMedia({ productId: id, media });
     }
 
-    return this.getOwnedById({ id, publisherAccountId });
+    return this.getById({ id, access: { unrestricted: false, publisherAccountId } });
   }
 
   // Soft-delete first: the partial unique indexes only consider live rows, so

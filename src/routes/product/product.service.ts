@@ -3,6 +3,7 @@ import { ProductStatus } from '../../shared/constants/product.constant.ts';
 import type { ActivePermissionScope } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
 import { TransactionService } from '../../shared/services/transaction.service.ts';
+import { getPagination } from '../../shared/utils/pagination.ts';
 import { isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
 import { ProjectNotFoundException } from '../project/project.error.ts';
 import { ProductAccessPolicy } from './product-access.policy.ts';
@@ -15,6 +16,8 @@ import {
 } from './product.error.ts';
 import type {
   CreateProductInputType,
+  GetProductListInputType,
+  GetProductListOutputType,
   ProductManagementOutputType,
   ProductMediaInputType,
   UpdateProductInputType,
@@ -119,6 +122,51 @@ export class ProductService {
     return updated;
   }
 
+  async getList({
+    query,
+    userId,
+    scopes,
+  }: {
+    query: GetProductListInputType;
+    userId: string;
+    scopes: ActivePermissionScope[];
+  }): Promise<GetProductListOutputType> {
+    const access = await this.productAccessPolicy.resolveReadAccess(userId, scopes);
+    if (!access) {
+      const { page, limit } = getPagination(query);
+      return {
+        items: [],
+        totalItems: 0,
+        page,
+        limit,
+        totalPages: 0,
+      };
+    }
+
+    return this.productRepo.getList({ query, access });
+  }
+
+  async getDetail({
+    id,
+    userId,
+    scopes,
+  }: {
+    id: string;
+    userId: string;
+    scopes: ActivePermissionScope[];
+  }): Promise<ProductManagementOutputType> {
+    const access = await this.productAccessPolicy.resolveReadAccess(userId, scopes);
+    if (!access) {
+      throw ProductNotFoundException;
+    }
+
+    const product = await this.productRepo.getById({ id, access });
+    if (!product) {
+      throw ProductNotFoundException;
+    }
+    return product;
+  }
+
   @Transactional()
   private async commitCreate({
     data,
@@ -179,7 +227,10 @@ export class ProductService {
     id: string;
     publisherAccountId: string;
   }): Promise<never> {
-    const product = await this.productRepo.getOwnedById({ id, publisherAccountId });
+    const product = await this.productRepo.getById({
+      id,
+      access: { unrestricted: false, publisherAccountId },
+    });
     if (!product) {
       throw ProductNotFoundException;
     }

@@ -7,8 +7,10 @@ import {
   PRODUCT_SLUG_MAX_LENGTH,
   PRODUCT_SLUG_PATTERN,
   ProductMediaType,
+  ProductStatus,
 } from '../../shared/constants/product.constant.ts';
 import { ProjectStatus } from '../../shared/constants/project.constant.ts';
+import { PaginationQuerySchema } from '../../shared/models/request.model.ts';
 
 const MEDIA_INVALID = 'Error.ProductMediaInvalid';
 
@@ -153,7 +155,28 @@ export const ProductManagementOutput = Product.pick({
   media: z.array(ProductMediaOutput),
 });
 
+export const GetProductListInput = PaginationQuerySchema.extend({
+  status: z
+    .enum([
+      ProductStatus.DRAFT,
+      ProductStatus.ACTIVE,
+      ProductStatus.SUSPENDED,
+      ProductStatus.ARCHIVED,
+    ])
+    .optional(),
+}).strict();
+
+export const GetProductListOutput = z.object({
+  items: z.array(ProductManagementOutput),
+  totalItems: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  limit: z.number().int().positive(),
+  totalPages: z.number().int().nonnegative(),
+});
+
 export type ProductMediaInputType = z.infer<typeof ProductMediaInput>;
 export type CreateProductInputType = z.infer<typeof CreateProductInput>;
 export type UpdateProductInputType = z.infer<typeof UpdateProductInput>;
+export type GetProductListInputType = z.infer<typeof GetProductListInput>;
+export type GetProductListOutputType = z.infer<typeof GetProductListOutput>;
 export type ProductManagementOutputType = z.infer<typeof ProductManagementOutput>;
