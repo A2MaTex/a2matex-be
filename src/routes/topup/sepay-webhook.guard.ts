@@ -30,7 +30,7 @@ export class SepayWebhookGuard implements CanActivate {
       : undefined;
 
     if (!providedKey || !this.isValidKey(providedKey)) {
-      this.logger.warn(`Rejected Sepay webhook call from ${request.ip} — invalid API key`);
+      this.logger.error(`Rejected Sepay webhook call from ${request.ip} — invalid API key`);
       throw new UnauthorizedException();
     }
 

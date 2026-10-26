@@ -42,21 +42,6 @@ const DEVICE_CONTROL_CAPABILITY: NodeDefinitionType['capabilities'] = [
   NodeCapability.ANDROID_DEVICE_CONTROL,
 ];
 
-const DISPATCH_OUTPUT_SCHEMA: NodeDefinitionType['outputSchema'] = {
-  type: 'object',
-  properties: {
-    dispatched: {
-      type: 'boolean',
-    },
-    durationMs: {
-      type: 'integer',
-      minimum: 0,
-    },
-  },
-  required: ['dispatched', 'durationMs'],
-  additionalProperties: false,
-};
-
 export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
   {
     type: 'android.launch_app',
@@ -80,20 +65,7 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
       required: ['packageName'],
       additionalProperties: false,
     },
-    outputSchema: {
-      type: 'object',
-      properties: {
-        launched: {
-          type: 'boolean',
-        },
-        durationMs: {
-          type: 'integer',
-          minimum: 0,
-        },
-      },
-      required: ['launched', 'durationMs'],
-      additionalProperties: false,
-    },
+    outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
     editorHints: {
       icon: 'rocket',
@@ -128,7 +100,7 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
       required: ['x', 'y'],
       additionalProperties: false,
     },
-    outputSchema: DISPATCH_OUTPUT_SCHEMA,
+    outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
     editorHints: {
       icon: 'mouse-pointer-click',
@@ -158,7 +130,7 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
       required: ['startX', 'startY', 'endX', 'endY', 'durationMs'],
       additionalProperties: false,
     },
-    outputSchema: DISPATCH_OUTPUT_SCHEMA,
+    outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
     editorHints: {
       icon: 'move',
@@ -187,7 +159,7 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
       required: ['text'],
       additionalProperties: false,
     },
-    outputSchema: DISPATCH_OUTPUT_SCHEMA,
+    outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
     editorHints: {
       icon: 'keyboard',
@@ -206,7 +178,7 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
     defaultTimeoutMs: DEFAULT_ANDROID_NODE_TIMEOUT_MS,
     configSchema: EMPTY_OBJECT_SCHEMA,
     inputSchema: EMPTY_OBJECT_SCHEMA,
-    outputSchema: DISPATCH_OUTPUT_SCHEMA,
+    outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
     editorHints: {
       icon: 'arrow-left',
@@ -225,7 +197,7 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
     defaultTimeoutMs: DEFAULT_ANDROID_NODE_TIMEOUT_MS,
     configSchema: EMPTY_OBJECT_SCHEMA,
     inputSchema: EMPTY_OBJECT_SCHEMA,
-    outputSchema: DISPATCH_OUTPUT_SCHEMA,
+    outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
     editorHints: {
       icon: 'house',
@@ -251,16 +223,8 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
           type: 'string',
           minLength: 1,
         },
-        width: {
-          type: 'integer',
-          minimum: 1,
-        },
-        height: {
-          type: 'integer',
-          minimum: 1,
-        },
       },
-      required: ['artifactId', 'width', 'height'],
+      required: ['artifactId'],
       additionalProperties: false,
     },
     outputPorts: SUCCESS_AND_ERROR_PORTS,

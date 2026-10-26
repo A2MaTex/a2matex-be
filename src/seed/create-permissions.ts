@@ -318,7 +318,7 @@ async function clearRolePermissionCache() {
   } catch (error) {
     // The database is already correct; a cache that cannot be reached is the
     // operator's problem to fix, but it must not fail the seed.
-    console.warn(
+    console.error(
       `Could not clear the role permission cache, clear it manually: ${
         error instanceof Error ? error.message : String(error)
       }`,
