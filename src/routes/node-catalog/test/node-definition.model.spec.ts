@@ -37,6 +37,40 @@ describe('NodeDefinitionContract', () => {
     expect(new Set(result.map(({ type }) => type)).size).toBe(11);
   });
 
+  it('publishes only workflow-consumable Android outputs', () => {
+    const definitions = new Map(
+      BASIC_NODE_DEFINITIONS.map((definition) => [definition.type, definition]),
+    );
+    const emptyOutputTypes = [
+      'android.launch_app',
+      'android.tap',
+      'android.swipe',
+      'android.input_text',
+      'android.press_back',
+      'android.press_home',
+    ];
+
+    emptyOutputTypes.forEach((type) => {
+      expect(definitions.get(type)?.outputSchema).toEqual({
+        type: 'object',
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      });
+    });
+    expect(definitions.get('android.screenshot')?.outputSchema).toEqual({
+      type: 'object',
+      properties: {
+        artifactId: {
+          type: 'string',
+          minLength: 1,
+        },
+      },
+      required: ['artifactId'],
+      additionalProperties: false,
+    });
+  });
+
   it('rejects duplicate node types', () => {
     const duplicate = structuredClone(BASIC_NODE_DEFINITIONS[0]);
 

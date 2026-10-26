@@ -31,6 +31,7 @@ import {
   OBJECT_STORAGE_PROVIDER,
   type ObjectStorageProvider,
 } from '../infrastructure/storage/object-storage.interface.ts';
+import { SUCCESS_RESPONSE } from '../models/response.model.ts';
 import {
   StaticRepository,
   type CreateStaticImageVariantInput,
@@ -202,6 +203,32 @@ export class StaticService {
       static: staticRecord,
       body: storedFile.body,
     };
+  }
+
+  async deleteStatic(id: string) {
+    if (!isUuid(id)) {
+      throw new NotFoundException('Error.StaticNotFound');
+    }
+
+    const staticRecord = await this.staticRepository.findForDeletion(id);
+    if (!staticRecord) {
+      throw new NotFoundException('Error.StaticNotFound');
+    }
+
+    const deletionResults = await Promise.allSettled(
+      staticRecord.objectKeys.map((objectKey) => this.storageProvider.deleteFile(objectKey)),
+    );
+    const failedDeletion = deletionResults.find((result) => result.status === 'rejected');
+    if (failedDeletion?.status === 'rejected') {
+      this.logger.error(
+        `Failed to delete one or more stored objects for staticId=${id}`,
+        failedDeletion.reason instanceof Error ? failedDeletion.reason.stack : undefined,
+      );
+      throw failedDeletion.reason;
+    }
+
+    await this.staticRepository.softDelete(id);
+    return SUCCESS_RESPONSE;
   }
 
   async getImage(id: string, variant: StaticImageVariant = 'large'): Promise<GetStaticImageOutput> {
