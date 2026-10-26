@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpStatus,
@@ -29,6 +30,7 @@ import { createReadStream } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { ZodResponse } from 'nestjs-zod';
 import envConfig from '../../shared/config.ts';
+import { MessageResDTO } from '../../shared/dtos/response.dto.ts';
 import CustomZodValidationPipe from '../../shared/pipes/custom-zod-validation.pipe.ts';
 import { StaticService } from '../../shared/services/static.service.ts';
 import {
@@ -51,6 +53,12 @@ type UploadedStaticFile = {
 @Controller('statics')
 export class StaticController {
   constructor(@Inject(StaticService) private readonly staticService: StaticService) {}
+
+  @Delete(':staticId')
+  @ZodResponse({ type: MessageResDTO })
+  deleteStatic(@Param() params: StaticIdParamDTO) {
+    return this.staticService.deleteStatic(params.staticId);
+  }
 
   @Post('files/upload')
   @ApiConsumes('multipart/form-data')
