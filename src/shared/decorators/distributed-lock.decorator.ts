@@ -117,7 +117,7 @@ async function releaseLock({
   try {
     const released = await cacheProvider.ReleaseLock(DISTRIBUTED_LOCK_CACHE_PREFIX, key, owner);
     if (!released) {
-      logger.warn(`Lock was not released because ownership changed: ${source}`);
+      logger.error(`Lock was not released because ownership changed: ${source}`);
     }
   } catch (error) {
     logger.error(

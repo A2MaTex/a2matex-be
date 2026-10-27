@@ -59,7 +59,9 @@ export class SepayApiClient {
     for (const transaction of transactions) {
       const result = SepayTransactionListItem.safeParse(transaction);
       if (!result.success) {
-        this.logger.warn('Skipped a Sepay transaction with unexpected shape during reconciliation');
+        this.logger.error(
+          'Skipped a Sepay transaction with unexpected shape during reconciliation',
+        );
         continue;
       }
 
@@ -71,7 +73,9 @@ export class SepayApiClient {
     return parsed;
   }
 
-  private toWebhookPayload(item: z.infer<typeof SepayTransactionListItem>): SepayWebhookPayloadType | null {
+  private toWebhookPayload(
+    item: z.infer<typeof SepayTransactionListItem>,
+  ): SepayWebhookPayloadType | null {
     const isIncoming = item.amount_in > 0;
     const isOutgoing = item.amount_out > 0;
 

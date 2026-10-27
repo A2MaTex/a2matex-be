@@ -28,6 +28,10 @@ export type CreateStaticImageVariantInput = StaticImageVariantRecord & {
   variant: 'SMALL' | 'MEDIUM';
 };
 
+export type StaticDeletionRecord = {
+  objectKeys: string[];
+};
+
 @Injectable()
 export class StaticRepository {
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
@@ -98,6 +102,47 @@ export class StaticRepository {
         createdAt: true,
         updatedAt: true,
         deletedAt: true,
+      },
+    });
+  }
+
+  async findForDeletion(id: string): Promise<StaticDeletionRecord | null> {
+    const staticRecord = await this.prisma.static.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+      },
+      select: {
+        objectKey: true,
+        StaticImageVariant: {
+          select: {
+            objectKey: true,
+          },
+        },
+      },
+    });
+    if (!staticRecord) {
+      return null;
+    }
+
+    return {
+      objectKeys: [
+        staticRecord.objectKey,
+        ...staticRecord.StaticImageVariant.map(({ objectKey }) => objectKey),
+      ],
+    };
+  }
+
+  async softDelete(id: string): Promise<void> {
+    const now = new Date();
+    await this.prisma.static.updateMany({
+      where: {
+        id,
+        deletedAt: null,
+      },
+      data: {
+        deletedAt: now,
+        updatedAt: now,
       },
     });
   }
