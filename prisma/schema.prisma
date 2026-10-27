@@ -22,6 +22,10 @@ model User {
   createdPermissions                                  Permission[]       @relation("PermissionCreatedBy")
   deletedPermissions                                  Permission[]       @relation("PermissionDeletedBy")
   updatedPermissions                                  Permission[]       @relation("PermissionUpdatedBy")
+  Product_Product_createdByIdToUser                   Product[]          @relation("Product_createdByIdToUser")
+  Product_Product_deletedByIdToUser                   Product[]          @relation("Product_deletedByIdToUser")
+  Product_Product_suspendedByIdToUser                 Product[]          @relation("Product_suspendedByIdToUser")
+  Product_Product_updatedByIdToUser                   Product[]          @relation("Product_updatedByIdToUser")
   createdProfiles                                     Profile[]          @relation("ProfileCreatedBy")
   deletedProfiles                                     Profile[]          @relation("ProfileDeletedBy")
   updatedProfiles                                     Profile[]          @relation("ProfileUpdatedBy")
@@ -203,6 +207,7 @@ model PublisherAccount {
   createdAt        DateTime                   @default(now()) @db.Timestamptz(6)
   updatedAt        DateTime?                  @db.Timestamptz(6)
   deletedAt        DateTime?                  @db.Timestamptz(6)
+  Product          Product[]
   Project          Project[]
   blockedBy        User?                      @relation("PublisherAccount_blockedByIdToUser", fields: [blockedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   user             User                       @relation("PublisherAccount_userIdToUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -251,6 +256,7 @@ model Static {
   updatedAt          DateTime?            @db.Timestamptz(6)
   deletedAt          DateTime?            @db.Timestamptz(6)
   launcherReleases   LauncherRelease[]
+  ProductMedia       ProductMedia[]
   Profile            Profile[]
   StaticImageVariant StaticImageVariant[]
 }
@@ -333,6 +339,7 @@ model Project {
   createdById                    String             @db.Uuid
   updatedById                    String?            @db.Uuid
   deletedById                    String?            @db.Uuid
+  Product                        Product?
   User_Project_createdByIdToUser User               @relation("Project_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_Project_deletedByIdToUser User?              @relation("Project_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   PublisherAccount               PublisherAccount   @relation(fields: [publisherAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -340,6 +347,7 @@ model Project {
   ProjectDraft                   ProjectDraft?
   WorkflowRevision               WorkflowRevision[]
 
+  @@unique([id, publisherAccountId])
   @@index([publisherAccountId, status], where: raw("(\"deletedAt\" IS NULL)"))
 }
 
@@ -405,6 +413,66 @@ model StaticImageVariant {
   Static      Static                 @relation(fields: [staticId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([staticId, variant])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+/// The real database foreign key is composite: (projectId, publisherAccountId) ->
+/// Project(id, publisherAccountId), so Product ownership can never disagree with
+/// Project ownership. Prisma cannot express that alongside the PublisherAccount
+/// relation (P1012), so the relation below is modelled on projectId alone and the
+/// composite key stays in the migration SQL. `prisma db pull` regenerates the
+/// invalid composite form; re-apply this by hand after any introspection.
+model Product {
+  id                               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  publisherAccountId               String           @db.Uuid
+  projectId                        String           @unique @db.Uuid
+  status                           ProductStatus    @default(DRAFT)
+  currentReleaseId                 String?          @db.Uuid
+  name                             String?          @db.VarChar(255)
+  slug                             String?          @db.VarChar(255)
+  shortDescription                 String?          @db.VarChar(500)
+  description                      String?
+  usageInstructions                String?
+  statusReason                     String?
+  suspendedAt                      DateTime?        @db.Timestamptz(6)
+  suspendedById                    String?          @db.Uuid
+  createdAt                        DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt                        DateTime?        @db.Timestamptz(6)
+  deletedAt                        DateTime?        @db.Timestamptz(6)
+  createdById                      String           @db.Uuid
+  updatedById                      String?          @db.Uuid
+  deletedById                      String?          @db.Uuid
+  User_Product_createdByIdToUser   User             @relation("Product_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User_Product_deletedByIdToUser   User?            @relation("Product_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Project                          Project          @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  PublisherAccount                 PublisherAccount @relation(fields: [publisherAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User_Product_suspendedByIdToUser User?            @relation("Product_suspendedByIdToUser", fields: [suspendedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User_Product_updatedByIdToUser   User?            @relation("Product_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ProductMedia                     ProductMedia[]
+
+  @@index([publisherAccountId, status], where: raw("(\"deletedAt\" IS NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// Partial unique indexes ProductMedia_single_icon_idx and ProductMedia_single_cover_idx
+/// live only in the migration SQL. `prisma db pull` collapses the COVER one into a
+/// field-level @unique on productId and drops the ICON one, which turns this into a
+/// one-to-one relation and breaks GALLERY. After any db pull, re-apply this by hand.
+model ProductMedia {
+  id        String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId String           @db.Uuid
+  staticId  String           @db.Uuid
+  type      ProductMediaType
+  sortOrder Int              @default(0)
+  altText   String?          @db.VarChar(500)
+  createdAt DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime?        @db.Timestamptz(6)
+  deletedAt DateTime?        @db.Timestamptz(6)
+  Product   Product          @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Static    Static           @relation(fields: [staticId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([productId, staticId], map: "ProductMedia_product_static_idx", where: raw("(\"deletedAt\" IS NULL)"))
 }
 
 enum UserStatus {
@@ -475,4 +543,17 @@ enum ProjectStatus {
 enum StaticImageVariantType {
   SMALL
   MEDIUM
+}
+
+enum ProductMediaType {
+  ICON
+  COVER
+  GALLERY
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
 }
