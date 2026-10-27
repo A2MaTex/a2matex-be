@@ -1,18 +1,5 @@
-import {
-  Body,
-  Controller,
-  Get,
-  HttpStatus,
-  Inject,
-  Param,
-  Patch,
-  Post,
-  Put,
-  Query,
-  Res,
-} from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import type { Response } from 'express';
 import { ZodResponse } from 'nestjs-zod';
 import { MessageResDTO } from '../../shared/dtos/response.dto.ts';
 import { ActivePermissionScopes } from '../../shared/decorators/active-permission-scopes.decorator.ts';
@@ -20,6 +7,7 @@ import type { ActivePermissionScope } from '../../shared/decorators/active-permi
 import { ActiveUser } from '../../shared/decorators/active-user.decorator.ts';
 import {
   CreateProductInputDTO,
+  CreateProductOutputDTO,
   GetProductListInputDTO,
   GetProductListOutputDTO,
   ProductIdParamDTO,
@@ -35,20 +23,10 @@ import { ProductService } from './product.service.ts';
 export class ProductController {
   constructor(@Inject(ProductService) private readonly productService: ProductService) {}
 
-  // 201 on create; resolving an existing Product answers 200 instead, which the
-  // response envelope picks up from the Express status.
   @Post()
-  @ZodResponse({ type: ProductManagementOutputDTO })
-  async create(
-    @Body() body: CreateProductInputDTO,
-    @ActiveUser('userId') userId: string,
-    @Res({ passthrough: true }) response: Response,
-  ) {
-    const { product, created } = await this.productService.create({ data: body, userId });
-    if (!created) {
-      response.status(HttpStatus.OK);
-    }
-    return product;
+  @ZodResponse({ type: CreateProductOutputDTO })
+  create(@Body() body: CreateProductInputDTO, @ActiveUser('userId') userId: string) {
+    return this.productService.create({ data: body, userId });
   }
 
   @Get()
@@ -72,7 +50,7 @@ export class ProductController {
   }
 
   @Patch(':productId')
-  @ZodResponse({ type: ProductManagementOutputDTO })
+  @ZodResponse({ type: MessageResDTO })
   update(
     @Param() params: ProductIdParamDTO,
     @Body() body: UpdateProductInputDTO,

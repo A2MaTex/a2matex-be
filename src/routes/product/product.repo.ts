@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.ts';
 import { ProductStatus } from '../../shared/constants/product.constant.ts';
+import type { ProductStatusType } from '../../shared/constants/product.constant.ts';
 import { ProjectStatus } from '../../shared/constants/project.constant.ts';
 import { STATIC_IMAGE_OUTPUT_CONTENT_TYPE } from '../../shared/constants/storage.constant.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
@@ -8,6 +9,7 @@ import { getPagination } from '../../shared/utils/pagination.ts';
 import { buildProductAccessWhere, type ProductAccess } from './product-access.model.ts';
 import type {
   CreateProductInputType,
+  CreateProductOutputType,
   GetProductListInputType,
   GetProductListOutputType,
   ProductManagementOutputType,
@@ -81,41 +83,38 @@ export class ProductRepo {
     });
   }
 
-  async getByProjectId({
+  // Existence check for create: the status is all the service needs to pick the
+  // right rejection, so the full management row is not read here.
+  getByProjectId({
     projectId,
     publisherAccountId,
   }: {
     projectId: string;
     publisherAccountId: string;
-  }): Promise<ProductManagementOutputType | null> {
-    const product = await this.prisma.product.findFirst({
+  }): Promise<{ id: string; status: ProductStatusType } | null> {
+    return this.prisma.product.findFirst({
       where: {
         projectId,
         publisherAccountId,
         deletedAt: null,
       },
-      select: PRODUCT_SELECT,
+      select: {
+        id: true,
+        status: true,
+      },
     });
-    return product ? this.toManagementOutput(product) : null;
   }
 
   // Requiring a generated variant row is what proves the image went through the
   // image pipeline: the plain file upload stores the caller's raw mimetype, so a
   // .webp uploaded there would pass a contentType check on its own.
-  countEligibleMedia({
-    staticIds,
-    publisherAccountId,
-  }: {
-    staticIds: string[];
-    publisherAccountId: string;
-  }) {
+  countEligibleMedia(staticIds: string[]) {
     return this.prisma.static.count({
       where: {
         id: {
           in: staticIds,
         },
         deletedAt: null,
-        publisherAccountId,
         contentType: STATIC_IMAGE_OUTPUT_CONTENT_TYPE,
         StaticImageVariant: {
           some: {},
@@ -124,7 +123,7 @@ export class ProductRepo {
     });
   }
 
-  async createWithMedia({
+  createWithMedia({
     data,
     publisherAccountId,
     userId,
@@ -132,8 +131,8 @@ export class ProductRepo {
     data: CreateProductInputType;
     publisherAccountId: string;
     userId: string;
-  }): Promise<ProductManagementOutputType> {
-    const product = await this.prisma.product.create({
+  }): Promise<CreateProductOutputType> {
+    return this.prisma.product.create({
       data: {
         publisherAccountId,
         projectId: data.projectId,
@@ -157,9 +156,10 @@ export class ProductRepo {
             }
           : {}),
       },
-      select: PRODUCT_SELECT,
+      select: {
+        id: true,
+      },
     });
-    return this.toManagementOutput(product);
   }
 
   getPublisherAccount(userId: string) {
@@ -226,7 +226,7 @@ export class ProductRepo {
     };
   }
 
-  // Returns null when no row matched, which the service turns into not-found,
+  // A zero count means no row matched, which the service turns into not-found,
   // archived or suspended through one ownership-safe read.
   async updateEditable({
     id,
@@ -238,7 +238,7 @@ export class ProductRepo {
     data: UpdateProductInputType;
     publisherAccountId: string;
     userId: string;
-  }): Promise<ProductManagementOutputType | null> {
+  }): Promise<{ count: number }> {
     const { media, ...fields } = data;
 
     const result = await this.prisma.product.updateMany({
@@ -257,14 +257,14 @@ export class ProductRepo {
       },
     });
     if (result.count === 0) {
-      return null;
+      return result;
     }
 
     if (media !== undefined) {
       await this.replaceMedia({ productId: id, media });
     }
 
-    return this.getById({ id, access: { unrestricted: false, publisherAccountId } });
+    return result;
   }
 
   // Soft-delete first: the partial unique indexes only consider live rows, so
@@ -314,7 +314,15 @@ export class ProductRepo {
   // The release pointer is part of the predicate so the transition stays a single
   // atomic write. The Product Release feature tightens this to also require that
   // the release is PUBLISHED and belongs to this Product.
-  reactivateSuspended({ id, access, userId }: { id: string; access: ProductAccess; userId: string }) {
+  reactivateSuspended({
+    id,
+    access,
+    userId,
+  }: {
+    id: string;
+    access: ProductAccess;
+    userId: string;
+  }) {
     return this.prisma.product.updateMany({
       where: {
         id,

@@ -26,15 +26,6 @@ CREATE TYPE "ProductMediaType" AS ENUM (
 ALTER TABLE "Project"
     ADD CONSTRAINT "Project_id_publisherAccountId_key" UNIQUE (id, "publisherAccountId");
 
--- Prerequisite for ProductMedia: Static carries no ownership yet, so Product could not
--- tell an own image from another Publisher's. Nullable because legacy and system rows
--- keep no owner, and those rows stay ineligible for ProductMedia.
-ALTER TABLE "Static"
-    ADD COLUMN "publisherAccountId" UUID,
-    ADD CONSTRAINT "Static_publisherAccountId_fkey"
-        FOREIGN KEY ("publisherAccountId") REFERENCES "PublisherAccount" (id)
-        ON DELETE NO ACTION ON UPDATE NO ACTION;
-
 CREATE TABLE "Product" (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     "publisherAccountId" UUID NOT NULL REFERENCES "PublisherAccount" (id)

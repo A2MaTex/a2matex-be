@@ -212,7 +212,6 @@ model PublisherAccount {
   blockedBy        User?                      @relation("PublisherAccount_blockedByIdToUser", fields: [blockedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   user             User                       @relation("PublisherAccount_userIdToUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   termsAcceptances PublisherTermsAcceptance[]
-  Static           Static[]
 }
 
 model PublisherTermsAcceptance {
@@ -256,11 +255,9 @@ model Static {
   createdAt          DateTime             @default(now()) @db.Timestamptz(6)
   updatedAt          DateTime?            @db.Timestamptz(6)
   deletedAt          DateTime?            @db.Timestamptz(6)
-  publisherAccountId String?              @db.Uuid
   launcherReleases   LauncherRelease[]
   ProductMedia       ProductMedia[]
   Profile            Profile[]
-  PublisherAccount   PublisherAccount?    @relation(fields: [publisherAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   StaticImageVariant StaticImageVariant[]
 }
 

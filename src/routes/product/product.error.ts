@@ -7,6 +7,8 @@ import {
 
 export const ProductNotFoundException = new NotFoundException('Error.ProductNotFound');
 
+export const ProductAlreadyExistsException = new ConflictException('Error.ProductAlreadyExists');
+
 export const ProductArchivedException = new ConflictException('Error.ProductArchived');
 
 export const ProductSuspendedException = new ConflictException('Error.ProductSuspended');
@@ -39,5 +41,12 @@ export const ProductMediaInvalidException = new UnprocessableEntityException([
   {
     message: 'Error.ProductMediaInvalid',
     path: 'media',
+  },
+]);
+
+export const ProductSuspendReasonRequiredException = new UnprocessableEntityException([
+  {
+    message: 'Error.ProductSuspendReasonRequired',
+    path: 'reason',
   },
 ]);

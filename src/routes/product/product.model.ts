@@ -124,6 +124,8 @@ export const UpdateProductInput = z
     },
   );
 
+export const CreateProductOutput = Product.pick({ id: true });
+
 export const ProductProjectSummary = z.object({
   id: z.uuid(),
   name: z.string(),
@@ -205,6 +207,7 @@ export const GetProductListOutput = z.object({
 
 export type ProductMediaInputType = z.infer<typeof ProductMediaInput>;
 export type CreateProductInputType = z.infer<typeof CreateProductInput>;
+export type CreateProductOutputType = z.infer<typeof CreateProductOutput>;
 export type UpdateProductInputType = z.infer<typeof UpdateProductInput>;
 export type UpdateProductLifecycleInputType = z.infer<typeof UpdateProductLifecycleInput>;
 export type GetProductListInputType = z.infer<typeof GetProductListInput>;
