@@ -518,6 +518,8 @@ kill %1
 
 Merge vào `staging`. Không phải làm gì thêm. Theo dõi ở tab Actions. Nhánh `main` không còn tự deploy; muốn đưa `main` lên thì merge nó vào `staging`.
 
+Mỗi lần deploy thay cả hai container chạy từ cùng một image: `a2matex-app` (API) và `a2matex-cron` (job định kỳ, xem `specs/005-separate-cron-server/`). Script chờ cả hai báo healthy; container nào không lên được thì deploy thất bại và in 50 dòng log cuối của đúng container đó.
+
 ### Trước khi merge một migration vào staging
 
 Chạy thử toàn bộ thư mục `prisma/migrations` trên một Postgres 17 tạm, vì migration viết tay có thể sai cú pháp mà Prisma không kiểm tra lúc tạo file. Ngày 2026-10-06 một dấu phẩy thừa đã làm deploy thất bại:
@@ -562,9 +564,12 @@ Job build bị bỏ qua, job deploy kéo đúng tag đó về. Quay lui app khô
 ```bash
 a2c ps
 a2c logs -f app
+a2c logs -f cron                  # job định kỳ
 a2c logs -f caddy
 cat /opt/a2matex/.env.deploy      # tag đang chạy
 ```
+
+Log của `cron` lúc khởi động liệt kê từng job: `[CronRunner] registered name=<job> schedule="<biểu thức>" source=<env|default> nextRun=<ISO>`; job bị tắt qua env hiện `disabled name=<job>`. Mỗi lần chạy có cặp dòng `started` / `finished ... durationMs=... outcome=success` (hoặc `failed ... outcome=error`, `skipped ... outcome=skipped` khi lần trước chưa xong). Muốn tắt tạm một job mà không deploy lại: đặt `CRON_<JOB>=off` trong `.env.production` rồi `a2c up -d cron`.
 
 Log, CPU, số kết nối và truy vấn chậm của Postgres xem trong console Cloud SQL, trang instance
 `a2matex-pg`, tab Logs và Query insights.
@@ -706,6 +711,7 @@ Bản ghi DNS `db.a2matex.com` của spec 003 (nếu đã tạo) không còn dù
 | --- | --- | --- |
 | Job deploy fail ở bước chờ healthy | biến môi trường sai hoặc migration lỗi | script đã in 50 dòng log cuối của migrate và app ngay trong Actions |
 | App khởi động rồi thoát ngay | thiếu hoặc sai biến | `a2c logs app`, thông báo liệt kê đúng tên biến |
+| Container `a2matex-cron` không healthy, khởi động lại liên tục | biểu thức cron trong một biến `CRON_*` sai, hoặc hai job trùng tên | `a2c logs cron`: dòng `[CronBootstrap]` nêu đúng tên biến và giá trị sai. Sửa `.env.production` rồi `a2c up -d cron`. API không bị ảnh hưởng bởi lỗi này |
 | Mọi request trả 403 dù token hợp lệ | chưa seed permission cho route mới, hoặc cache phân quyền còn bản cũ | chạy `seed-permissions`, script tự xóa cache; nếu vẫn 403 thì xóa cache tay theo lệnh ở mục B |
 | `curl` tên miền trả 502 | `HOST` trong env là `localhost`, hoặc app chưa lên | sửa `HOST=0.0.0.0`, `a2c logs app` |
 | Caddy không xin được chứng chỉ | DNS chưa trỏ, hoặc cổng 80 bị chặn | `dig`, `ufw status`, `a2c logs caddy` |
