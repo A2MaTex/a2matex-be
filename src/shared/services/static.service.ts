@@ -39,7 +39,7 @@ import {
 import {
   InvalidStaticImageTypeException,
   StaticImageVariantNotFoundException,
-} from '../types/error.type.ts';
+} from '../errors/common.error.ts';
 import { buildStaticObjectKey } from '../utils/utils.ts';
 import { TransactionService } from './transaction.service.ts';
 

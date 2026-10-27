@@ -16,6 +16,8 @@ import { StaticRepository } from './repositories/static.repo.ts';
 import { StaticService } from './services/static.service.ts';
 import { OBJECT_STORAGE_PROVIDER } from './infrastructure/storage/object-storage.interface.ts';
 import { S3ObjectStorageProvider } from './infrastructure/storage/s3/s3-object-storage.provider.ts';
+import { ProjectAccessRepo } from './repositories/project-access.repo.ts';
+import { ProjectAccessPolicy } from './services/project-access.policy.ts';
 
 const sharedServices = [
   PrismaService,
@@ -28,6 +30,8 @@ const sharedServices = [
   SharedRoleRepository,
   StaticRepository,
   StaticService,
+  ProjectAccessRepo,
+  ProjectAccessPolicy,
 ];
 
 const objectStorageProvider = {

@@ -1,6 +1,6 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
 import type { ProjectStatusType } from '../../shared/constants/project.constant.ts';
-import type { ProjectAccess } from '../project/project-access.model.ts';
+import type { ProjectAccess } from '../../shared/models/project-access.model.ts';
 
 export type CreateWorkflowRevisionInput = {
   projectId: string;
