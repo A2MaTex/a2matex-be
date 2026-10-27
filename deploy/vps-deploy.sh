@@ -72,21 +72,26 @@ compose up -d --remove-orphans
 
 docker logout ghcr.io >/dev/null 2>&1 || true
 
-log "Waiting for the API to report healthy"
+# The API and the cron service come from the same image and both must be healthy
+# before the deploy counts as done. They share one deadline.
+log "Waiting for the API and the cron service to report healthy"
 deadline=$(( $(date +%s) + HEALTH_TIMEOUT ))
-while :; do
-  status="$(docker inspect --format '{{.State.Health.Status}}' a2matex-app 2>/dev/null || echo missing)"
-  if [ "$status" = "healthy" ]; then
-    break
-  fi
-  if [ "$(date +%s)" -ge "$deadline" ]; then
-    echo "API did not become healthy within ${HEALTH_TIMEOUT}s (status: ${status})." >&2
-    compose ps
-    docker logs --tail 50 a2matex-migrate 2>&1 || true
-    docker logs --tail 50 a2matex-app 2>&1 || true
-    exit 1
-  fi
-  sleep 3
+for container in a2matex-app a2matex-cron; do
+  while :; do
+    status="$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null || echo missing)"
+    if [ "$status" = "healthy" ]; then
+      log "${container} is healthy"
+      break
+    fi
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      echo "${container} did not become healthy within ${HEALTH_TIMEOUT}s (status: ${status})." >&2
+      compose ps
+      docker logs --tail 50 a2matex-migrate 2>&1 || true
+      docker logs --tail 50 "$container" 2>&1 || true
+      exit 1
+    fi
+    sleep 3
+  done
 done
 
 log "Removing dangling images"

@@ -62,6 +62,12 @@ const configSchema = z
     SEPAY_API_BASE_URL: z.string().optional().transform(emptyToUndefined),
     SEPAY_API_TOKEN: z.string().optional().transform(emptyToUndefined),
     SEPAY_RECONCILE_INTERVAL_MINUTES: z.coerce.number().int().positive().default(15),
+    // Cron service (src/cron). Expressions are deliberately not validated here:
+    // a bad CRON_* value must stop the cron process only, never the API sharing this schema.
+    CRON_PORT: z.string().default('3001'),
+    CRON_SHUTDOWN_GRACE_SECONDS: z.coerce.number().int().nonnegative().default(30),
+    // Empty = derived from SEPAY_RECONCILE_INTERVAL_MINUTES; "off" disables the job.
+    CRON_TOPUP_RECONCILE: z.string().optional().transform(emptyToUndefined),
   })
   .superRefine((cfg, ctx) => {
     const hasAccessKey = cfg.OBJECT_STORAGE_ACCESS_KEY_ID !== undefined;

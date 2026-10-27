@@ -117,6 +117,9 @@ src/
 │       ├── topup.dto.ts                  # createZodDto wrappers
 │       ├── topup.error.ts                # InvalidSepaySignatureException, v.v.
 │       ├── topup.cron.ts                 # @Cron() job đối soát (FR-011)
+│       │                                  #   (2026-10-27: đã chuyển sang
+│       │                                  #   src/cron/jobs/topup-reconcile.job.ts theo
+│       │                                  #   specs/005-separate-cron-server)
 │       └── sepay-webhook.guard.ts        # Guard riêng xác thực API key (FR-010)
 └── shared/
     └── config.ts                         # SỬA: thêm SEPAY_* env vars vào configSchema

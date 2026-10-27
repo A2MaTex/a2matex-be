@@ -1,6 +1,5 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
-import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './routes/auth/auth.module.js';
@@ -28,7 +27,6 @@ import { SharedModule } from './shared/shared.module.js';
 
 @Module({
   imports: [
-    ScheduleModule.forRoot(),
     AuthModule,
     PermissionModule,
     ProfileModule,
