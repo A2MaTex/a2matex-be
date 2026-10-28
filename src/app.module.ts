@@ -24,6 +24,7 @@ import { RequestLoggingMiddleware } from './shared/middlewares/request-logging.m
 import { TransformInterceptor } from './shared/interceptors/transform.interceptor.js';
 import CustomZodValidationPipe from './shared/pipes/custom-zod-validation.pipe.js';
 import { SharedModule } from './shared/shared.module.js';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
@@ -41,6 +42,9 @@ import { SharedModule } from './shared/shared.module.js';
     ProjectModule,
     ProjectDraftModule,
     SharedModule,
+    ConfigModule.forRoot({
+      isGlobal: true
+    })
   ],
   controllers: [AppController],
   providers: [

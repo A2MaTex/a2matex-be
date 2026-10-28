@@ -42,6 +42,9 @@ model User {
   WorkflowRevision_WorkflowRevision_createdByIdToUser WorkflowRevision[] @relation("WorkflowRevision_createdByIdToUser")
   WorkflowRevision_WorkflowRevision_deletedByIdToUser WorkflowRevision[] @relation("WorkflowRevision_deletedByIdToUser")
   WorkflowRevision_WorkflowRevision_updatedByIdToUser WorkflowRevision[] @relation("WorkflowRevision_updatedByIdToUser")
+  uploadSessionsCreatedBy                             StaticUploadSession[] @relation("UploadSessionCreatedBy")
+  uploadSessionsUpdatedBy                             StaticUploadSession[] @relation("UploadSessionUpdatedBy")
+  uploadSessionsDeletedBy                             StaticUploadSession[] @relation("UploadSessionDeletedBy")
 }
 
 model Profile {
@@ -407,6 +410,40 @@ model StaticImageVariant {
   @@unique([staticId, variant])
 }
 
+model StaticUploadSession {
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fileHash     String        @map("file_hash")
+  uploadId     String        @map("upload_id")
+  fileKey      String        @map("file_key")
+  originalName String        @map("original_name")
+  contentType  String        @map("content_type")
+  size         BigInt        @map("size")
+  status       SessionStatus?
+  expiresAt    DateTime?     @map("expires_at") @db.Timestamp(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime? @map("updated_at") @db.Timestamp(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamp(6)
+
+  createdById String? @map("created_by") @db.Uuid
+  updatedById String? @map("updated_by") @db.Uuid
+  deletedById String? @map("deleted_by") @db.Uuid
+
+  createdBy User? @relation("UploadSessionCreatedBy", fields: [createdById], references: [id])
+  updatedBy User? @relation("UploadSessionUpdatedBy", fields: [updatedById], references: [id])
+  deletedBy User? @relation("UploadSessionDeletedBy", fields: [deletedById], references: [id])
+
+  @@index([fileHash], map: "idx_StaticUploadSession_file_hash", where: raw("(deleted_at IS NULL)"))
+
+  @@unique([fileHash], map: "idx_unique_uploading_session", where: raw("(status = 'UPLOADING'::\"SessionStatus\")"))
+}
+
+enum SessionStatus {
+  UPLOADING
+  COMPLETED
+  ABORTED
+}
+
 enum UserStatus {
   ACTIVE
   INACTIVE
@@ -476,3 +513,4 @@ enum StaticImageVariantType {
   SMALL
   MEDIUM
 }
+

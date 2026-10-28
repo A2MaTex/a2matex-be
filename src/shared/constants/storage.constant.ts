@@ -52,3 +52,8 @@ export const STATIC_IMAGE_VARIANT_CONFIG: Record<
     maxSizeBytes: 1024 * 1024,
   },
 };
+
+export const MULTIPART_UPLOAD_CONTENT_FORMATS: ReadonlySet<string> = new Set([
+  'application/x-msdownload',
+]);
+export const MULTIPART_UPLOAD_DEFAULT_PART_SIZE = 10 * 1024 * 1024;

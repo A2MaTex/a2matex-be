@@ -16,6 +16,13 @@ export const InvalidStaticImageTypeException = new UnprocessableEntityException(
   },
 ]);
 
+export const InvalidStaticMultipartUploadContentTypeException = new UnprocessableEntityException([
+  {
+    message: 'Error.InvalidMultipartUploadContentType',
+    path: 'file',
+  },
+]);
+
 export const StaticImageVariantNotFoundException = new NotFoundException(
   'Error.ImageVariantNotFound',
 );

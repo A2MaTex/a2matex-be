@@ -13,6 +13,8 @@ export type CreateStaticInput = {
 
 export type CreateStaticOutput = {
   id: string;
+  originalFileName: string;
+  size: bigint;
 };
 
 export type StaticImageVariantRecord = {
@@ -41,6 +43,8 @@ export class StaticRepository {
       data: input,
       select: {
         id: true,
+        originalFileName: true,
+        size: true,
       },
     });
   }

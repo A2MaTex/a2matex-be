@@ -9,6 +9,7 @@ import {
   ParseFilePipeBuilder,
   Post,
   Query,
+  Req,
   Res,
   StreamableFile,
   UploadedFile,
@@ -32,12 +33,20 @@ import envConfig from '../../shared/config.ts';
 import CustomZodValidationPipe from '../../shared/pipes/custom-zod-validation.pipe.ts';
 import { StaticService } from '../../shared/services/static.service.ts';
 import {
+  CompleteMultipartUploadInputDTO,
+  CompleteMultipartUploadOutputDTO,
+  GetBatchUrlsInputDTO,
+  GetBatchUrlsOutputDTO,
   GetStaticImageQueryDTO,
   StaticIdParamDTO,
+  UploadMultipartFileInputDTO,
   UploadStaticFileInputDTO,
   UploadStaticFileOutputDTO,
 } from './static.dto.ts';
 import { StaticUploadCleanupInterceptor } from './static-upload-cleanup.interceptor.ts';
+import { ActiveUser } from '../../shared/decorators/active-user.decorator.ts';
+import { Cron } from '@nestjs/schedule';
+import { CompleteMultipartUploadOutput } from './static.model.ts';
 
 type UploadedStaticFile = {
   originalname: string;
@@ -214,6 +223,116 @@ export class StaticController {
       type: output.contentType,
       disposition: 'inline',
       length: output.size,
+    });
+  }
+
+  @Post('/files/multipart/start')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file', 'prefix', 'lastModified'],
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
+        prefix: {
+          type: 'string',
+          example: 'launcher/releases',
+        },
+        lastModified: {
+          type: 'integer',
+          example: Date.now(),
+        },
+      },
+    },
+  })
+  @UseInterceptors(FileInterceptor('file'), StaticUploadCleanupInterceptor)
+  // @ZodResponse({ type: UploadMultipartFileOutputDTO })
+  async startUploadFileMultipart(
+    @UploadedFile(
+      new ParseFilePipeBuilder().build({
+        errorHttpStatusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+        fileIsRequired: true,
+      }),
+    )
+    file: UploadedStaticFile,
+    @Body() body: UploadMultipartFileInputDTO,
+    @ActiveUser('userId') userId: string,
+  ) {
+    return this.staticService.startUploadMultipartFile({
+      filePath: file.path,
+      originalFileName: file.originalname,
+      lastModified: body.lastModified,
+      contentType: file.mimetype,
+      size: file.size,
+      prefix: body.prefix,
+      userId: userId,
+    });
+  }
+  @Post('/files/multipart/urls')
+  @ApiConsumes('application/json')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['sessionId', 'partNumbers'],
+      properties: {
+        sessionId: {
+          type: 'string',
+          format: 'uuid',
+        },
+        partNumbers: {
+          type: 'array',
+          items: {
+            type: 'integer',
+            example: 1,
+          },
+        },
+      },
+    },
+  })
+  @ZodResponse({ type: GetBatchUrlsOutputDTO })
+  async getBatchUrls(@Req() req: Request, @Body() body: GetBatchUrlsInputDTO) {
+    return this.staticService.getBatchUrls({
+      sessionId: body.sessionId,
+      partNumbers: body.partNumbers,
+    });
+  }
+  @Post('/files/multipart/complete')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['sessionId', 'parts'],
+      properties: {
+        sessionId: {
+          type: 'string',
+          format: 'uuid',
+        },
+        parts: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              partNumber: {
+                type: 'integer',
+                example: 1,
+              },
+              eTag: {
+                type: 'string',
+                example: 'etag',
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ZodResponse({ type: CompleteMultipartUploadOutputDTO })
+  async completeMultipartUpload(@Body() body: CompleteMultipartUploadInputDTO) {
+    return this.staticService.completeMultipartUpload({
+      sessionId: body.sessionId,
+      parts: body.parts,
     });
   }
 

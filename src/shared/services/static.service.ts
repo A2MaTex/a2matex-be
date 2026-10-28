@@ -5,13 +5,15 @@ import {
   NotFoundException,
   PayloadTooLargeException,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 import sharp from 'sharp';
 import { validate as isUuid } from 'uuid';
 import type { StaticEntityType } from '../../entities/static.model.ts';
 import {
+  MULTIPART_UPLOAD_CONTENT_FORMATS,
+  MULTIPART_UPLOAD_DEFAULT_PART_SIZE,
   STATIC_CONTENT_TYPE_MAX_LENGTH,
   STATIC_IMAGE_CONTENT_TYPES,
   STATIC_IMAGE_INPUT_FORMATS,
@@ -37,10 +39,16 @@ import {
 } from '../repositories/static.repo.ts';
 import {
   InvalidStaticImageTypeException,
+  InvalidStaticMultipartUploadContentTypeException,
   StaticImageVariantNotFoundException,
 } from '../types/error.type.ts';
 import { buildStaticObjectKey } from '../utils/utils.ts';
 import { TransactionService } from './transaction.service.ts';
+import { UploadSessionRepository } from '../repositories/upload-session.repo.ts';
+import {
+  CompleteMultipartUploadInputDTO,
+  CompleteMultipartUploadOutputDTO,
+} from '../../../src/routes/static/static.dto.ts';
 
 export type UploadStaticFileInput = {
   body: Readable | Uint8Array;
@@ -59,6 +67,16 @@ export type UploadStaticImageInput = {
   originalFileName: string;
   contentType: string;
   size: number;
+};
+
+export type UploadMultipartFileInput = {
+  filePath: string;
+  originalFileName: string;
+  lastModified: number;
+  contentType: string;
+  size: number;
+  prefix: string;
+  userId: string;
 };
 
 export type GetStaticFileOutput = {
@@ -90,6 +108,8 @@ export class StaticService {
     private readonly staticRepository: StaticRepository,
     @Inject(TransactionService)
     private readonly transactionService: TransactionService,
+    @Inject(UploadSessionRepository)
+    private readonly uploadSessionRepository: UploadSessionRepository,
   ) {}
 
   async uploadFile(input: UploadStaticFileInput): Promise<UploadStaticFileOutput> {
@@ -194,6 +214,109 @@ export class StaticService {
     }
   }
 
+  async startUploadMultipartFile(input: UploadMultipartFileInput) {
+    // : Promise<UploadStaticFileOutput>
+    const contentType = input.contentType.trim().toLowerCase();
+
+    this.assertMultipartUploadContentType(contentType);
+    this.validateMultipartUploadFileMetadata(input);
+
+    const id = randomUUID();
+    const objectKeyPrefix = buildStaticObjectKey(id, input.prefix);
+
+    const uploadId = await this.storageProvider.createMultipartUpload(objectKeyPrefix, contentType);
+
+    const session = await this.uploadSessionRepository.create({
+      id: randomUUID(),
+      createdBy: input.userId,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      fileHash: this.generateFileHash({
+        userId: input.userId,
+        fileName: input.originalFileName,
+        fileSize: input.size,
+        lastModified: input.lastModified,
+      }),
+      fileKey: objectKeyPrefix,
+      uploadId,
+      originalName: input.originalFileName,
+      contentType: input.contentType,
+      size: input.size,
+    });
+
+    return {
+      sessionId: session.id,
+      chunkSize: MULTIPART_UPLOAD_DEFAULT_PART_SIZE,
+    };
+  }
+
+  async getBatchUrls({ sessionId, partNumbers }: { sessionId: string; partNumbers: number[] }) {
+    const session = await this.uploadSessionRepository.getById(sessionId);
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    const uploadUrls = await Promise.all(
+      partNumbers.map(async (partNumber) => ({
+        partNumber,
+        url: await this.storageProvider.getUploadPartUrl(
+          session.fileKey,
+          session.uploadId,
+          partNumber,
+        ),
+      })),
+    );
+
+    return {
+      uploadUrls,
+      expiresIn: 900,
+    };
+  }
+
+  async completeMultipartUpload({
+    sessionId,
+    parts,
+  }: CompleteMultipartUploadInputDTO): Promise<CompleteMultipartUploadOutputDTO> {
+    const session = await this.uploadSessionRepository.getById(sessionId);
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+    const listParts = await this.storageProvider.listParts(session.fileKey, session.uploadId);
+    if (listParts.length !== parts.length) {
+      await this.storageProvider.abortMultipartUpload(session.fileKey, session.uploadId);
+      await this.uploadSessionRepository.endSession(session.id);
+      throw new Error('Invalid parts');
+    }
+    await this.storageProvider.completeMultipartUpload(
+      session.fileKey,
+      session.uploadId,
+      listParts,
+    );
+    const staticFile = await this.staticRepository.create({
+      id: randomUUID(),
+      objectKey: session.fileKey,
+      originalFileName: session.originalName,
+      contentType: session.contentType,
+      size: BigInt(session.size),
+    });
+    await this.uploadSessionRepository.endSession(session.id);
+    return {
+      staticId: staticFile.id,
+      originalFileName: staticFile.originalFileName,
+      size: Number(staticFile.size),
+    };
+  }
+
+  async cleanExpiredUploadSessions() {
+    const sessions = await this.uploadSessionRepository.getExpiredSessions();
+    await Promise.all([
+      this.storageProvider.cleanupIncompleteUploads(),
+      sessions.map(async (session) => {
+        await this.storageProvider.abortMultipartUpload(session.fileKey, session.uploadId);
+        await this.uploadSessionRepository.softDeleteSession(session.id);
+      }),
+    ]);
+  }
+
   async getFile(id: string): Promise<GetStaticFileOutput> {
     const staticRecord = await this.getStaticRecord(id);
 
@@ -253,6 +376,24 @@ export class StaticService {
     }
   }
 
+  private validateMultipartUploadFileMetadata(input: {
+    originalFileName: string;
+    contentType: string;
+    size: number;
+  }): void {
+    const originalFileName = path.basename(input.originalFileName.trim());
+    if (originalFileName.length === 0 || originalFileName === '.' || originalFileName === '..') {
+      throw new Error('Original file name is required');
+    }
+    const contentType = input.contentType.trim();
+    if (contentType.length === 0 || contentType.length > STATIC_CONTENT_TYPE_MAX_LENGTH) {
+      throw new Error('Content type is required');
+    }
+    if (!Number.isSafeInteger(input.size) || input.size < 0) {
+      throw new Error('File size must be a non-negative safe integer');
+    }
+  }
+
   private async getStaticRecord(id: string): Promise<StaticEntityType> {
     if (!isUuid(id)) {
       throw new NotFoundException('Error.StaticNotFound');
@@ -268,6 +409,12 @@ export class StaticService {
   private assertImageContentType(contentType: string): void {
     if (!STATIC_IMAGE_CONTENT_TYPES.has(contentType.trim().toLowerCase())) {
       throw InvalidStaticImageTypeException;
+    }
+  }
+
+  private assertMultipartUploadContentType(contentType: string): void {
+    if (!MULTIPART_UPLOAD_CONTENT_FORMATS.has(contentType.trim().toLowerCase())) {
+      throw InvalidStaticMultipartUploadContentTypeException;
     }
   }
 
@@ -364,5 +511,20 @@ export class StaticService {
         metadataCleanup.reason instanceof Error ? metadataCleanup.reason.stack : undefined,
       );
     }
+  }
+  private generateFileHash({
+    userId,
+    fileName,
+    fileSize,
+    lastModified,
+  }: {
+    userId: string;
+    fileName: string;
+    fileSize: number;
+    lastModified: number;
+  }): string {
+    const metadata = `${userId}:${fileName}:${fileSize}:${lastModified}`;
+
+    return createHash('md5').update(metadata).digest('hex');
   }
 }
