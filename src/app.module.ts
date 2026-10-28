@@ -15,6 +15,7 @@ import { NodeCatalogModule } from './routes/node-catalog/node-catalog.module.ts'
 import { ProjectModule } from './routes/project/project.module.ts';
 import { ProjectDraftModule } from './routes/project-draft/project-draft.module.ts';
 import { ProductModule } from './routes/product/product.module.ts';
+import { ProductOfferModule } from './routes/product-offer/product-offer.module.ts';
 import { WorkflowValidationModule } from './routes/workflow-validation/workflow-validation.module.ts';
 import { CatchEverythingFilter } from './shared/filters/catch-everything.filter.js';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter.js';
@@ -41,6 +42,7 @@ import { SharedModule } from './shared/shared.module.js';
     ProjectModule,
     ProjectDraftModule,
     ProductModule,
+    ProductOfferModule,
     WorkflowValidationModule,
     SharedModule,
   ],
