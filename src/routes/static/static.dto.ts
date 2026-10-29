@@ -4,6 +4,7 @@ import {
   CompleteMultipartUploadOutput,
   GetBatchUrlsInput,
   GetBatchUrlsOutput,
+  GetCompletedPartsInput,
   GetStaticImageQuery,
   StaticIdParam,
   UploadMultipartFileInput,
@@ -18,6 +19,8 @@ export class UploadStaticFileInputDTO extends createZodDto(UploadStaticFileInput
 export class UploadStaticFileOutputDTO extends createZodDto(UploadStaticFileOutput) {}
 
 export class GetStaticImageQueryDTO extends createZodDto(GetStaticImageQuery) {}
+
+export class GetCompletedPartsInputDTO extends createZodDto(GetCompletedPartsInput) {}
 
 export class UploadMultipartFileInputDTO extends createZodDto(UploadMultipartFileInput) {}
 

@@ -234,4 +234,11 @@ export class S3ObjectStorageProvider implements ObjectStorageProvider {
     }
     return envConfig.OBJECT_STORAGE_BUCKET;
   }
+
+  getMultipartSessionTTL(): number {
+    if (!envConfig.MULTIPART_SESSION_TTL) {
+      throw new Error('MULTIPART_SESSION_TTL is not configured');
+    }
+    return envConfig.MULTIPART_SESSION_TTL;
+  }
 }

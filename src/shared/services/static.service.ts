@@ -12,8 +12,8 @@ import sharp from 'sharp';
 import { validate as isUuid } from 'uuid';
 import type { StaticEntityType } from '../../entities/static.model.ts';
 import {
+  ALLOW_FILE_UPLOAD_PREFIX,
   MULTIPART_UPLOAD_CONTENT_FORMATS,
-  MULTIPART_UPLOAD_DEFAULT_PART_SIZE,
   STATIC_CONTENT_TYPE_MAX_LENGTH,
   STATIC_IMAGE_CONTENT_TYPES,
   STATIC_IMAGE_INPUT_FORMATS,
@@ -49,6 +49,8 @@ import {
   CompleteMultipartUploadInputDTO,
   CompleteMultipartUploadOutputDTO,
 } from '../../../src/routes/static/static.dto.ts';
+import envConfig from '../config.ts';
+import { UploadSessionStatus } from '../constants/uploading-session.constant.ts';
 
 export type UploadStaticFileInput = {
   body: Readable | Uint8Array;
@@ -70,13 +72,21 @@ export type UploadStaticImageInput = {
 };
 
 export type UploadMultipartFileInput = {
-  filePath: string;
   originalFileName: string;
   lastModified: number;
   contentType: string;
   size: number;
   prefix: string;
   userId: string;
+  requestedPartNumbers: number[];
+};
+
+export type GetCompletedPartsInput = {
+  originalFileName: string;
+  lastModified: number;
+  contentType: string;
+  userId: string;
+  size: number;
 };
 
 export type GetStaticFileOutput = {
@@ -215,38 +225,81 @@ export class StaticService {
   }
 
   async startUploadMultipartFile(input: UploadMultipartFileInput) {
-    // : Promise<UploadStaticFileOutput>
-    const contentType = input.contentType.trim().toLowerCase();
+    try {
+      const contentType = input.contentType.trim().toLowerCase();
 
-    this.assertMultipartUploadContentType(contentType);
-    this.validateMultipartUploadFileMetadata(input);
+      this.assertMultipartUploadContentType(contentType);
+      this.validateMultipartUploadFileMetadata(input);
+      this.checkValidPrefix(input.prefix);
 
-    const id = randomUUID();
-    const objectKeyPrefix = buildStaticObjectKey(id, input.prefix);
+      const id = randomUUID();
+      const objectKeyPrefix = buildStaticObjectKey(id, input.prefix);
 
-    const uploadId = await this.storageProvider.createMultipartUpload(objectKeyPrefix, contentType);
+      const uploadId = await this.storageProvider.createMultipartUpload(
+        objectKeyPrefix,
+        contentType,
+      );
 
-    const session = await this.uploadSessionRepository.create({
-      id: randomUUID(),
-      createdBy: input.userId,
-      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-      fileHash: this.generateFileHash({
+      const fileHash = this.generateFileHash({
         userId: input.userId,
         fileName: input.originalFileName,
         fileSize: input.size,
         lastModified: input.lastModified,
-      }),
-      fileKey: objectKeyPrefix,
-      uploadId,
-      originalName: input.originalFileName,
-      contentType: input.contentType,
-      size: input.size,
-    });
+      });
 
-    return {
-      sessionId: session.id,
-      chunkSize: MULTIPART_UPLOAD_DEFAULT_PART_SIZE,
-    };
+      let session = await this.uploadSessionRepository.getExistingByFileHash(fileHash);
+
+      if (session?.status !== UploadSessionStatus.COMPLETED && session?.fileKey) {
+        const matchStatic = await this.staticRepository.findByFileKey(session?.fileKey);
+
+        if (matchStatic) {
+          return {
+            message: 'This file has been uploaded before.',
+            staticId: matchStatic.id,
+          };
+        }
+      }
+
+      if (!session)
+        session = await this.uploadSessionRepository.create({
+          id: randomUUID(),
+          createdBy: input.userId,
+          expiresAt: new Date(Date.now() + envConfig.MULTIPART_SESSION_TTL),
+          fileHash: fileHash,
+          fileKey: objectKeyPrefix,
+          uploadId,
+          originalName: input.originalFileName,
+          contentType: input.contentType,
+          size: input.size,
+        });
+
+      const res = await this.getBatchUrls({
+        sessionId: session.id,
+        partNumbers: input.requestedPartNumbers,
+      });
+
+      return {
+        sessionId: session.id,
+        urls: res.uploadUrls,
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async getCompletedPart(input: GetCompletedPartsInput) {
+    const fileHash = this.generateFileHash({
+      userId: input.userId,
+      fileName: input.originalFileName,
+      fileSize: input.size,
+      lastModified: input.lastModified,
+    });
+    const session = await this.uploadSessionRepository.getExistingByFileHash(fileHash);
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    return this.storageProvider.listParts(session.fileKey, session.uploadId);
   }
 
   async getBatchUrls({ sessionId, partNumbers }: { sessionId: string; partNumbers: number[] }) {
@@ -266,10 +319,7 @@ export class StaticService {
       })),
     );
 
-    return {
-      uploadUrls,
-      expiresIn: 900,
-    };
+    return { uploadUrls };
   }
 
   async completeMultipartUpload({
@@ -283,7 +333,7 @@ export class StaticService {
     const listParts = await this.storageProvider.listParts(session.fileKey, session.uploadId);
     if (listParts.length !== parts.length) {
       await this.storageProvider.abortMultipartUpload(session.fileKey, session.uploadId);
-      await this.uploadSessionRepository.endSession(session.id);
+      await this.uploadSessionRepository.abortSession(session.id);
       throw new Error('Invalid parts');
     }
     await this.storageProvider.completeMultipartUpload(
@@ -315,6 +365,16 @@ export class StaticService {
         await this.uploadSessionRepository.softDeleteSession(session.id);
       }),
     ]);
+  }
+
+  async abortUploadSession(sessionId: string, userId: string) {
+    const session = await this.uploadSessionRepository.getById(sessionId);
+    if (session && session.status === UploadSessionStatus.UPLOADING) {
+      this.storageProvider.abortMultipartUpload(session.fileKey, session.uploadId);
+    }
+    return {
+      message: 'Abort successfully',
+    };
   }
 
   async getFile(id: string): Promise<GetStaticFileOutput> {
@@ -526,5 +586,11 @@ export class StaticService {
     const metadata = `${userId}:${fileName}:${fileSize}:${lastModified}`;
 
     return createHash('md5').update(metadata).digest('hex');
+  }
+
+  private checkValidPrefix(prefix: string): void {
+    if (!ALLOW_FILE_UPLOAD_PREFIX.some((e) => e === prefix)) {
+      throw new Error('Prefix is not allowed');
+    }
   }
 }

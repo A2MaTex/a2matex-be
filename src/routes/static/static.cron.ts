@@ -8,13 +8,14 @@ import { StaticService } from '../../shared/services/static.service.ts';
  * webhook delivery failed is still detected and credited (FR-011, SC-006) —
  * the system does not rely solely on Sepay pushing a notification.
  */
-export class TopUpCron {
-  private readonly logger = new Logger(TopUpCron.name);
+export class UploadSessionCron {
+  private readonly logger = new Logger(UploadSessionCron.name);
 
   constructor(@Inject(StaticService) private readonly staticService: StaticService) {}
 
   @Cron(`0 0 0 * * *`)
   async cleanupIncompleteUploads(): Promise<void> {
+    this.logger.debug('Clean Expired Upload Session');
     await this.staticService.cleanExpiredUploadSessions();
   }
 }

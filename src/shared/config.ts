@@ -62,6 +62,7 @@ const configSchema = z
     SEPAY_API_BASE_URL: z.string().optional().transform(emptyToUndefined),
     SEPAY_API_TOKEN: z.string().optional().transform(emptyToUndefined),
     SEPAY_RECONCILE_INTERVAL_MINUTES: z.coerce.number().int().positive().default(15),
+    MULTIPART_SESSION_TTL: z.coerce.number().int().positive().default(3600000)
   })
   .superRefine((cfg, ctx) => {
     const hasAccessKey = cfg.OBJECT_STORAGE_ACCESS_KEY_ID !== undefined;

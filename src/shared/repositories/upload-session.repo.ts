@@ -22,6 +22,24 @@ export class UploadSessionRepository {
     return this.prismaService.getClient();
   }
 
+  async getExistingByFileHash(fileHash: string) {
+    return this.prisma.staticUploadSession.findUnique({
+      where: {
+        fileHash: fileHash,
+        status: {
+          notIn: [UploadSessionStatus.ABORTED],
+        },
+      },
+      select: {
+        id: true,
+        status: true,
+        expiresAt: true,
+        fileKey: true,
+        uploadId: true,
+      },
+    });
+  }
+
   async getById(id: string) {
     return this.prisma.staticUploadSession.findUnique({
       where: {
@@ -34,6 +52,7 @@ export class UploadSessionRepository {
         originalName: true,
         contentType: true,
         size: true,
+        status: true,
       },
     });
   }
@@ -74,6 +93,10 @@ export class UploadSessionRepository {
       },
       select: {
         id: true,
+        status: true,
+        expiresAt: true,
+        fileKey: true,
+        uploadId: true,
       },
     });
   }
@@ -82,9 +105,24 @@ export class UploadSessionRepository {
     return this.prisma.staticUploadSession.update({
       where: {
         id,
+        status: UploadSessionStatus.UPLOADING,
       },
       data: {
         status: UploadSessionStatus.COMPLETED,
+      },
+      select: {
+        id: true,
+      },
+    });
+  }
+  abortSession(id: string) {
+    return this.prisma.staticUploadSession.update({
+      where: {
+        id,
+        status: UploadSessionStatus.UPLOADING,
+      },
+      data: {
+        status: UploadSessionStatus.ABORTED,
       },
       select: {
         id: true,

@@ -105,6 +105,25 @@ export class StaticRepository {
       },
     });
   }
+  
+  findByFileKey(filekey: string): Promise<StaticEntityType | null> {
+    return this.prisma.static.findFirst({
+      where: {
+        objectKey: filekey,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        objectKey: true,
+        originalFileName: true,
+        contentType: true,
+        size: true,
+        createdAt: true,
+        updatedAt: true,
+        deletedAt: true,
+      },
+    });
+  }
 
   async findImageVariant(
     staticId: string,
