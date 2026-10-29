@@ -1,4 +1,6 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
+
+export const OrderNotFoundException = new NotFoundException('Error.OrderNotFound');
 
 export const ProductOfferNotPurchasableException = new ConflictException(
   'Error.ProductOfferNotPurchasable',

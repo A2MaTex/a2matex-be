@@ -14,10 +14,12 @@ import { ProductOfferNotFoundException } from '../product-offer/product-offer.er
 import {
   CannotPurchaseOwnProductException,
   InsufficientBalanceException,
+  OrderNotFoundException,
   ProductOfferNotPurchasableException,
 } from './order.error.ts';
 import type {
   CreateOrderOutputType,
+  GetOrderDetailOutputType,
   GetOrderListInputType,
   GetOrderListOutputType,
 } from './order.model.ts';
@@ -105,6 +107,21 @@ export class OrderService {
     userId: string;
   }): Promise<GetOrderListOutputType> {
     return this.orderRepo.getListByCustomer({ customerId: userId, query });
+  }
+
+  async getDetail({
+    orderId,
+    userId,
+  }: {
+    orderId: string;
+    userId: string;
+  }): Promise<GetOrderDetailOutputType> {
+    const order = await this.orderRepo.getByIdForCustomer({ orderId, customerId: userId });
+    if (!order) {
+      this.logger.warn(`Order read rejected: not found or not the caller's orderId=${orderId}`);
+      throw OrderNotFoundException;
+    }
+    return order;
   }
 
   @Transactional()

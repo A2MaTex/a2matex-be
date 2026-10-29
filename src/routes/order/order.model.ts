@@ -1,12 +1,19 @@
 import { z } from 'zod';
 import { Order, OrderStatusSchema } from '../../entities/order.model.ts';
 import { OrderItem } from '../../entities/order-item.model.ts';
+import { PaymentTransaction } from '../../entities/payment-transaction.model.ts';
 import {
   PRODUCT_NAME_MAX_LENGTH,
   PRODUCT_SLUG_MAX_LENGTH,
 } from '../../shared/constants/product.constant.ts';
 import { PaginationQuerySchema } from '../../shared/models/request.model.ts';
 import { zBigIntAsNumber, zDate } from '../../shared/utils/zod.ts';
+
+export const OrderIdParam = z
+  .object({
+    orderId: z.uuid(),
+  })
+  .strict();
 
 export const CreateOrderInput = z
   .object({
@@ -42,6 +49,23 @@ export const OrderOutput = Order.pick({
   }),
 });
 
+export const OrderPaymentOutput = PaymentTransaction.pick({
+  id: true,
+  provider: true,
+  status: true,
+  currency: true,
+  createdAt: true,
+}).extend({
+  amountMinor: zBigIntAsNumber(),
+});
+
+// Both nullable: the schema allows a PENDING Order with neither, even though v1 never
+// writes one.
+export const GetOrderDetailOutput = OrderOutput.extend({
+  payment: OrderPaymentOutput.nullable(),
+  entitlementId: z.uuid().nullable(),
+});
+
 export const GetOrderListInput = PaginationQuerySchema.extend({
   status: OrderStatusSchema.optional(),
 }).strict();
@@ -70,5 +94,6 @@ export type CreateOrderInputType = z.infer<typeof CreateOrderInput>;
 // when the response interceptor serializes them.
 export type CreateOrderOutputType = z.input<typeof CreateOrderOutput>;
 export type GetOrderListInputType = z.infer<typeof GetOrderListInput>;
+export type GetOrderDetailOutputType = z.input<typeof GetOrderDetailOutput>;
 export type OrderOutputType = z.input<typeof OrderOutput>;
 export type GetOrderListOutputType = z.input<typeof GetOrderListOutput>;

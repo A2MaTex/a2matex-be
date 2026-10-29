@@ -12,6 +12,7 @@ import type { ProductStatusType } from '../../shared/constants/product.constant.
 import { PrismaService } from '../../shared/services/prisma.service.ts';
 import { getPagination } from '../../shared/utils/pagination.ts';
 import type {
+  GetOrderDetailOutputType,
   GetOrderListInputType,
   GetOrderListOutputType,
   OrderOutputType,
@@ -52,7 +53,30 @@ const ORDER_SELECT = {
   },
 } satisfies Prisma.OrderSelect;
 
+const ORDER_DETAIL_SELECT = {
+  ...ORDER_SELECT,
+  OrderItem: {
+    select: {
+      ...ORDER_SELECT.OrderItem.select,
+      Entitlement: { select: { id: true } },
+    },
+  },
+  PaymentTransaction: {
+    select: {
+      id: true,
+      provider: true,
+      status: true,
+      currency: true,
+      amountMinor: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+  },
+} satisfies Prisma.OrderSelect;
+
 type OrderRow = Prisma.OrderGetPayload<{ select: typeof ORDER_SELECT }>;
+type OrderDetailRow = Prisma.OrderGetPayload<{ select: typeof ORDER_DETAIL_SELECT }>;
 
 @Injectable()
 export class OrderRepo {
@@ -128,18 +152,18 @@ export class OrderRepo {
     };
   }
 
-  // v1 writes exactly one item per Order, so the single item is the Order's line.
-  private toOutput({ OrderItem: [item], ...order }: OrderRow): OrderOutputType {
-    const { Product, ...line } = item;
-    return {
-      ...order,
-      item: {
-        ...line,
-        // The CHECK constraint guarantees an object; Prisma's JsonValue is wider.
-        offerSnapshot: line.offerSnapshot as OrderOutputType['item']['offerSnapshot'],
-        product: Product,
-      },
-    };
+  async getByIdForCustomer({
+    orderId,
+    customerId,
+  }: {
+    orderId: string;
+    customerId: string;
+  }): Promise<GetOrderDetailOutputType | null> {
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, customerId },
+      select: ORDER_DETAIL_SELECT,
+    });
+    return order && this.toDetailOutput(order);
   }
 
   // Conditional on purpose: a balance that cannot cover the order matches no row, so it
@@ -225,5 +249,35 @@ export class OrderRepo {
       },
       select: { id: true },
     });
+  }
+
+  // v1 writes exactly one item per Order, so the single item is the Order's line.
+  private toOutput({ OrderItem: [item], ...order }: OrderRow): OrderOutputType {
+    const { Product, ...line } = item;
+    return {
+      ...order,
+      item: {
+        ...line,
+        // The CHECK constraint guarantees an object; Prisma's JsonValue is wider.
+        offerSnapshot: line.offerSnapshot as OrderOutputType['item']['offerSnapshot'],
+        product: Product,
+      },
+    };
+  }
+
+  private toDetailOutput({
+    PaymentTransaction: [payment],
+    ...order
+  }: OrderDetailRow): GetOrderDetailOutputType {
+    const [
+      {
+        Entitlement: [entitlement],
+      },
+    ] = order.OrderItem;
+    return {
+      ...this.toOutput(order),
+      payment: payment ?? null,
+      entitlementId: entitlement?.id ?? null,
+    };
   }
 }
