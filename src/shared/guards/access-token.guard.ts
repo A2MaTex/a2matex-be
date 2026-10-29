@@ -24,7 +24,7 @@ import {
 } from '../constants/auth.constant.js';
 import { ROLE_PERMISSION_CACHE_PREFIX } from '../constants/cache.constant.ts';
 import { PermissionScope } from '../constants/role.constant.ts';
-import { API_PREFIX_PATH } from '../constants/system.constant.js';
+import { API_PREFIX_PATH } from '../constants/system.constant.ts';
 import { PrismaService } from '../services/prisma.service.ts';
 import { TokenService } from '../services/token.service.ts';
 import type { AccessTokenPayload } from '../types/jwt.type.js';

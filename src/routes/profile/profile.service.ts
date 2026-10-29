@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { HashingService } from '../../shared/services/hashing.service.ts';
 import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import { isNotFoundPrismaError } from '../../shared/utils/prisma.ts';
-import { NotFoundRecordException } from '../../shared/types/error.type.ts';
+import { NotFoundRecordException } from '../../shared/errors/common.error.ts';
 import { CACHE_PROVIDER } from '../../shared/infrastructure/cache/cache.interface.ts';
 import type { CacheProvider } from '../../shared/infrastructure/cache/cache.interface.ts';
 import { DistributedLock } from '../../shared/decorators/distributed-lock.decorator.ts';

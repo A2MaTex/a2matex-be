@@ -6,6 +6,9 @@
 # through DATABASE_URL over the VPC private IP (specs/004-cloud-sql-postgres). Only
 # Redis stays local. Services that talk to Postgres must also join the `edge`
 # network: `backend` is internal and has no route to the VPC.
+#
+# `app` (API) and `cron` (scheduled jobs, specs/005-separate-cron-server) run the same
+# image with different commands, so one deploy always moves both to the same tag.
 name: a2matex
 
 x-app-image: &app-image ${IMAGE_REPO:-ghcr.io/a2matex/a2matex-be}:${IMAGE_TAG:-latest}
@@ -55,6 +58,44 @@ services:
     restart: unless-stopped
     env_file:
       - ../.env.production
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - backend
+      - edge
+
+  # Scheduled jobs (spec 005). Same image and env as `app`, started with the cron
+  # entry point. Internal only: no published port and no Caddy route; the deploy
+  # script waits for its health check just like the API's.
+  cron:
+    image: *app-image
+    container_name: a2matex-cron
+    restart: unless-stopped
+    command: ['node', 'dist/cron/main.js']
+    env_file:
+      - ../.env.production
+    environment:
+      # Pins the port the process listens on to the one the health check below probes,
+      # even when .env.production does not set CRON_PORT (the app default is 3001).
+      CRON_PORT: ${CRON_PORT:-9998}
+    # Must exceed CRON_SHUTDOWN_GRACE_SECONDS (30 by default) so an in-flight job can
+    # finish after SIGTERM before Docker sends SIGKILL.
+    stop_grace_period: 45s
+    # The Dockerfile HEALTHCHECK probes ${PORT} (the API port), so the cron container
+    # declares its own probe on CRON_PORT.
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'curl -fsS "http://127.0.0.1:$${CRON_PORT:-9998}/$${API_PREFIX:-api/v1}/health" || exit 1',
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     depends_on:
       redis:
         condition: service_healthy

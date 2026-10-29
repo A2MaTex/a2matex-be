@@ -16,6 +16,9 @@ import { StaticRepository } from './repositories/static.repo.ts';
 import { StaticService } from './services/static.service.ts';
 import { OBJECT_STORAGE_PROVIDER } from './infrastructure/storage/object-storage.interface.ts';
 import { S3ObjectStorageProvider } from './infrastructure/storage/s3/s3-object-storage.provider.ts';
+import { ProjectAccessRepo } from './repositories/project-access.repo.ts';
+import { ProjectAccessPolicy } from './services/project-access.policy.ts';
+import { QueueModule } from './infrastructure/queue/queue.ts';
 import { UploadSessionRepository } from './repositories/upload-session.repo.ts';
 
 const sharedServices = [
@@ -29,6 +32,8 @@ const sharedServices = [
   SharedRoleRepository,
   StaticRepository,
   StaticService,
+  ProjectAccessRepo,
+  ProjectAccessPolicy,
   UploadSessionRepository,
 ];
 
@@ -54,7 +59,7 @@ const cacheProvider = {
 @Global()
 @Module({
   providers: [...sharedServices, cacheProvider, objectStorageProvider, AccessTokenGuard],
-  exports: [...sharedServices, cacheProvider, objectStorageProvider, AccessTokenGuard],
-  imports: [JwtModule],
+  imports: [JwtModule, QueueModule],
+  exports: [...sharedServices, cacheProvider, objectStorageProvider, AccessTokenGuard, QueueModule],
 })
 export class SharedModule {}

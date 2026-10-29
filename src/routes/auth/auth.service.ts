@@ -37,7 +37,7 @@ import {
 } from './auth.model.ts';
 import { isNotFoundPrismaError, isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
 import { generateOTP } from '../../shared/utils/utils.ts';
-import { InvalidPasswordException } from '../../shared/types/error.type.ts';
+import { InvalidPasswordException } from '../../shared/errors/common.error.ts';
 import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
 import { TransactionService } from '../../shared/services/transaction.service.ts';
 

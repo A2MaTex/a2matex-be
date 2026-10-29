@@ -15,9 +15,10 @@ export const PublicPublisherNotFoundException = new NotFoundException(
   'Error.PublicPublisherNotFound',
 );
 
-export const PublisherNotActivatedException = new ForbiddenException('Error.PublisherNotActivated');
-
-export const PublisherBlockedException = new ForbiddenException('Error.PublisherBlocked');
+export {
+  PublisherBlockedException,
+  PublisherNotActivatedException,
+} from '../../shared/errors/project-access.error.ts';
 
 export const PublisherUserNotActiveException = new ForbiddenException(
   'Error.PublisherUserNotActive',

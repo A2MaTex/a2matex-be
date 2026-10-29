@@ -1,15 +1,17 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { ProjectStatus } from '../../shared/constants/project.constant.ts';
 import type { ActivePermissionScope } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import { getPagination } from '../../shared/utils/pagination.ts';
 import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
+import { isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
+import type { ProjectAccess } from '../../shared/models/project-access.model.ts';
+import { ProjectAccessPolicy } from '../../shared/services/project-access.policy.ts';
 import { ProjectArchivedException, ProjectNotFoundException } from './project.error.ts';
 import type {
   CreateProjectInputType,
   GetProjectListInputType,
   UpdateProjectInputType,
 } from './project.model.ts';
-import type { ProjectAccess } from './project-access.model.ts';
-import { ProjectAccessPolicy } from './project-access.policy.ts';
 import { ProjectRepo } from './project.repo.ts';
 
 @Injectable()
@@ -21,11 +23,30 @@ export class ProjectService {
 
   async create({ data, userId }: { data: CreateProjectInputType; userId: string }) {
     const publisherAccount = await this.projectAccessPolicy.getActivePublisherAccount(userId);
-    return this.projectRepo.create({
-      data,
-      publisherAccountId: publisherAccount.id,
-      userId,
-    });
+    try {
+      return await this.projectRepo.create({
+        data,
+        publisherAccountId: publisherAccount.id,
+        userId,
+      });
+    } catch (error) {
+      if (!isUniqueConstraintPrismaError(error)) {
+        throw error;
+      }
+
+      const existingProject = await this.projectRepo.getByNormalizedName({
+        name: data.name,
+        publisherAccountId: publisherAccount.id,
+      });
+      if (!existingProject) {
+        throw error;
+      }
+      if (existingProject.status === ProjectStatus.ARCHIVED) {
+        throw ProjectArchivedException;
+      }
+
+      return { id: existingProject.id };
+    }
   }
 
   async getList({

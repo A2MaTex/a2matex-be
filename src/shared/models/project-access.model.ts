@@ -1,5 +1,5 @@
 import type { Prisma } from '../../generated/prisma/client.ts';
-import type { ProjectStatusType } from '../../shared/constants/project.constant.ts';
+import type { ProjectStatusType } from '../constants/project.constant.ts';
 
 export type ProjectAccess =
   { unrestricted: true } | { unrestricted: false; publisherAccountId: string };

@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ProjectStatus } from '../../shared/constants/project.constant.ts';
 import type { ActivePermissionScope } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import { isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
-import { ProjectAccessPolicy } from '../project/project-access.policy.ts';
+import { ProjectAccessPolicy } from '../../shared/services/project-access.policy.ts';
 import { projectDraftVersionConflictException } from './project-draft.error.ts';
 import type {
   ProjectDraftSyncOutputType,

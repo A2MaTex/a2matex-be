@@ -45,7 +45,7 @@ export class TopUpRepo {
     });
   }
 
-  markCredited({
+  tryMarkCredited({
     topUpTransactionId,
     receivedAmount,
     providerTransactionId,
@@ -56,8 +56,12 @@ export class TopUpRepo {
     providerTransactionId: string;
     rawContent: string;
   }) {
-    return this.prisma.topUpTransaction.update({
-      where: { id: topUpTransactionId },
+    return this.prisma.topUpTransaction.updateMany({
+      where: {
+        id: topUpTransactionId,
+        status: TopUpTransactionStatus.PENDING,
+        providerTransactionId: null,
+      },
       data: {
         status: TopUpTransactionStatus.CREDITED,
         receivedAmount,
@@ -65,7 +69,6 @@ export class TopUpRepo {
         rawContent,
         creditedAt: new Date(),
       },
-      select: { id: true },
     });
   }
 
