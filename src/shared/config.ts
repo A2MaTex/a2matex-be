@@ -14,6 +14,14 @@ if (fs.existsSync(envFilePath)) {
 const MIN_SECRET_LENGTH = 32;
 
 const emptyToUndefined = (value: string | undefined) => (value ? value : undefined);
+const booleanString = z
+  .enum(['true', 'false'])
+  .default('false')
+  .transform((value) => value === 'true');
+const optionalKafkaSaslMechanism = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z.enum(['plain', 'scram-sha-256', 'scram-sha-512']).optional(),
+);
 
 const configSchema = z
   .object({
@@ -42,6 +50,14 @@ const configSchema = z
     REDIS_PORT: z.coerce.number().int().positive().default(6379),
     REDIS_PASSWORD: z.string().optional().transform(emptyToUndefined),
     REDIS_PREFIX: z.string().default('a2matex:'),
+    KAFKA_ENABLED: booleanString,
+    KAFKA_BROKERS: z.string().optional().transform(emptyToUndefined),
+    KAFKA_CLIENT_ID: z.string().default('a2matex-api'),
+    KAFKA_TOPIC_PREFIX: z.string().default(''),
+    KAFKA_SSL: booleanString,
+    KAFKA_SASL_MECHANISM: optionalKafkaSaslMechanism,
+    KAFKA_SASL_USERNAME: z.string().optional().transform(emptyToUndefined),
+    KAFKA_SASL_PASSWORD: z.string().optional().transform(emptyToUndefined),
     OBJECT_STORAGE_ENDPOINT: z.url().optional().or(z.literal('')).transform(emptyToUndefined),
     OBJECT_STORAGE_REGION: z.string().default('auto'),
     OBJECT_STORAGE_BUCKET: z.string().optional().transform(emptyToUndefined),
@@ -77,6 +93,40 @@ const configSchema = z
         code: 'custom',
         path: [hasAccessKey ? 'OBJECT_STORAGE_SECRET_ACCESS_KEY' : 'OBJECT_STORAGE_ACCESS_KEY_ID'],
         message: 'Object storage access key ID and secret access key must be configured together',
+      });
+    }
+
+    if (cfg.KAFKA_ENABLED && !cfg.KAFKA_BROKERS) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['KAFKA_BROKERS'],
+        message: 'KAFKA_BROKERS is required when Kafka is enabled',
+      });
+    }
+
+    const hasKafkaUsername = cfg.KAFKA_SASL_USERNAME !== undefined;
+    const hasKafkaPassword = cfg.KAFKA_SASL_PASSWORD !== undefined;
+    if (hasKafkaUsername !== hasKafkaPassword) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [hasKafkaUsername ? 'KAFKA_SASL_PASSWORD' : 'KAFKA_SASL_USERNAME'],
+        message: 'Kafka SASL username and password must be configured together',
+      });
+    }
+
+    if (cfg.KAFKA_SASL_MECHANISM && (!hasKafkaUsername || !hasKafkaPassword)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['KAFKA_SASL_MECHANISM'],
+        message: 'Kafka SASL credentials are required when a SASL mechanism is configured',
+      });
+    }
+
+    if (!cfg.KAFKA_SASL_MECHANISM && (hasKafkaUsername || hasKafkaPassword)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['KAFKA_SASL_MECHANISM'],
+        message: 'KAFKA_SASL_MECHANISM is required when Kafka SASL credentials are configured',
       });
     }
 
