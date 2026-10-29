@@ -4,6 +4,8 @@ import {
   CreateProductOfferOutput,
   GetProductOfferListInput,
   GetProductOfferListOutput,
+  ProductOfferIdParam,
+  UpdateProductOfferInput,
 } from './product-offer.model.ts';
 
 export class CreateProductOfferInputDTO extends createZodDto(CreateProductOfferInput) {}
@@ -13,3 +15,7 @@ export class CreateProductOfferOutputDTO extends createZodDto(CreateProductOffer
 export class GetProductOfferListInputDTO extends createZodDto(GetProductOfferListInput) {}
 
 export class GetProductOfferListOutputDTO extends createZodDto(GetProductOfferListOutput) {}
+
+export class ProductOfferIdParamDTO extends createZodDto(ProductOfferIdParam) {}
+
+export class UpdateProductOfferInputDTO extends createZodDto(UpdateProductOfferInput) {}

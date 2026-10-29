@@ -4,13 +4,27 @@ import type { ProductStatusType } from '../../shared/constants/product.constant.
 import { PrismaService } from '../../shared/services/prisma.service.ts';
 import { getPagination } from '../../shared/utils/pagination.ts';
 import { buildProductAccessWhere, type ProductAccess } from '../product/product-access.model.ts';
+import { ProductOfferStatus } from '../../shared/constants/product-offer.constant.ts';
+import type { ProductOfferStatusValue } from '../../shared/constants/product-offer.constant.ts';
+import type { ProductOfferTypeValue } from '../../shared/constants/product-offer.constant.ts';
 import type {
   CreateProductOfferInputType,
   CreateProductOfferOutputType,
   GetProductOfferListInputType,
   GetProductOfferListOutputType,
   ProductOfferManagementOutputType,
+  UpdateProductOfferInputType,
 } from './product-offer.model.ts';
+
+/** The commercial columns an update has to re-validate as a whole. */
+export type ProductOfferCommercialRow = {
+  id: string;
+  status: ProductOfferStatusValue;
+  type: ProductOfferTypeValue;
+  priceMinor: bigint | null;
+  currency: string | null;
+  durationDays: number | null;
+};
 
 const PRODUCT_OFFER_SELECT = {
   id: true,
@@ -34,8 +48,6 @@ export class ProductOfferRepo {
     return this.prismaService.getClient();
   }
 
-  // The status is all the service needs to pick the right rejection, so the full
-  // management row is not read here.
   getProduct({
     productId,
     access,
@@ -70,8 +82,7 @@ export class ProductOfferRepo {
       this.prisma.productOffer.findMany({
         where,
         select: PRODUCT_OFFER_SELECT,
-        // Newest first, with the id as a tie-breaker so two Offers created in the same
-        // millisecond keep a stable order across pages.
+        // The id breaks ties so pages stay stable.
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip,
         take,
@@ -79,14 +90,82 @@ export class ProductOfferRepo {
     ]);
 
     return {
-      // `ProductOffer_usagePolicy_object_check` guarantees every stored policy is a
-      // JSON object, which Prisma's wider JsonValue type cannot express.
+      // The usagePolicy CHECK guarantees an object; Prisma's JsonValue is wider.
       items: offers as ProductOfferManagementOutputType[],
       totalItems,
       page,
       limit,
       totalPages: Math.ceil(totalItems / limit),
     };
+  }
+
+  // An Offer is the caller's only if its Product is.
+  getOwnedOffer({
+    offerId,
+    productId,
+    publisherAccountId,
+  }: {
+    offerId: string;
+    productId: string;
+    publisherAccountId: string;
+  }): Promise<ProductOfferCommercialRow | null> {
+    return this.prisma.productOffer.findFirst({
+      where: {
+        id: offerId,
+        productId,
+        deletedAt: null,
+        Product: {
+          publisherAccountId,
+          deletedAt: null,
+        },
+      },
+      select: {
+        id: true,
+        status: true,
+        type: true,
+        priceMinor: true,
+        currency: true,
+        durationDays: true,
+      },
+    });
+  }
+
+  // The status guard repeats here: a concurrent ACTIVATE must not lose its price.
+  updateEditable({
+    offerId,
+    productId,
+    publisherAccountId,
+    data,
+    userId,
+  }: {
+    offerId: string;
+    productId: string;
+    publisherAccountId: string;
+    data: UpdateProductOfferInputType;
+    userId: string;
+  }): Promise<{ count: number }> {
+    const { priceMinor, ...fields } = data;
+
+    return this.prisma.productOffer.updateMany({
+      where: {
+        id: offerId,
+        productId,
+        deletedAt: null,
+        status: {
+          in: [ProductOfferStatus.DRAFT, ProductOfferStatus.INACTIVE],
+        },
+        Product: {
+          publisherAccountId,
+          deletedAt: null,
+        },
+      },
+      data: {
+        ...fields,
+        ...(priceMinor === undefined ? {} : { priceMinor: BigInt(priceMinor ?? 0) }),
+        updatedById: userId,
+        updatedAt: new Date(),
+      },
+    });
   }
 
   create({
@@ -102,9 +181,7 @@ export class ProductOfferRepo {
       data: {
         productId,
         type: data.type,
-        // A FREE Offer stores 0 rather than NULL so an Order total never has to guess
-        // what a missing price means. The request schema already refused a paid Offer
-        // without a price, so the fallback below only ever applies to a FREE one.
+        // A FREE Offer stores 0, not NULL, so Order totals never have to guess.
         priceMinor: BigInt(data.priceMinor ?? 0),
         currency: data.currency ?? null,
         durationDays: data.durationDays ?? null,
