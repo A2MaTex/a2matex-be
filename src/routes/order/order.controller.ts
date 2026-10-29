@@ -1,9 +1,14 @@
-import { Body, Controller, Inject, Post } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
 import { ActiveUser } from '../../shared/decorators/active-user.decorator.ts';
 import { SkipPermissionCheck } from '../../shared/decorators/auth.decorator.ts';
-import { CreateOrderInputDTO, CreateOrderOutputDTO } from './order.dto.ts';
+import {
+  CreateOrderInputDTO,
+  CreateOrderOutputDTO,
+  GetOrderListInputDTO,
+  GetOrderListOutputDTO,
+} from './order.dto.ts';
 import { OrderService } from './order.service.ts';
 
 @ApiTags('Orders')
@@ -17,5 +22,12 @@ export class OrderController {
   @ZodResponse({ type: CreateOrderOutputDTO })
   create(@Body() body: CreateOrderInputDTO, @ActiveUser('userId') userId: string) {
     return this.orderService.create({ offerId: body.offerId, userId });
+  }
+
+  @Get()
+  @SkipPermissionCheck()
+  @ZodResponse({ type: GetOrderListOutputDTO })
+  getList(@Query() query: GetOrderListInputDTO, @ActiveUser('userId') userId: string) {
+    return this.orderService.getList({ query, userId });
   }
 }

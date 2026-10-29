@@ -16,7 +16,11 @@ import {
   InsufficientBalanceException,
   ProductOfferNotPurchasableException,
 } from './order.error.ts';
-import type { CreateOrderOutputType } from './order.model.ts';
+import type {
+  CreateOrderOutputType,
+  GetOrderListInputType,
+  GetOrderListOutputType,
+} from './order.model.ts';
 import { OrderRepo } from './order.repo.ts';
 import type { PurchasableOfferRow } from './order.repo.ts';
 
@@ -91,6 +95,16 @@ export class OrderService {
       );
       throw error;
     }
+  }
+
+  getList({
+    query,
+    userId,
+  }: {
+    query: GetOrderListInputType;
+    userId: string;
+  }): Promise<GetOrderListOutputType> {
+    return this.orderRepo.getListByCustomer({ customerId: userId, query });
   }
 
   @Transactional()

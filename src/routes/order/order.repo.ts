@@ -10,6 +10,12 @@ import type { ProductOfferStatusValue } from '../../shared/constants/product-off
 import type { ProductOfferTypeValue } from '../../shared/constants/product-offer.constant.ts';
 import type { ProductStatusType } from '../../shared/constants/product.constant.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
+import { getPagination } from '../../shared/utils/pagination.ts';
+import type {
+  GetOrderListInputType,
+  GetOrderListOutputType,
+  OrderOutputType,
+} from './order.model.ts';
 
 export type PurchasableOfferRow = {
   id: string;
@@ -24,6 +30,29 @@ export type PurchasableOfferRow = {
   productStatus: ProductStatusType;
   publisherUserId: string;
 };
+
+const ORDER_SELECT = {
+  id: true,
+  status: true,
+  currency: true,
+  totalMinor: true,
+  paidAt: true,
+  createdAt: true,
+  OrderItem: {
+    select: {
+      id: true,
+      productId: true,
+      productOfferId: true,
+      unitPriceMinor: true,
+      offerSnapshot: true,
+      Product: {
+        select: { name: true, slug: true },
+      },
+    },
+  },
+} satisfies Prisma.OrderSelect;
+
+type OrderRow = Prisma.OrderGetPayload<{ select: typeof ORDER_SELECT }>;
 
 @Injectable()
 export class OrderRepo {
@@ -66,6 +95,50 @@ export class OrderRepo {
       ...offer,
       productStatus: offer.Product.status,
       publisherUserId: offer.Product.PublisherAccount.userId,
+    };
+  }
+
+  async getListByCustomer({
+    customerId,
+    query,
+  }: {
+    customerId: string;
+    query: GetOrderListInputType;
+  }): Promise<GetOrderListOutputType> {
+    const { page, limit, skip, take } = getPagination(query);
+    const where = { customerId, status: query.status };
+
+    const [totalItems, orders] = await Promise.all([
+      this.prisma.order.count({ where }),
+      this.prisma.order.findMany({
+        where,
+        select: ORDER_SELECT,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip,
+        take,
+      }),
+    ]);
+
+    return {
+      items: orders.map((order) => this.toOutput(order)),
+      totalItems,
+      page,
+      limit,
+      totalPages: Math.ceil(totalItems / limit),
+    };
+  }
+
+  // v1 writes exactly one item per Order, so the single item is the Order's line.
+  private toOutput({ OrderItem: [item], ...order }: OrderRow): OrderOutputType {
+    const { Product, ...line } = item;
+    return {
+      ...order,
+      item: {
+        ...line,
+        // The CHECK constraint guarantees an object; Prisma's JsonValue is wider.
+        offerSnapshot: line.offerSnapshot as OrderOutputType['item']['offerSnapshot'],
+        product: Product,
+      },
     };
   }
 

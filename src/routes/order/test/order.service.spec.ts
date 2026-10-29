@@ -32,6 +32,7 @@ const offerRow = (overrides: Record<string, unknown> = {}) => ({
 
 describe('OrderService.create', () => {
   const getOffer = vi.fn();
+  const getListByCustomer = vi.fn();
   const debitBalance = vi.fn();
   const createPaidOrder = vi.fn();
   const createWalletPayment = vi.fn();
@@ -42,6 +43,7 @@ describe('OrderService.create', () => {
   beforeEach(() => {
     [
       getOffer,
+      getListByCustomer,
       debitBalance,
       createPaidOrder,
       createWalletPayment,
@@ -60,6 +62,7 @@ describe('OrderService.create', () => {
     service = new OrderService(
       {
         getOffer,
+        getListByCustomer,
         debitBalance,
         createPaidOrder,
         createWalletPayment,
@@ -155,5 +158,30 @@ describe('OrderService.create', () => {
     );
 
     await expect(create()).rejects.toThrow('Error.ProductAlreadyOwned');
+  });
+});
+
+describe('OrderService.getList', () => {
+  const getListByCustomer = vi.fn();
+  let service: OrderService;
+
+  beforeEach(() => {
+    getListByCustomer.mockReset();
+    service = new OrderService(
+      { getListByCustomer } as unknown as OrderRepo,
+      {} as unknown as EntitlementService,
+      {} as unknown as TransactionService,
+      {} as unknown as CacheProvider,
+    );
+  });
+
+  // The list is always the caller's own: the user id comes from the token, never the query.
+  it('scopes the page to the calling customer', async () => {
+    const page = { items: [], totalItems: 0, page: 1, limit: 10, totalPages: 0 };
+    const query = { page: 1, limit: 10, status: 'PAID' as const };
+    getListByCustomer.mockResolvedValue(page);
+
+    await expect(service.getList({ query, userId: USER_ID })).resolves.toEqual(page);
+    expect(getListByCustomer).toHaveBeenCalledWith({ customerId: USER_ID, query });
   });
 });
