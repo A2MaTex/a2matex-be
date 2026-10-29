@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.ts';
+import { ProductStatus } from '../../shared/constants/product.constant.ts';
 import type { ProductStatusType } from '../../shared/constants/product.constant.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
 import { getPagination } from '../../shared/utils/pagination.ts';
@@ -16,10 +17,11 @@ import type {
   UpdateProductOfferInputType,
 } from './product-offer.model.ts';
 
-/** The commercial columns an update has to re-validate as a whole. */
+/** The columns an update or a lifecycle action has to judge the Offer by. */
 export type ProductOfferCommercialRow = {
   id: string;
   status: ProductOfferStatusValue;
+  productStatus: ProductStatusType;
   type: ProductOfferTypeValue;
   priceMinor: bigint | null;
   currency: string | null;
@@ -100,7 +102,7 @@ export class ProductOfferRepo {
   }
 
   // An Offer is the caller's only if its Product is.
-  getOwnedOffer({
+  async getOwnedOffer({
     offerId,
     productId,
     publisherAccountId,
@@ -109,7 +111,7 @@ export class ProductOfferRepo {
     productId: string;
     publisherAccountId: string;
   }): Promise<ProductOfferCommercialRow | null> {
-    return this.prisma.productOffer.findFirst({
+    const offer = await this.prisma.productOffer.findFirst({
       where: {
         id: offerId,
         productId,
@@ -126,6 +128,78 @@ export class ProductOfferRepo {
         priceMinor: true,
         currency: true,
         durationDays: true,
+        Product: {
+          select: {
+            status: true,
+          },
+        },
+      },
+    });
+
+    return offer && { ...offer, productStatus: offer.Product.status };
+  }
+
+  // TODO(release): once ProductRelease exists, this must also require the Product to
+  // carry a current release that is PUBLISHED and not disabled (product.md §8).
+  activate({
+    offerId,
+    productId,
+    publisherAccountId,
+    userId,
+  }: {
+    offerId: string;
+    productId: string;
+    publisherAccountId: string;
+    userId: string;
+  }): Promise<{ count: number }> {
+    return this.prisma.productOffer.updateMany({
+      where: {
+        id: offerId,
+        productId,
+        deletedAt: null,
+        status: {
+          in: [ProductOfferStatus.DRAFT, ProductOfferStatus.INACTIVE],
+        },
+        Product: {
+          publisherAccountId,
+          deletedAt: null,
+          status: ProductStatus.ACTIVE,
+        },
+      },
+      data: {
+        status: ProductOfferStatus.ACTIVE,
+        updatedById: userId,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  deactivate({
+    offerId,
+    productId,
+    publisherAccountId,
+    userId,
+  }: {
+    offerId: string;
+    productId: string;
+    publisherAccountId: string;
+    userId: string;
+  }): Promise<{ count: number }> {
+    return this.prisma.productOffer.updateMany({
+      where: {
+        id: offerId,
+        productId,
+        deletedAt: null,
+        status: ProductOfferStatus.ACTIVE,
+        Product: {
+          publisherAccountId,
+          deletedAt: null,
+        },
+      },
+      data: {
+        status: ProductOfferStatus.INACTIVE,
+        updatedById: userId,
+        updatedAt: new Date(),
       },
     });
   }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
 import { ActivePermissionScopes } from '../../shared/decorators/active-permission-scopes.decorator.ts';
@@ -13,6 +13,7 @@ import {
   GetProductOfferListOutputDTO,
   ProductOfferIdParamDTO,
   UpdateProductOfferInputDTO,
+  UpdateProductOfferLifecycleInputDTO,
 } from './product-offer.dto.ts';
 import { ProductOfferService } from './product-offer.service.ts';
 
@@ -65,6 +66,23 @@ export class ProductOfferController {
     @ActivePermissionScopes() scopes: ActivePermissionScope[],
   ) {
     return this.productOfferService.update({
+      productId: params.productId,
+      offerId: params.offerId,
+      data: body,
+      userId,
+      scopes,
+    });
+  }
+
+  @Put(':offerId/lifecycle')
+  @ZodResponse({ type: MessageResDTO })
+  applyLifecycle(
+    @Param() params: ProductOfferIdParamDTO,
+    @Body() body: UpdateProductOfferLifecycleInputDTO,
+    @ActiveUser('userId') userId: string,
+    @ActivePermissionScopes() scopes: ActivePermissionScope[],
+  ) {
+    return this.productOfferService.applyLifecycle({
       productId: params.productId,
       offerId: params.offerId,
       data: body,

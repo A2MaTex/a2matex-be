@@ -8,6 +8,7 @@ import {
   DEFAULT_PRODUCT_OFFER_USAGE_POLICY,
   PRODUCT_OFFER_CURRENCY_VND,
   PRODUCT_OFFER_MAX_CONCURRENT_DEVICES,
+  ProductOfferLifecycleAction,
   ProductOfferType,
 } from '../../shared/constants/product-offer.constant.ts';
 import type { ProductOfferTypeValue } from '../../shared/constants/product-offer.constant.ts';
@@ -121,6 +122,12 @@ export const UpdateProductOfferInput = z
     message: 'At least one field is required',
   });
 
+export const UpdateProductOfferLifecycleInput = z
+  .object({
+    action: z.enum([ProductOfferLifecycleAction.ACTIVATE, ProductOfferLifecycleAction.DEACTIVATE]),
+  })
+  .strict();
+
 // What the row must still satisfy once the patch is applied on top of it.
 export const ProductOfferCommercialShape = z
   .object({
@@ -143,6 +150,7 @@ export const GetProductOfferListOutput = z.object({
 
 export type CreateProductOfferInputType = z.infer<typeof CreateProductOfferInput>;
 export type UpdateProductOfferInputType = z.infer<typeof UpdateProductOfferInput>;
+export type UpdateProductOfferLifecycleInputType = z.infer<typeof UpdateProductOfferLifecycleInput>;
 export type CreateProductOfferOutputType = z.infer<typeof CreateProductOfferOutput>;
 // z.input, not z.infer: priceMinor leaves Prisma as bigint and only becomes a number
 // when the response interceptor serializes it.

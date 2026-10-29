@@ -22,6 +22,14 @@ export const ProductOfferReleaseAccess = {
 export type ProductOfferReleaseAccessValue =
   (typeof ProductOfferReleaseAccess)[keyof typeof ProductOfferReleaseAccess];
 
+export const ProductOfferLifecycleAction = {
+  ACTIVATE: 'ACTIVATE',
+  DEACTIVATE: 'DEACTIVATE',
+} as const;
+
+export type ProductOfferLifecycleActionValue =
+  (typeof ProductOfferLifecycleAction)[keyof typeof ProductOfferLifecycleAction];
+
 export const PRODUCT_OFFER_USAGE_POLICY_SCHEMA_VERSION = '1.0';
 
 // v1 sells in VND only; the column stays CHAR(3) for a later currency.
