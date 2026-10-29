@@ -20,8 +20,14 @@ export const ProductOfferStatusSchema = z.enum([
 ]);
 
 /**
- * Versioned per db_design/README.md: every JSONB column is validated at the API
- * boundary against a schema that carries its own version.
+ * What the column can actually hold. The CHECK constraint only guarantees a JSON
+ * object, and the column default is `{}`, so reads must not assume the shape below.
+ */
+export const ProductOfferUsagePolicyValue = z.record(z.string(), z.json());
+
+/**
+ * The stricter shape writes must satisfy. Versioned per db_design/README.md: every
+ * JSONB payload is validated at the API boundary against a schema carrying its version.
  */
 export const ProductOfferUsagePolicy = z
   .object({
@@ -39,10 +45,12 @@ export const ProductOffer = Base.extend({
   priceMinor: z.bigint().nullable(),
   durationDays: z.number().int().nullable(),
   maxConcurrentDevices: z.number().int(),
-  usagePolicy: ProductOfferUsagePolicy,
+  usagePolicy: ProductOfferUsagePolicyValue,
   createdById: z.uuid(),
   updatedById: z.uuid().nullable(),
 });
 
+// Not `ProductOfferType`, the name every other entity would use here: that name is
+// already the enum constant in shared/constants/product-offer.constant.ts.
 export type ProductOfferUsagePolicyType = z.infer<typeof ProductOfferUsagePolicy>;
 export type ProductOfferEntityType = z.infer<typeof ProductOffer>;

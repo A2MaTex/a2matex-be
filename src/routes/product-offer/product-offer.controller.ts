@@ -1,11 +1,16 @@
-import { Body, Controller, Inject, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
 import { ActivePermissionScopes } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import type { ActivePermissionScope } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import { ActiveUser } from '../../shared/decorators/active-user.decorator.ts';
 import { ProductIdParamDTO } from '../product/product.dto.ts';
-import { CreateProductOfferInputDTO, CreateProductOfferOutputDTO } from './product-offer.dto.ts';
+import {
+  CreateProductOfferInputDTO,
+  CreateProductOfferOutputDTO,
+  GetProductOfferListInputDTO,
+  GetProductOfferListOutputDTO,
+} from './product-offer.dto.ts';
 import { ProductOfferService } from './product-offer.service.ts';
 
 @ApiTags('Product Offers')
@@ -27,6 +32,22 @@ export class ProductOfferController {
     return this.productOfferService.create({
       productId: params.productId,
       data: body,
+      userId,
+      scopes,
+    });
+  }
+
+  @Get()
+  @ZodResponse({ type: GetProductOfferListOutputDTO })
+  getList(
+    @Param() params: ProductIdParamDTO,
+    @Query() query: GetProductOfferListInputDTO,
+    @ActiveUser('userId') userId: string,
+    @ActivePermissionScopes() scopes: ActivePermissionScope[],
+  ) {
+    return this.productOfferService.getList({
+      productId: params.productId,
+      query,
       userId,
       scopes,
     });

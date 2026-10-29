@@ -10,6 +10,8 @@ import {
   PRODUCT_OFFER_MAX_CONCURRENT_DEVICES,
   ProductOfferType,
 } from '../../shared/constants/product-offer.constant.ts';
+import { PaginationQuerySchema } from '../../shared/models/request.model.ts';
+import { zBigIntAsNumber } from '../../shared/utils/zod.ts';
 
 const PRICE_REQUIRED = 'Error.ProductOfferPriceRequired';
 const PRICE_NOT_ALLOWED = 'Error.ProductOfferPriceNotAllowed';
@@ -67,5 +69,40 @@ export const CreateProductOfferInput = z
 
 export const CreateProductOfferOutput = ProductOffer.pick({ id: true });
 
+// Management view: every Offer of the Product, whatever its status. `createdById` and
+// `deletedAt` stay internal.
+export const ProductOfferManagementOutput = ProductOffer.pick({
+  id: true,
+  productId: true,
+  type: true,
+  status: true,
+  currency: true,
+  durationDays: true,
+  maxConcurrentDevices: true,
+  usagePolicy: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  // Nullable because the CHECK constraint lets a FREE Offer store NULL; this API
+  // writes 0, but rows can also arrive from a migration or a support fix.
+  priceMinor: zBigIntAsNumber().nullable(),
+});
+
+export const GetProductOfferListInput = PaginationQuerySchema.strict();
+
+export const GetProductOfferListOutput = z.object({
+  items: z.array(ProductOfferManagementOutput),
+  totalItems: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  limit: z.number().int().positive(),
+  totalPages: z.number().int().nonnegative(),
+});
+
 export type CreateProductOfferInputType = z.infer<typeof CreateProductOfferInput>;
 export type CreateProductOfferOutputType = z.infer<typeof CreateProductOfferOutput>;
+// z.input (not z.infer/z.output) so these match the pre-transform shape coming out of
+// Prisma (priceMinor: bigint) — the transform to `number` only applies when the response
+// interceptor actually serializes the value through the schema.
+export type GetProductOfferListInputType = z.infer<typeof GetProductOfferListInput>;
+export type ProductOfferManagementOutputType = z.input<typeof ProductOfferManagementOutput>;
+export type GetProductOfferListOutputType = z.input<typeof GetProductOfferListOutput>;
