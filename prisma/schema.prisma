@@ -26,6 +26,8 @@ model User {
   Product_Product_deletedByIdToUser                   Product[]          @relation("Product_deletedByIdToUser")
   Product_Product_suspendedByIdToUser                 Product[]          @relation("Product_suspendedByIdToUser")
   Product_Product_updatedByIdToUser                   Product[]          @relation("Product_updatedByIdToUser")
+  createdProductOffers                                ProductOffer[]     @relation("ProductOfferCreatedBy")
+  updatedProductOffers                                ProductOffer[]     @relation("ProductOfferUpdatedBy")
   createdProfiles                                     Profile[]          @relation("ProfileCreatedBy")
   deletedProfiles                                     Profile[]          @relation("ProfileDeletedBy")
   updatedProfiles                                     Profile[]          @relation("ProfileUpdatedBy")
@@ -450,6 +452,7 @@ model Product {
   User_Product_suspendedByIdToUser User?            @relation("Product_suspendedByIdToUser", fields: [suspendedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_Product_updatedByIdToUser   User?            @relation("Product_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   ProductMedia                     ProductMedia[]
+  ProductOffer                     ProductOffer[]
 
   @@index([publisherAccountId, status], where: raw("(\"deletedAt\" IS NULL)"))
 }
@@ -473,6 +476,32 @@ model ProductMedia {
   Static    Static           @relation(fields: [staticId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([productId, staticId], map: "ProductMedia_product_static_idx", where: raw("(\"deletedAt\" IS NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// The commercial terms a customer accepts to acquire a Product. Checks that tie `type`
+/// to `priceMinor`/`currency`/`durationDays` live only in the migration SQL.
+model ProductOffer {
+  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId            String             @db.Uuid
+  type                 ProductOfferType
+  status               ProductOfferStatus @default(DRAFT)
+  currency             String?            @db.Char(3)
+  priceMinor           BigInt?
+  durationDays         Int?
+  maxConcurrentDevices Int                @default(1)
+  usagePolicy          Json               @default("{}")
+  createdAt            DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime?          @db.Timestamptz(6)
+  deletedAt            DateTime?          @db.Timestamptz(6)
+  createdById          String             @db.Uuid
+  updatedById          String?            @db.Uuid
+  Product              Product            @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy            User               @relation("ProductOfferCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  updatedBy            User?              @relation("ProductOfferUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([productId], map: "ProductOffer_single_active_idx", where: raw("((status = 'ACTIVE'::\"ProductOfferStatus\") AND (\"deletedAt\" IS NULL))"))
+  @@index([productId, status], map: "ProductOffer_product_status_idx", where: raw("(\"deletedAt\" IS NULL)"))
 }
 
 enum UserStatus {
@@ -556,4 +585,16 @@ enum ProductStatus {
   ACTIVE
   SUSPENDED
   ARCHIVED
+}
+
+enum ProductOfferType {
+  FREE
+  ONE_TIME
+  SUBSCRIPTION
+}
+
+enum ProductOfferStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
 }
