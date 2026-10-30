@@ -26,6 +26,12 @@ model User {
   Product_Product_deletedByIdToUser                   Product[]          @relation("Product_deletedByIdToUser")
   Product_Product_suspendedByIdToUser                 Product[]          @relation("Product_suspendedByIdToUser")
   Product_Product_updatedByIdToUser                   Product[]          @relation("Product_updatedByIdToUser")
+  entitlements                                        Entitlement[]      @relation("EntitlementCustomer")
+  grantedEntitlements                                 Entitlement[]      @relation("EntitlementGrantedBy")
+  revokedEntitlements                                 Entitlement[]      @relation("EntitlementRevokedBy")
+  orders                                              Order[]
+  createdProductOffers                                ProductOffer[]     @relation("ProductOfferCreatedBy")
+  updatedProductOffers                                ProductOffer[]     @relation("ProductOfferUpdatedBy")
   createdProfiles                                     Profile[]          @relation("ProfileCreatedBy")
   deletedProfiles                                     Profile[]          @relation("ProfileDeletedBy")
   updatedProfiles                                     Profile[]          @relation("ProfileUpdatedBy")
@@ -449,7 +455,10 @@ model Product {
   PublisherAccount                 PublisherAccount @relation(fields: [publisherAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_Product_suspendedByIdToUser User?            @relation("Product_suspendedByIdToUser", fields: [suspendedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_Product_updatedByIdToUser   User?            @relation("Product_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Entitlement                      Entitlement[]
+  OrderItem                        OrderItem[]
   ProductMedia                     ProductMedia[]
+  ProductOffer                     ProductOffer[]
 
   @@index([publisherAccountId, status], where: raw("(\"deletedAt\" IS NULL)"))
 }
@@ -473,6 +482,34 @@ model ProductMedia {
   Static    Static           @relation(fields: [staticId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([productId, staticId], map: "ProductMedia_product_static_idx", where: raw("(\"deletedAt\" IS NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// The commercial terms a customer accepts to acquire a Product. Checks that tie `type`
+/// to `priceMinor`/`currency`/`durationDays` live only in the migration SQL.
+model ProductOffer {
+  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId            String             @db.Uuid
+  type                 ProductOfferType
+  status               ProductOfferStatus @default(DRAFT)
+  currency             String?            @db.Char(3)
+  priceMinor           BigInt?
+  durationDays         Int?
+  maxConcurrentDevices Int                @default(1)
+  usagePolicy          Json               @default("{}")
+  createdAt            DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime?          @db.Timestamptz(6)
+  deletedAt            DateTime?          @db.Timestamptz(6)
+  createdById          String             @db.Uuid
+  updatedById          String?            @db.Uuid
+  Entitlement          Entitlement[]
+  OrderItem            OrderItem[]
+  Product              Product            @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy            User               @relation("ProductOfferCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  updatedBy            User?              @relation("ProductOfferUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([productId], map: "ProductOffer_single_active_idx", where: raw("((status = 'ACTIVE'::\"ProductOfferStatus\") AND (\"deletedAt\" IS NULL))"))
+  @@index([productId, status], map: "ProductOffer_product_status_idx", where: raw("(\"deletedAt\" IS NULL)"))
 }
 
 enum UserStatus {
@@ -556,4 +593,121 @@ enum ProductStatus {
   ACTIVE
   SUSPENDED
   ARCHIVED
+}
+
+enum ProductOfferType {
+  FREE
+  ONE_TIME
+  SUBSCRIPTION
+}
+
+enum ProductOfferStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Order {
+  id                  String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId          String               @db.Uuid
+  status              OrderStatus          @default(PENDING)
+  currency            String               @db.Char(3)
+  totalMinor          BigInt
+  paidAt              DateTime?            @db.Timestamptz(6)
+  createdAt           DateTime             @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime?            @db.Timestamptz(6)
+  customer            User                 @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  OrderItem           OrderItem[]
+  PaymentTransaction  PaymentTransaction[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model OrderItem {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId        String       @db.Uuid
+  productId      String       @db.Uuid
+  productOfferId String       @db.Uuid
+  unitPriceMinor BigInt
+  offerSnapshot  Json
+  createdAt      DateTime     @default(now()) @db.Timestamptz(6)
+  Order          Order        @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Product        Product      @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ProductOffer   ProductOffer @relation(fields: [productOfferId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Entitlement    Entitlement[]
+
+  @@unique([orderId, productId], map: "OrderItem_order_product_key")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model PaymentTransaction {
+  id                    String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId               String        @db.Uuid
+  provider              String        @db.VarChar(100)
+  providerTransactionId String?       @db.VarChar(255)
+  status                PaymentStatus @default(PENDING)
+  currency              String        @db.Char(3)
+  amountMinor           BigInt
+  providerResult        Json          @default("{}")
+  createdAt             DateTime      @default(now()) @db.Timestamptz(6)
+  updatedAt             DateTime?     @db.Timestamptz(6)
+  Order                 Order         @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([provider, providerTransactionId], map: "PaymentTransaction_provider_id_idx", where: raw("(\"providerTransactionId\" IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Entitlement {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId           String                 @db.Uuid
+  productId            String                 @db.Uuid
+  productOfferId       String?                @db.Uuid
+  orderItemId          String?                @db.Uuid
+  status               EntitlementStatus      @default(ACTIVE)
+  grantSource          EntitlementGrantSource
+  startsAt             DateTime               @default(now()) @db.Timestamptz(6)
+  expiresAt            DateTime?              @db.Timestamptz(6)
+  maxConcurrentDevices Int
+  grantSnapshot        Json
+  grantedById          String?                @db.Uuid
+  revokedAt            DateTime?              @db.Timestamptz(6)
+  revokedById          String?                @db.Uuid
+  revokedReason        String?
+  createdAt            DateTime               @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime?              @db.Timestamptz(6)
+  customer             User                   @relation("EntitlementCustomer", fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grantedBy            User?                  @relation("EntitlementGrantedBy", fields: [grantedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  revokedBy            User?                  @relation("EntitlementRevokedBy", fields: [revokedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  OrderItem            OrderItem?             @relation(fields: [orderItemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Product              Product                @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ProductOffer         ProductOffer?          @relation(fields: [productOfferId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([customerId, productId], map: "Entitlement_active_customer_product_idx", where: raw("(status = 'ACTIVE'::\"EntitlementStatus\")"))
+  @@index([customerId, productId], map: "Entitlement_customer_product_idx")
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  CANCELLED
+  FAILED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum EntitlementStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+enum EntitlementGrantSource {
+  FREE_ACQUISITION
+  ORDER
+  ADMIN_GRANT
 }
