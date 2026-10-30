@@ -518,7 +518,10 @@ kill %1
 
 Merge vào `staging`. Không phải làm gì thêm. Theo dõi ở tab Actions. Nhánh `main` không còn tự deploy; muốn đưa `main` lên thì merge nó vào `staging`.
 
-Mỗi lần deploy thay cả hai container chạy từ cùng một image: `a2matex-app` (API) và `a2matex-cron` (job định kỳ, xem `specs/005-separate-cron-server/`). Script chờ cả hai báo healthy; container nào không lên được thì deploy thất bại và in 50 dòng log cuối của đúng container đó.
+Mỗi lần deploy thay ba container chạy từ cùng một image: `a2matex-app` (API),
+`a2matex-cron` (job định kỳ, xem `specs/005-separate-cron-server/`) và
+`a2matex-consumer` (Kafka handler). Script chờ cả ba báo healthy; container nào không lên được
+thì deploy thất bại và in 50 dòng log cuối của đúng container đó.
 
 ### Trước khi merge một migration vào staging
 

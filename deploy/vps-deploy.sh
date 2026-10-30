@@ -72,11 +72,11 @@ compose up -d --remove-orphans
 
 docker logout ghcr.io >/dev/null 2>&1 || true
 
-# The API and the cron service come from the same image and both must be healthy
-# before the deploy counts as done. They share one deadline.
-log "Waiting for the API and the cron service to report healthy"
+# All long-running processes come from the same image and must be healthy before
+# the deploy counts as done. They share one deadline.
+log "Waiting for the API, cron, and consumer services to report healthy"
 deadline=$(( $(date +%s) + HEALTH_TIMEOUT ))
-for container in a2matex-app a2matex-cron; do
+for container in a2matex-app a2matex-cron a2matex-consumer; do
   while :; do
     status="$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null || echo missing)"
     if [ "$status" = "healthy" ]; then

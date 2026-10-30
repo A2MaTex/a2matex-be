@@ -25,10 +25,21 @@ npm run seed:roles
 npm run seed:permissions
 npm run start:dev                # API trên PORT (9999)
 npm run start:cron:dev           # job định kỳ trên CRON_PORT (9998), terminal thứ hai
+npm run start:consumer:dev       # Kafka handlers, health trên QUEUE_CONSUMER_PORT (9997)
 ```
 
-API và cron service đọc cùng một `.env`; hai cổng mặc định khác nhau nên chạy song song
-được mà không sửa thêm biến nào.
+Ba tiến trình đọc cùng một `.env` và dùng các cổng khác nhau nên có thể chạy song song.
+
+## Queue consumer
+
+Kafka handler không chạy trong tiến trình API. `src/consumer/main.ts` khởi động một Nest
+application context không có HTTP controller; cổng `QUEUE_CONSUMER_PORT` chỉ phục vụ
+`GET /health`. Vì vậy một feature module có thể export service dùng chung cho controller
+và queue handler mà không mở API route trên cổng consumer.
+
+Handler mới implement `QueueConsumerHandler`, inject service nghiệp vụ bình thường, rồi được
+thêm vào danh sách `handlerTypes` trong `src/consumer/consumer.module.ts`. Consumer chỉ khỏe sau
+khi mọi subscription đã đăng ký thành công.
 
 ## Job định kỳ (cron service)
 
