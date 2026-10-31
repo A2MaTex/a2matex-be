@@ -297,11 +297,8 @@ export class StaticController {
   }
 
   @Post('/files/multipart/abort')
-  async abortMultipartUpload(
-    @Param('sessionId') sessionId: string,
-    @ActiveUser('userId') userId: string,
-  ) {
-    return this.staticService.abortUploadSession(sessionId, userId);
+  async abortMultipartUpload(@Param('sessionId') sessionId: string) {
+    return this.staticService.abortUploadSession(sessionId);
   }
 
   @Post('/files/multipart/cleanup-expired')

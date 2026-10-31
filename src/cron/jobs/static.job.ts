@@ -8,13 +8,13 @@ import {
 import { StaticService } from '../../shared/services/static.service.ts';
 
 @Injectable()
-export class StaticCleanJob implements CronJobDefinition {
-  readonly name = 'multipart-upload-clean';
-  readonly envKey = 'CRON_MULTIPART_UPLOAD_CLEAN';
+export class CleanExpiredUploadSessionsJob implements CronJobDefinition {
+  readonly name = 'clean-expired-upload-sessions';
+  readonly envKey = 'CRON_CLEAN_EXPIRED_UPLOAD_SESSIONS';
   readonly schedule: string;
   readonly scheduleSource: CronScheduleSource;
 
-  private readonly logger = new Logger(StaticCleanJob.name);
+  private readonly logger = new Logger(CleanExpiredUploadSessionsJob.name);
 
   constructor(@Inject(StaticService) private readonly staticService: StaticService) {
     // Default = one run per lookback window, the schedule used before the split.
@@ -25,7 +25,11 @@ export class StaticCleanJob implements CronJobDefinition {
   }
 
   async run(): Promise<void> {
-    this.logger.debug('Clean Expired Upload Session');
-    await this.staticService.cleanExpiredUploadSessions();
+    try {
+      this.logger.debug('Clean Expired Upload Session');
+      await this.staticService.cleanExpiredUploadSessions();
+    } catch (error) {
+      this.logger.error(error);
+    }
   }
 }

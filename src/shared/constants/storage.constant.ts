@@ -61,3 +61,9 @@ export const ALLOW_FILE_UPLOAD_PREFIX = ['launcher/releases'];
 
 export const MULTIPART_MIN_PARTS_PER_REQUEST = 1;
 export const MULTIPART_MAX_PARTS_PER_REQUEST = 100;
+
+export const UploadSessionStatus = {
+  UPLOADING: 'UPLOADING',
+  COMPLETED: 'COMPLETED',
+  ABORTED: 'ABORTED',
+} as const;

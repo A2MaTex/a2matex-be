@@ -1,7 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../services/prisma.service.ts';
-import { UploadSessionStatus } from '../constants/uploading-session.constant.ts';
-import envConfig from '../config.ts';
+import { UploadSessionStatus } from '../constants/storage.constant.ts';
 
 export type CreateSessionInput = {
   id: string;

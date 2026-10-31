@@ -52,12 +52,12 @@ import {
   CompleteMultipartUploadOutputDTO,
 } from '../../../src/routes/static/static.dto.ts';
 import envConfig from '../config.ts';
-import { UploadSessionStatus } from '../constants/uploading-session.constant.ts';
 import {
   InvalidNumberOfPartsException,
   InvalidPrefixException,
   InvalidStaticMultipartUploadContentTypeException,
 } from '../errors/static.error.ts';
+import { UploadSessionStatus } from '../constants/storage.constant.ts';
 
 export type UploadStaticFileInput = {
   body: Readable | Uint8Array;
@@ -298,123 +298,163 @@ export class StaticService {
   }
 
   async getCompletedPart(input: GetCompletedPartsInput) {
-    const fileHash = this.generateFileHash({
-      userId: input.userId,
-      fileName: input.originalFileName,
-      fileSize: input.size,
-      lastModified: input.lastModified,
-      contentType: input.contentType,
-    });
-    const session = await this.uploadSessionRepository.getExistingByFileHash(fileHash);
-    if (!session) {
-      throw new NotFoundException('Session not found');
-    }
+    try {
+      const fileHash = this.generateFileHash({
+        userId: input.userId,
+        fileName: input.originalFileName,
+        fileSize: input.size,
+        lastModified: input.lastModified,
+        contentType: input.contentType,
+      });
+      const session = await this.uploadSessionRepository.getExistingByFileHash(fileHash);
+      if (!session) {
+        throw new NotFoundException('Session not found');
+      }
 
-    return this.storageProvider.listParts(session.fileKey, session.uploadId);
+      return this.storageProvider.listParts(session.fileKey, session.uploadId);
+    } catch (error) {
+      Logger.error(
+        'Get completed parts failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw error;
+    }
   }
 
   async getBatchUrls({ sessionId, partNumbers }: { sessionId: string; partNumbers: number[] }) {
-    const session = await this.uploadSessionRepository.getById(sessionId);
-    if (!session) {
-      throw new NotFoundException('Session not found');
-    }
+    try {
+      const session = await this.uploadSessionRepository.getById(sessionId);
+      if (!session) {
+        throw new NotFoundException('Session not found');
+      }
 
-    const uploadUrls = await Promise.all(
-      partNumbers.map(async (partNumber) => ({
-        partNumber,
-        url: await this.storageProvider.getUploadPartUrl(
-          session.fileKey,
-          session.uploadId,
+      const uploadUrls = await Promise.all(
+        partNumbers.map(async (partNumber) => ({
           partNumber,
-        ),
-      })),
-    );
+          url: await this.storageProvider.getUploadPartUrl(
+            session.fileKey,
+            session.uploadId,
+            partNumber,
+          ),
+        })),
+      );
 
-    return { uploadUrls };
+      return { uploadUrls };
+    } catch (error) {
+      Logger.error('Get batch urls failed', error instanceof Error ? error.stack : String(error));
+      throw error;
+    }
   }
 
   async completeMultipartUpload({
     sessionId,
     parts,
   }: CompleteMultipartUploadInputDTO): Promise<CompleteMultipartUploadOutputDTO> {
-    const session = await this.uploadSessionRepository.getById(sessionId);
-    if (!session) {
-      throw new NotFoundException('Session not found');
+    try {
+      const session = await this.uploadSessionRepository.getById(sessionId);
+      if (!session) {
+        throw new NotFoundException('Session not found');
+      }
+      const listParts = await this.storageProvider.listParts(session.fileKey, session.uploadId);
+      if (listParts.length !== parts.length) {
+        await this.storageProvider.abortMultipartUpload(session.fileKey, session.uploadId);
+        await this.uploadSessionRepository.abortSession(session.id);
+        throw new Error('Invalid parts');
+      }
+      await this.storageProvider.completeMultipartUpload(
+        session.fileKey,
+        session.uploadId,
+        listParts,
+      );
+      const staticFile = await this.staticRepository.create({
+        id: randomUUID(),
+        objectKey: session.fileKey,
+        originalFileName: session.originalName,
+        contentType: session.contentType,
+        size: BigInt(session.size),
+      });
+      await this.uploadSessionRepository.endSession(session.id);
+      return {
+        staticId: staticFile.id,
+        originalFileName: staticFile.originalFileName,
+        size: Number(staticFile.size),
+      };
+    } catch (error) {
+      Logger.error(
+        'Complete multipart upload failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw error;
     }
-    const listParts = await this.storageProvider.listParts(session.fileKey, session.uploadId);
-    if (listParts.length !== parts.length) {
-      await this.storageProvider.abortMultipartUpload(session.fileKey, session.uploadId);
-      await this.uploadSessionRepository.abortSession(session.id);
-      throw new Error('Invalid parts');
-    }
-    await this.storageProvider.completeMultipartUpload(
-      session.fileKey,
-      session.uploadId,
-      listParts,
-    );
-    const staticFile = await this.staticRepository.create({
-      id: randomUUID(),
-      objectKey: session.fileKey,
-      originalFileName: session.originalName,
-      contentType: session.contentType,
-      size: BigInt(session.size),
-    });
-    await this.uploadSessionRepository.endSession(session.id);
-    return {
-      staticId: staticFile.id,
-      originalFileName: staticFile.originalFileName,
-      size: Number(staticFile.size),
-    };
   }
 
   async cleanExpiredUploadSessions() {
-    const sessions = await this.uploadSessionRepository.getExpiredSessions();
+    try {
+      const sessions = await this.uploadSessionRepository.getExpiredSessions();
 
-    const results = await Promise.allSettled(
-      sessions.map(async (session) => {
-        const objectExists = await this.storageProvider.objectExists(session.fileKey);
+      const results = await Promise.allSettled(
+        sessions.map(async (session) => {
+          const objectExists = await this.storageProvider.objectExists(session.fileKey);
 
-        if (objectExists) {
-          const staticFile = await this.staticRepository.findByFileKey(session.fileKey);
-          if (staticFile) {
-            await this.uploadSessionRepository.endSession(session.id);
-            return;
-          } else {
+          if (objectExists) {
+            const staticFile = await this.staticRepository.findByFileKey(session.fileKey);
+            if (staticFile) {
+              await this.uploadSessionRepository.endSession(session.id);
+              return;
+            }
             await this.storageProvider.deleteFile(session.fileKey);
+          } else {
+            await this.storageProvider.abortMultipartUpload(session.fileKey, session.uploadId);
           }
-        } else {
-          await this.storageProvider.abortMultipartUpload(session.fileKey, session.uploadId);
-        }
 
-        await this.uploadSessionRepository.abortSession(session.id);
-      }),
-    );
+          await this.uploadSessionRepository.abortSession(session.id);
+        }),
+      );
 
-    Logger.debug({
-      message: 'Clean expired upload sessions',
-      success: results.filter((result) => result.status === 'fulfilled').length,
-      failed: results.filter((result) => result.status === 'rejected').length,
-    });
+      Logger.debug({
+        message: 'Clean expired upload sessions',
+        success: results.filter((result) => result.status === 'fulfilled').length,
+        failed: results.filter((result) => result.status === 'rejected').length,
+      });
+    } catch (error) {
+      Logger.error(
+        'Clean expired upload sessions failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
   }
 
-  async abortUploadSession(sessionId: string, userId: string) {
-    const session = await this.uploadSessionRepository.getById(sessionId);
-    if (session && session.status === UploadSessionStatus.UPLOADING) {
-      this.storageProvider.abortMultipartUpload(session.fileKey, session.uploadId);
+  async abortUploadSession(sessionId: string) {
+    try {
+      const session = await this.uploadSessionRepository.getById(sessionId);
+      if (session && session.status === UploadSessionStatus.UPLOADING) {
+        await this.storageProvider.abortMultipartUpload(session.fileKey, session.uploadId);
+      }
+      return {
+        message: SUCCESS_RESPONSE,
+      };
+    } catch (error) {
+      Logger.error(
+        'Abort upload session failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw error;
     }
-    return {
-      message: SUCCESS_RESPONSE,
-    };
   }
 
   async getFile(id: string): Promise<GetStaticFileOutput> {
-    const staticRecord = await this.getStaticRecord(id);
+    try {
+      const staticRecord = await this.getStaticRecord(id);
 
-    const storedFile = await this.storageProvider.getFile(staticRecord.objectKey);
-    return {
-      static: staticRecord,
-      body: storedFile.body,
-    };
+      const storedFile = await this.storageProvider.getFile(staticRecord.objectKey);
+      return {
+        static: staticRecord,
+        body: storedFile.body,
+      };
+    } catch (error) {
+      Logger.error('Get file failed', error instanceof Error ? error.stack : String(error));
+      throw error;
+    }
   }
 
   async deleteStatic(id: string) {
@@ -444,30 +484,35 @@ export class StaticService {
   }
 
   async getImage(id: string, variant: StaticImageVariant = 'large'): Promise<GetStaticImageOutput> {
-    const staticRecord = await this.getStaticRecord(id);
-    this.assertImageContentType(staticRecord.contentType);
+    try {
+      const staticRecord = await this.getStaticRecord(id);
+      this.assertImageContentType(staticRecord.contentType);
 
-    const imageRecord =
-      variant === 'large'
-        ? {
-            objectKey: staticRecord.objectKey,
-            contentType: staticRecord.contentType,
-            size: staticRecord.size,
-          }
-        : await this.staticRepository.findImageVariant(
-            id,
-            variant.toUpperCase() as 'SMALL' | 'MEDIUM',
-          );
-    if (!imageRecord) {
-      throw StaticImageVariantNotFoundException;
+      const imageRecord =
+        variant === 'large'
+          ? {
+              objectKey: staticRecord.objectKey,
+              contentType: staticRecord.contentType,
+              size: staticRecord.size,
+            }
+          : await this.staticRepository.findImageVariant(
+              id,
+              variant.toUpperCase() as 'SMALL' | 'MEDIUM',
+            );
+      if (!imageRecord) {
+        throw StaticImageVariantNotFoundException;
+      }
+
+      const storedFile = await this.storageProvider.getFile(imageRecord.objectKey);
+      return {
+        body: storedFile.body,
+        contentType: imageRecord.contentType,
+        size: Number(imageRecord.size),
+      };
+    } catch (error) {
+      Logger.error('Get image failed', error instanceof Error ? error.stack : String(error));
+      throw error;
     }
-
-    const storedFile = await this.storageProvider.getFile(imageRecord.objectKey);
-    return {
-      body: storedFile.body,
-      contentType: imageRecord.contentType,
-      size: Number(imageRecord.size),
-    };
   }
 
   private validateUpload(input: UploadStaticFileInput): void {
