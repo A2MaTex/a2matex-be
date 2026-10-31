@@ -6,13 +6,13 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
-  ListMultipartUploadsCommand,
   ListPartsCommand,
   PutObjectCommand,
   S3Client,
+  S3ServiceException,
   UploadPartCommand,
 } from '@aws-sdk/client-s3';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Readable } from 'node:stream';
 import envConfig from '../../../config.ts';
 import type {
@@ -22,6 +22,17 @@ import type {
 } from '../object-storage.interface.ts';
 
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import {
+  AbortMultipartUploadFailedException,
+  GenerateDownloadUrlFailedException,
+  InternalErrorException,
+  MissingNextPartMarkerException,
+  R2NotReturnUploadIdException,
+} from '../../../errors/static.error.ts';
+import {
+  handleMultipartUploadError,
+  handleR2HeadObjectError,
+} from '../../../errors/static.error-handler.ts';
 @Injectable()
 export class S3ObjectStorageProvider implements ObjectStorageProvider {
   private readonly client: S3Client;
@@ -52,7 +63,9 @@ export class S3ObjectStorageProvider implements ObjectStorageProvider {
     );
 
     if (!response.UploadId) {
-      throw new Error('R2 did not return an UploadId');
+      Logger.error('R2 did not return an UploadId', response);
+
+      throw R2NotReturnUploadIdException;
     }
 
     return response.UploadId;
@@ -68,7 +81,7 @@ export class S3ObjectStorageProvider implements ObjectStorageProvider {
     });
 
     return getSignedUrl(this.client, command, {
-      expiresIn: 900,
+      expiresIn: envConfig.MULTICHUNK_PART_UPLOAD_URL_TTL,
     });
   }
 
@@ -93,7 +106,8 @@ export class S3ObjectStorageProvider implements ObjectStorageProvider {
 
       marker = result.NextPartNumberMarker;
       if (!marker) {
-        throw new Error('Missing next part marker');
+        Logger.error('Missing next part marker', result);
+        throw MissingNextPartMarkerException;
       }
     } while (true);
 
@@ -102,90 +116,81 @@ export class S3ObjectStorageProvider implements ObjectStorageProvider {
 
   // Hoàn thành multipart upload
   async completeMultipartUpload(key: string, uploadId: string, parts: CompletedPart[]) {
-    return this.client.send(
-      new CompleteMultipartUploadCommand({
-        Bucket: this.getBucket(),
-        Key: key,
-        UploadId: uploadId,
-        MultipartUpload: {
-          Parts: [...parts].sort((a, b) => (a.PartNumber ?? 0) - (b.PartNumber ?? 0)),
-        },
-      }),
-    );
+    try {
+      return this.client.send(
+        new CompleteMultipartUploadCommand({
+          Bucket: this.getBucket(),
+          Key: key,
+          UploadId: uploadId,
+          MultipartUpload: {
+            Parts: parts.sort((a, b) => (a.PartNumber ?? 0) - (b.PartNumber ?? 0)),
+          },
+        }),
+      );
+    } catch (error) {
+      if (error instanceof S3ServiceException) {
+        handleMultipartUploadError(error);
+      }
+
+      Logger.error('Unexpected start multipart upload error', error);
+
+      throw InternalErrorException;
+    }
   }
 
   // Hủy multipart upload
   async abortMultipartUpload(key: string, uploadId: string) {
-    return this.client.send(
-      new AbortMultipartUploadCommand({
-        Bucket: this.getBucket(),
-        Key: key,
-        UploadId: uploadId,
-      }),
-    );
+    try {
+      return this.client.send(
+        new AbortMultipartUploadCommand({
+          Bucket: this.getBucket(),
+          Key: key,
+          UploadId: uploadId,
+        }),
+      );
+    } catch (error) {
+      if (error instanceof S3ServiceException) {
+        handleMultipartUploadError(error);
+      }
+
+      Logger.error('Unexpected abort multipart upload error', error);
+
+      throw AbortMultipartUploadFailedException;
+    }
   }
 
   // Lấy metadata file
   async getMetadata(key: string) {
-    return this.client.send(
-      new HeadObjectCommand({
-        Bucket: this.getBucket(),
-        Key: key,
-      }),
-    );
+    try {
+      return this.client.send(
+        new HeadObjectCommand({
+          Bucket: this.getBucket(),
+          Key: key,
+        }),
+      );
+    } catch (error) {
+      handleR2HeadObjectError(error);
+    }
   }
 
   async getDownloadUrl(key: string) {
-    return getSignedUrl(
-      this.client,
-      new GetObjectCommand({
-        Bucket: this.getBucket(),
-        Key: key,
-      }),
-      { expiresIn: 300 },
-    );
-  }
-
-  async cleanupIncompleteUploads() {
-    let keyMarker: string | undefined;
-    let uploadIdMarker: string | undefined;
-    let cleaned = 0;
-
-    do {
-      const result = await this.client.send(
-        new ListMultipartUploadsCommand({
+    try {
+      return getSignedUrl(
+        this.client,
+        new GetObjectCommand({
           Bucket: this.getBucket(),
-          KeyMarker: keyMarker,
-          UploadIdMarker: uploadIdMarker,
+          Key: key,
         }),
+        { expiresIn: envConfig.FILE_DOWNLOAD_URL_TTL },
+      );
+    } catch (error) {
+      Logger.error(
+        'R2 GenerateDownloadUrl failed',
+        error instanceof Error ? error.stack : String(error),
       );
 
-      for (const upload of result.Uploads ?? []) {
-        if (!upload.Key || !upload.UploadId) continue;
-
-        // Chỉ clean upload đã tồn tại quá 24 giờ
-        if (!upload.Initiated || Date.now() - upload.Initiated.getTime() < 24 * 60 * 60 * 1000) {
-          continue;
-        }
-
-        await this.client.send(
-          new AbortMultipartUploadCommand({
-            Bucket: this.getBucket(),
-            Key: upload.Key,
-            UploadId: upload.UploadId,
-          }),
-        );
-
-        cleaned++;
-      }
-
-      if (!result.IsTruncated) break;
-
-      keyMarker = result.NextKeyMarker;
-      uploadIdMarker = result.NextUploadIdMarker;
-    } while (keyMarker);
-
-    return { cleaned };
+      throw GenerateDownloadUrlFailedException;
+    }
   }
 
   async uploadFile(input: UploadObjectInput): Promise<void> {
@@ -226,6 +231,28 @@ export class S3ObjectStorageProvider implements ObjectStorageProvider {
         Key: objectKey,
       }),
     );
+  }
+
+  async objectExists(key: string): Promise<boolean> {
+    try {
+      await this.client.send(
+        new HeadObjectCommand({
+          Bucket: this.getBucket(),
+          Key: key,
+        }),
+      );
+
+      return true;
+    } catch (error) {
+      if (
+        error instanceof S3ServiceException &&
+        (error.name === 'NotFound' || error.name === 'NoSuchKey')
+      ) {
+        return false;
+      }
+
+      throw error;
+    }
   }
 
   private getBucket(): string {

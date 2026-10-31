@@ -85,6 +85,10 @@ const configSchema = z
     // Empty = derived from SEPAY_RECONCILE_INTERVAL_MINUTES; "off" disables the job.
     CRON_TOPUP_RECONCILE: z.string().optional().transform(emptyToUndefined),
     MULTIPART_SESSION_TTL: z.coerce.number().int().positive().default(3600000),
+    MULTICHUNK_PART_UPLOAD_URL_TTL: z.coerce.number().int().positive().default(900),
+    FILE_DOWNLOAD_URL_TTL: z.coerce.number().int().positive().default(900),
+    CRON_MULTIPART_CLEAN_TIME: z.string().default('0 0 0 * * *'),
+    UPLOAD_SESSION_TTL: z.coerce.number().int().positive().default(1),
   })
   .superRefine((cfg, ctx) => {
     const hasAccessKey = cfg.OBJECT_STORAGE_ACCESS_KEY_ID !== undefined;

@@ -37,5 +37,5 @@ export interface ObjectStorageProvider {
     uploadId: string,
   ): Promise<AbortMultipartUploadCommandOutput>;
   getMetadata(objectKey: string): Promise<any>;
-  cleanupIncompleteUploads(): Promise<{ cleaned: number }>;
+  objectExists(key: string): Promise<boolean>;
 }

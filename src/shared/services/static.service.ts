@@ -13,6 +13,8 @@ import { validate as isUuid } from 'uuid';
 import type { StaticEntityType } from '../../entities/static.model.ts';
 import {
   ALLOW_FILE_UPLOAD_PREFIX,
+  MULTIPART_MAX_PARTS_PER_REQUEST,
+  MULTIPART_MIN_PARTS_PER_REQUEST,
   MULTIPART_UPLOAD_CONTENT_FORMATS,
   STATIC_CONTENT_TYPE_MAX_LENGTH,
   STATIC_IMAGE_CONTENT_TYPES,
@@ -40,7 +42,6 @@ import {
 } from '../repositories/static.repo.ts';
 import {
   InvalidStaticImageTypeException,
-  InvalidStaticMultipartUploadContentTypeException,
   StaticImageVariantNotFoundException,
 } from '../errors/common.error.ts';
 import { buildStaticObjectKey } from '../utils/utils.ts';
@@ -52,6 +53,11 @@ import {
 } from '../../../src/routes/static/static.dto.ts';
 import envConfig from '../config.ts';
 import { UploadSessionStatus } from '../constants/uploading-session.constant.ts';
+import {
+  InvalidNumberOfPartsException,
+  InvalidPrefixException,
+  InvalidStaticMultipartUploadContentTypeException,
+} from '../errors/static.error.ts';
 
 export type UploadStaticFileInput = {
   body: Readable | Uint8Array;
@@ -232,20 +238,17 @@ export class StaticService {
       this.assertMultipartUploadContentType(contentType);
       this.validateMultipartUploadFileMetadata(input);
       this.checkValidPrefix(input.prefix);
+      this.validateNumberOfPart(input.requestedPartNumbers);
 
       const id = randomUUID();
       const objectKeyPrefix = buildStaticObjectKey(id, input.prefix);
-
-      const uploadId = await this.storageProvider.createMultipartUpload(
-        objectKeyPrefix,
-        contentType,
-      );
 
       const fileHash = this.generateFileHash({
         userId: input.userId,
         fileName: input.originalFileName,
         fileSize: input.size,
         lastModified: input.lastModified,
+        contentType: input.contentType,
       });
 
       let session = await this.uploadSessionRepository.getExistingByFileHash(fileHash);
@@ -261,7 +264,12 @@ export class StaticService {
         }
       }
 
-      if (!session)
+      if (!session) {
+        const uploadId = await this.storageProvider.createMultipartUpload(
+          objectKeyPrefix,
+          contentType,
+        );
+
         session = await this.uploadSessionRepository.create({
           id: randomUUID(),
           createdBy: input.userId,
@@ -273,6 +281,7 @@ export class StaticService {
           contentType: input.contentType,
           size: input.size,
         });
+      }
 
       const res = await this.getBatchUrls({
         sessionId: session.id,
@@ -294,6 +303,7 @@ export class StaticService {
       fileName: input.originalFileName,
       fileSize: input.size,
       lastModified: input.lastModified,
+      contentType: input.contentType,
     });
     const session = await this.uploadSessionRepository.getExistingByFileHash(fileHash);
     if (!session) {
@@ -359,13 +369,32 @@ export class StaticService {
 
   async cleanExpiredUploadSessions() {
     const sessions = await this.uploadSessionRepository.getExpiredSessions();
-    await Promise.all([
-      this.storageProvider.cleanupIncompleteUploads(),
+
+    const results = await Promise.allSettled(
       sessions.map(async (session) => {
-        await this.storageProvider.abortMultipartUpload(session.fileKey, session.uploadId);
-        await this.uploadSessionRepository.softDeleteSession(session.id);
+        const objectExists = await this.storageProvider.objectExists(session.fileKey);
+
+        if (objectExists) {
+          const staticFile = await this.staticRepository.findByFileKey(session.fileKey);
+          if (staticFile) {
+            await this.uploadSessionRepository.endSession(session.id);
+            return;
+          } else {
+            await this.storageProvider.deleteFile(session.fileKey);
+          }
+        } else {
+          await this.storageProvider.abortMultipartUpload(session.fileKey, session.uploadId);
+        }
+
+        await this.uploadSessionRepository.abortSession(session.id);
       }),
-    ]);
+    );
+
+    Logger.debug({
+      message: 'Clean expired upload sessions',
+      success: results.filter((result) => result.status === 'fulfilled').length,
+      failed: results.filter((result) => result.status === 'rejected').length,
+    });
   }
 
   async abortUploadSession(sessionId: string, userId: string) {
@@ -374,7 +403,7 @@ export class StaticService {
       this.storageProvider.abortMultipartUpload(session.fileKey, session.uploadId);
     }
     return {
-      message: 'Abort successfully',
+      message: SUCCESS_RESPONSE,
     };
   }
 
@@ -604,20 +633,31 @@ export class StaticService {
     fileName,
     fileSize,
     lastModified,
+    contentType,
   }: {
     userId: string;
     fileName: string;
     fileSize: number;
     lastModified: number;
+    contentType: string;
   }): string {
-    const metadata = `${userId}:${fileName}:${fileSize}:${lastModified}`;
+    const metadata = `${userId}:${fileName}:${fileSize}:${lastModified}:${contentType}`;
 
     return createHash('md5').update(metadata).digest('hex');
   }
 
   private checkValidPrefix(prefix: string): void {
     if (!ALLOW_FILE_UPLOAD_PREFIX.some((e) => e === prefix)) {
-      throw new Error('Prefix is not allowed');
+      throw InvalidPrefixException;
+    }
+  }
+
+  private validateNumberOfPart(parts: number[]) {
+    if (
+      parts.length < MULTIPART_MIN_PARTS_PER_REQUEST ||
+      parts.length > MULTIPART_MAX_PARTS_PER_REQUEST
+    ) {
+      throw InvalidNumberOfPartsException;
     }
   }
 }

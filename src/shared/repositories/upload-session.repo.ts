@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../services/prisma.service.ts';
 import { UploadSessionStatus } from '../constants/uploading-session.constant.ts';
+import envConfig from '../config.ts';
 
 export type CreateSessionInput = {
   id: string;
@@ -61,8 +62,8 @@ export class UploadSessionRepository {
     return this.prisma.staticUploadSession.findMany({
       where: {
         status: UploadSessionStatus.UPLOADING,
-        createdAt: {
-          lt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        expiresAt: {
+          lt: new Date(),
         },
       },
       select: {

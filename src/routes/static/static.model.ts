@@ -1,6 +1,10 @@
 import { string, z } from 'zod';
 import { Static } from '../../entities/static.model.ts';
-import { STATIC_IMAGE_VARIANTS } from '../../shared/constants/storage.constant.ts';
+import {
+  MULTIPART_MAX_PARTS_PER_REQUEST,
+  MULTIPART_MIN_PARTS_PER_REQUEST,
+  STATIC_IMAGE_VARIANTS,
+} from '../../shared/constants/storage.constant.ts';
 import { isValidStaticPrefix } from '../../shared/utils/utils.ts';
 
 export const StaticIdParam = z
@@ -40,12 +44,6 @@ export const GetCompletedPartsInput = z
     size: z.number().int().positive(),
   })
   .strict();
-
-export type UploadStaticFileInputType = z.infer<typeof UploadStaticFileInput>;
-export type GetStaticImageQueryType = z.infer<typeof GetStaticImageQuery>;
-
-const MULTIPART_MIN_PARTS_PER_REQUEST = 1;
-const MULTIPART_MAX_PARTS_PER_REQUEST = 100;
 
 export const UploadMultipartFileInput = z
   .object({
@@ -103,3 +101,6 @@ export const CompleteMultipartUploadOutput = z
     size: z.number(),
   })
   .strict();
+
+export type UploadStaticFileInputType = z.infer<typeof UploadStaticFileInput>;
+export type GetStaticImageQueryType = z.infer<typeof GetStaticImageQuery>;

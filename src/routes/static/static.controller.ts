@@ -47,6 +47,12 @@ import {
 } from './static.dto.ts';
 import { StaticUploadCleanupInterceptor } from './static-upload-cleanup.interceptor.ts';
 import { ActiveUser } from '../../shared/decorators/active-user.decorator.ts';
+import {
+  completeMultipartUploadBody,
+  getBatchUrlsBody,
+  getCompletedPartsBody,
+  startMultipartUploadBody,
+} from './static.api-body.ts';
 
 type UploadedStaticFile = {
   originalname: string;
@@ -234,48 +240,7 @@ export class StaticController {
 
   // MULTIPART UPLOAD
   @Post('/files/multipart/start')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      required: [
-        'originalFileName',
-        'lastModified',
-        'contentType',
-        'size',
-        'prefix',
-        'requestedPartNumbers',
-      ],
-      properties: {
-        originalFileName: {
-          type: 'string',
-          example: 'file.txt',
-        },
-        lastModified: {
-          type: 'integer',
-          example: Date.now(),
-        },
-        contentType: {
-          type: 'string',
-          example: 'text/plain',
-        },
-        size: {
-          type: 'integer',
-          example: 12345,
-        },
-        prefix: {
-          type: 'string',
-          example: 'launcher/releases',
-        },
-        requestedPartNumbers: {
-          type: 'array',
-          items: {
-            type: 'integer',
-          },
-          example: [1, 2, 3],
-        },
-      },
-    },
-  })
+  @ApiBody(startMultipartUploadBody)
   async startUploadFileMultipart(
     @Body() body: UploadMultipartFileInputDTO,
     @ActiveUser('userId') userId: string,
@@ -291,30 +256,7 @@ export class StaticController {
     });
   }
   @Post('/files/multipart/parts/completed')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      required: ['originalFileName', 'lastModified', 'contentType', 'size'],
-      properties: {
-        originalFileName: {
-          type: 'string',
-          example: 'file.txt',
-        },
-        lastModified: {
-          type: 'integer',
-          example: Date.now(),
-        },
-        contentType: {
-          type: 'string',
-          example: 'text/plain',
-        },
-        size: {
-          type: 'integer',
-          example: 12345,
-        },
-      },
-    },
-  })
+  @ApiBody(getCompletedPartsBody)
   async getCompletedParts(
     @Body(new CustomZodValidationPipe(GetCompletedPartsInputDTO)) body: GetCompletedPartsInputDTO,
     @ActiveUser('userId') userId: string,
@@ -330,25 +272,7 @@ export class StaticController {
 
   @Post('/files/multipart/urls')
   @ApiConsumes('application/json')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      required: ['sessionId', 'partNumbers'],
-      properties: {
-        sessionId: {
-          type: 'string',
-          format: 'uuid',
-        },
-        partNumbers: {
-          type: 'array',
-          items: {
-            type: 'integer',
-            example: 1,
-          },
-        },
-      },
-    },
-  })
+  @ApiBody(getBatchUrlsBody)
   @ZodResponse({ type: GetBatchUrlsOutputDTO })
   async getBatchUrls(
     @Body(new CustomZodValidationPipe(GetBatchUrlsInputDTO)) body: GetBatchUrlsInputDTO,
@@ -360,34 +284,7 @@ export class StaticController {
   }
 
   @Post('/files/multipart/complete')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      required: ['sessionId', 'parts'],
-      properties: {
-        sessionId: {
-          type: 'string',
-          format: 'uuid',
-        },
-        parts: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              partNumber: {
-                type: 'integer',
-                example: 1,
-              },
-              eTag: {
-                type: 'string',
-                example: 'etag',
-              },
-            },
-          },
-        },
-      },
-    },
-  })
+  @ApiBody(completeMultipartUploadBody)
   @ZodResponse({ type: CompleteMultipartUploadOutputDTO })
   async completeMultipartUpload(
     @Body(new CustomZodValidationPipe(CompleteMultipartUploadInputDTO))
@@ -405,6 +302,11 @@ export class StaticController {
     @ActiveUser('userId') userId: string,
   ) {
     return this.staticService.abortUploadSession(sessionId, userId);
+  }
+
+  @Post('/files/multipart/cleanup-expired')
+  async cleanupIncompleteUploads() {
+    return this.staticService.cleanExpiredUploadSessions();
   }
 
   private matchesEtag(ifNoneMatch: string | undefined, etag: string) {
