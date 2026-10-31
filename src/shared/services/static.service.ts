@@ -5,13 +5,17 @@ import {
   NotFoundException,
   PayloadTooLargeException,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 import sharp from 'sharp';
 import { validate as isUuid } from 'uuid';
 import type { StaticEntityType } from '../../entities/static.model.ts';
 import {
+  ALLOW_FILE_UPLOAD_PREFIX,
+  MULTIPART_MAX_PARTS_PER_REQUEST,
+  MULTIPART_MIN_PARTS_PER_REQUEST,
+  MULTIPART_UPLOAD_CONTENT_FORMATS,
   STATIC_CONTENT_TYPE_MAX_LENGTH,
   STATIC_IMAGE_CONTENT_TYPES,
   STATIC_IMAGE_INPUT_FORMATS,
@@ -42,6 +46,18 @@ import {
 } from '../errors/common.error.ts';
 import { buildStaticObjectKey } from '../utils/utils.ts';
 import { TransactionService } from './transaction.service.ts';
+import { UploadSessionRepository } from '../repositories/upload-session.repo.ts';
+import {
+  CompleteMultipartUploadInputDTO,
+  CompleteMultipartUploadOutputDTO,
+} from '../../../src/routes/static/static.dto.ts';
+import envConfig from '../config.ts';
+import {
+  InvalidNumberOfPartsException,
+  InvalidPrefixException,
+  InvalidStaticMultipartUploadContentTypeException,
+} from '../errors/static.error.ts';
+import { UploadSessionStatus } from '../constants/storage.constant.ts';
 
 export type UploadStaticFileInput = {
   body: Readable | Uint8Array;
@@ -59,6 +75,24 @@ export type UploadStaticImageInput = {
   filePath: string;
   originalFileName: string;
   contentType: string;
+  size: number;
+};
+
+export type UploadMultipartFileInput = {
+  originalFileName: string;
+  lastModified: number;
+  contentType: string;
+  size: number;
+  prefix: string;
+  userId: string;
+  requestedPartNumbers: number[];
+};
+
+export type GetCompletedPartsInput = {
+  originalFileName: string;
+  lastModified: number;
+  contentType: string;
+  userId: string;
   size: number;
 };
 
@@ -91,6 +125,8 @@ export class StaticService {
     private readonly staticRepository: StaticRepository,
     @Inject(TransactionService)
     private readonly transactionService: TransactionService,
+    @Inject(UploadSessionRepository)
+    private readonly uploadSessionRepository: UploadSessionRepository,
   ) {}
 
   async uploadFile(input: UploadStaticFileInput): Promise<UploadStaticFileOutput> {
@@ -195,14 +231,230 @@ export class StaticService {
     }
   }
 
-  async getFile(id: string): Promise<GetStaticFileOutput> {
-    const staticRecord = await this.getStaticRecord(id);
+  async startUploadMultipartFile(input: UploadMultipartFileInput) {
+    try {
+      const contentType = input.contentType.trim().toLowerCase();
 
-    const storedFile = await this.storageProvider.getFile(staticRecord.objectKey);
-    return {
-      static: staticRecord,
-      body: storedFile.body,
-    };
+      this.assertMultipartUploadContentType(contentType);
+      this.validateMultipartUploadFileMetadata(input);
+      this.checkValidPrefix(input.prefix);
+      this.validateNumberOfPart(input.requestedPartNumbers);
+
+      const id = randomUUID();
+      const objectKeyPrefix = buildStaticObjectKey(id, input.prefix);
+
+      const fileHash = this.generateFileHash({
+        userId: input.userId,
+        fileName: input.originalFileName,
+        fileSize: input.size,
+        lastModified: input.lastModified,
+        contentType: input.contentType,
+      });
+
+      let session = await this.uploadSessionRepository.getExistingByFileHash(fileHash);
+
+      if (session?.status !== UploadSessionStatus.COMPLETED && session?.fileKey) {
+        const matchStatic = await this.staticRepository.findByFileKey(session?.fileKey);
+
+        if (matchStatic) {
+          return {
+            message: 'This file has been uploaded before.',
+            staticId: matchStatic.id,
+          };
+        }
+      }
+
+      if (!session) {
+        const uploadId = await this.storageProvider.createMultipartUpload(
+          objectKeyPrefix,
+          contentType,
+        );
+
+        session = await this.uploadSessionRepository.create({
+          id: randomUUID(),
+          createdBy: input.userId,
+          expiresAt: new Date(Date.now() + envConfig.MULTIPART_SESSION_TTL),
+          fileHash: fileHash,
+          fileKey: objectKeyPrefix,
+          uploadId,
+          originalName: input.originalFileName,
+          contentType: input.contentType,
+          size: input.size,
+        });
+      }
+
+      const res = await this.getBatchUrls({
+        sessionId: session.id,
+        partNumbers: input.requestedPartNumbers,
+      });
+
+      return {
+        sessionId: session.id,
+        urls: res.uploadUrls,
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async getCompletedPart(input: GetCompletedPartsInput) {
+    try {
+      const fileHash = this.generateFileHash({
+        userId: input.userId,
+        fileName: input.originalFileName,
+        fileSize: input.size,
+        lastModified: input.lastModified,
+        contentType: input.contentType,
+      });
+      const session = await this.uploadSessionRepository.getExistingByFileHash(fileHash);
+      if (!session) {
+        throw new NotFoundException('Session not found');
+      }
+
+      return this.storageProvider.listParts(session.fileKey, session.uploadId);
+    } catch (error) {
+      Logger.error(
+        'Get completed parts failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw error;
+    }
+  }
+
+  async getBatchUrls({ sessionId, partNumbers }: { sessionId: string; partNumbers: number[] }) {
+    try {
+      const session = await this.uploadSessionRepository.getById(sessionId);
+      if (!session) {
+        throw new NotFoundException('Session not found');
+      }
+
+      const uploadUrls = await Promise.all(
+        partNumbers.map(async (partNumber) => ({
+          partNumber,
+          url: await this.storageProvider.getUploadPartUrl(
+            session.fileKey,
+            session.uploadId,
+            partNumber,
+          ),
+        })),
+      );
+
+      return { uploadUrls };
+    } catch (error) {
+      Logger.error('Get batch urls failed', error instanceof Error ? error.stack : String(error));
+      throw error;
+    }
+  }
+
+  async completeMultipartUpload({
+    sessionId,
+    parts,
+  }: CompleteMultipartUploadInputDTO): Promise<CompleteMultipartUploadOutputDTO> {
+    try {
+      const session = await this.uploadSessionRepository.getById(sessionId);
+      if (!session) {
+        throw new NotFoundException('Session not found');
+      }
+      const listParts = await this.storageProvider.listParts(session.fileKey, session.uploadId);
+      if (listParts.length !== parts.length) {
+        await this.storageProvider.abortMultipartUpload(session.fileKey, session.uploadId);
+        await this.uploadSessionRepository.abortSession(session.id);
+        throw new Error('Invalid parts');
+      }
+      await this.storageProvider.completeMultipartUpload(
+        session.fileKey,
+        session.uploadId,
+        listParts,
+      );
+      const staticFile = await this.staticRepository.create({
+        id: randomUUID(),
+        objectKey: session.fileKey,
+        originalFileName: session.originalName,
+        contentType: session.contentType,
+        size: BigInt(session.size),
+      });
+      await this.uploadSessionRepository.endSession(session.id);
+      return {
+        staticId: staticFile.id,
+        originalFileName: staticFile.originalFileName,
+        size: Number(staticFile.size),
+      };
+    } catch (error) {
+      Logger.error(
+        'Complete multipart upload failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw error;
+    }
+  }
+
+  async cleanExpiredUploadSessions() {
+    try {
+      const sessions = await this.uploadSessionRepository.getExpiredSessions();
+
+      const results = await Promise.allSettled(
+        sessions.map(async (session) => {
+          const objectExists = await this.storageProvider.objectExists(session.fileKey);
+
+          if (objectExists) {
+            const staticFile = await this.staticRepository.findByFileKey(session.fileKey);
+            if (staticFile) {
+              await this.uploadSessionRepository.endSession(session.id);
+              return;
+            }
+            await this.storageProvider.deleteFile(session.fileKey);
+          } else {
+            await this.storageProvider.abortMultipartUpload(session.fileKey, session.uploadId);
+          }
+
+          await this.uploadSessionRepository.abortSession(session.id);
+        }),
+      );
+
+      Logger.debug({
+        message: 'Clean expired upload sessions',
+        success: results.filter((result) => result.status === 'fulfilled').length,
+        failed: results.filter((result) => result.status === 'rejected').length,
+      });
+    } catch (error) {
+      Logger.error(
+        'Clean expired upload sessions failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  async abortUploadSession(sessionId: string) {
+    try {
+      const session = await this.uploadSessionRepository.getById(sessionId);
+      if (session && session.status === UploadSessionStatus.UPLOADING) {
+        await this.storageProvider.abortMultipartUpload(session.fileKey, session.uploadId);
+      }
+      return {
+        message: SUCCESS_RESPONSE,
+      };
+    } catch (error) {
+      Logger.error(
+        'Abort upload session failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw error;
+    }
+  }
+
+  async getFile(id: string): Promise<GetStaticFileOutput> {
+    try {
+      const staticRecord = await this.getStaticRecord(id);
+
+      const storedFile = await this.storageProvider.getFile(staticRecord.objectKey);
+      return {
+        static: staticRecord,
+        body: storedFile.body,
+      };
+    } catch (error) {
+      Logger.error('Get file failed', error instanceof Error ? error.stack : String(error));
+      throw error;
+    }
   }
 
   async deleteStatic(id: string) {
@@ -232,30 +484,35 @@ export class StaticService {
   }
 
   async getImage(id: string, variant: StaticImageVariant = 'large'): Promise<GetStaticImageOutput> {
-    const staticRecord = await this.getStaticRecord(id);
-    this.assertImageContentType(staticRecord.contentType);
+    try {
+      const staticRecord = await this.getStaticRecord(id);
+      this.assertImageContentType(staticRecord.contentType);
 
-    const imageRecord =
-      variant === 'large'
-        ? {
-            objectKey: staticRecord.objectKey,
-            contentType: staticRecord.contentType,
-            size: staticRecord.size,
-          }
-        : await this.staticRepository.findImageVariant(
-            id,
-            variant.toUpperCase() as 'SMALL' | 'MEDIUM',
-          );
-    if (!imageRecord) {
-      throw StaticImageVariantNotFoundException;
+      const imageRecord =
+        variant === 'large'
+          ? {
+              objectKey: staticRecord.objectKey,
+              contentType: staticRecord.contentType,
+              size: staticRecord.size,
+            }
+          : await this.staticRepository.findImageVariant(
+              id,
+              variant.toUpperCase() as 'SMALL' | 'MEDIUM',
+            );
+      if (!imageRecord) {
+        throw StaticImageVariantNotFoundException;
+      }
+
+      const storedFile = await this.storageProvider.getFile(imageRecord.objectKey);
+      return {
+        body: storedFile.body,
+        contentType: imageRecord.contentType,
+        size: Number(imageRecord.size),
+      };
+    } catch (error) {
+      Logger.error('Get image failed', error instanceof Error ? error.stack : String(error));
+      throw error;
     }
-
-    const storedFile = await this.storageProvider.getFile(imageRecord.objectKey);
-    return {
-      body: storedFile.body,
-      contentType: imageRecord.contentType,
-      size: Number(imageRecord.size),
-    };
   }
 
   private validateUpload(input: UploadStaticFileInput): void {
@@ -263,6 +520,24 @@ export class StaticService {
   }
 
   private validateFileMetadata(input: {
+    originalFileName: string;
+    contentType: string;
+    size: number;
+  }): void {
+    const originalFileName = path.basename(input.originalFileName.trim());
+    if (originalFileName.length === 0 || originalFileName === '.' || originalFileName === '..') {
+      throw new Error('Original file name is required');
+    }
+    const contentType = input.contentType.trim();
+    if (contentType.length === 0 || contentType.length > STATIC_CONTENT_TYPE_MAX_LENGTH) {
+      throw new Error('Content type is required');
+    }
+    if (!Number.isSafeInteger(input.size) || input.size < 0) {
+      throw new Error('File size must be a non-negative safe integer');
+    }
+  }
+
+  private validateMultipartUploadFileMetadata(input: {
     originalFileName: string;
     contentType: string;
     size: number;
@@ -295,6 +570,12 @@ export class StaticService {
   private assertImageContentType(contentType: string): void {
     if (!STATIC_IMAGE_CONTENT_TYPES.has(contentType.trim().toLowerCase())) {
       throw InvalidStaticImageTypeException;
+    }
+  }
+
+  private assertMultipartUploadContentType(contentType: string): void {
+    if (!MULTIPART_UPLOAD_CONTENT_FORMATS.has(contentType.trim().toLowerCase())) {
+      throw InvalidStaticMultipartUploadContentTypeException;
     }
   }
 
@@ -390,6 +671,38 @@ export class StaticService {
         `Failed to clean up static metadata ${id} after upload failure`,
         metadataCleanup.reason instanceof Error ? metadataCleanup.reason.stack : undefined,
       );
+    }
+  }
+  private generateFileHash({
+    userId,
+    fileName,
+    fileSize,
+    lastModified,
+    contentType,
+  }: {
+    userId: string;
+    fileName: string;
+    fileSize: number;
+    lastModified: number;
+    contentType: string;
+  }): string {
+    const metadata = `${userId}:${fileName}:${fileSize}:${lastModified}:${contentType}`;
+
+    return createHash('md5').update(metadata).digest('hex');
+  }
+
+  private checkValidPrefix(prefix: string): void {
+    if (!ALLOW_FILE_UPLOAD_PREFIX.some((e) => e === prefix)) {
+      throw InvalidPrefixException;
+    }
+  }
+
+  private validateNumberOfPart(parts: number[]) {
+    if (
+      parts.length < MULTIPART_MIN_PARTS_PER_REQUEST ||
+      parts.length > MULTIPART_MAX_PARTS_PER_REQUEST
+    ) {
+      throw InvalidNumberOfPartsException;
     }
   }
 }

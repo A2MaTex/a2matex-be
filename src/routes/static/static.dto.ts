@@ -1,7 +1,13 @@
 import { createZodDto } from 'nestjs-zod';
 import {
+  CompleteMultipartUploadInput,
+  CompleteMultipartUploadOutput,
+  GetBatchUrlsInput,
+  GetBatchUrlsOutput,
+  GetCompletedPartsInput,
   GetStaticImageQuery,
   StaticIdParam,
+  UploadMultipartFileInput,
   UploadStaticFileInput,
   UploadStaticFileOutput,
 } from './static.model.ts';
@@ -13,3 +19,15 @@ export class UploadStaticFileInputDTO extends createZodDto(UploadStaticFileInput
 export class UploadStaticFileOutputDTO extends createZodDto(UploadStaticFileOutput) {}
 
 export class GetStaticImageQueryDTO extends createZodDto(GetStaticImageQuery) {}
+
+export class GetCompletedPartsInputDTO extends createZodDto(GetCompletedPartsInput) {}
+
+export class UploadMultipartFileInputDTO extends createZodDto(UploadMultipartFileInput) {}
+
+export class GetBatchUrlsInputDTO extends createZodDto(GetBatchUrlsInput) {}
+
+export class GetBatchUrlsOutputDTO extends createZodDto(GetBatchUrlsOutput) {}
+
+export class CompleteMultipartUploadInputDTO extends createZodDto(CompleteMultipartUploadInput) {}
+
+export class CompleteMultipartUploadOutputDTO extends createZodDto(CompleteMultipartUploadOutput) {}
