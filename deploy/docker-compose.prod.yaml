@@ -7,8 +7,8 @@
 # Redis stays local. Services that talk to Postgres must also join the `edge`
 # network: `backend` is internal and has no route to the VPC.
 #
-# `app` (API) and `cron` (scheduled jobs, specs/005-separate-cron-server) run the same
-# image with different commands, so one deploy always moves both to the same tag.
+# `app`, `cron`, and `consumer` run the same image with different commands, so one
+# deploy always moves all processes to the same tag.
 name: a2matex
 
 x-app-image: &app-image ${IMAGE_REPO:-ghcr.io/a2matex/a2matex-be}:${IMAGE_TAG:-latest}
@@ -92,6 +92,35 @@ services:
           'CMD-SHELL',
           'curl -fsS "http://127.0.0.1:$${CRON_PORT:-9998}/$${API_PREFIX:-api/v1}/health" || exit 1',
         ]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - backend
+      - edge
+
+  # Queue handlers run outside the API process. The port is internal and exists
+  # only for the deployment health check; Caddy never routes traffic to it.
+  consumer:
+    image: *app-image
+    container_name: a2matex-consumer
+    restart: unless-stopped
+    command: ['node', 'dist/consumer/main.js']
+    env_file:
+      - ../.env.production
+    environment:
+      KAFKA_CLIENT_ID: a2matex-consumer
+      QUEUE_CONSUMER_PORT: ${QUEUE_CONSUMER_PORT:-9997}
+    stop_grace_period: 45s
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'curl -fsS "http://127.0.0.1:$${QUEUE_CONSUMER_PORT:-9997}/health" || exit 1']
       interval: 30s
       timeout: 5s
       start_period: 20s

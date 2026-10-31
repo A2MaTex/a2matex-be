@@ -58,6 +58,8 @@ const configSchema = z
     KAFKA_SASL_MECHANISM: optionalKafkaSaslMechanism,
     KAFKA_SASL_USERNAME: z.string().optional().transform(emptyToUndefined),
     KAFKA_SASL_PASSWORD: z.string().optional().transform(emptyToUndefined),
+    QUEUE_CONSUMER_HOST: z.string().default('0.0.0.0'),
+    QUEUE_CONSUMER_PORT: z.coerce.number().int().positive().default(3002),
     OBJECT_STORAGE_ENDPOINT: z.url().optional().or(z.literal('')).transform(emptyToUndefined),
     OBJECT_STORAGE_REGION: z.string().default('auto'),
     OBJECT_STORAGE_BUCKET: z.string().optional().transform(emptyToUndefined),
