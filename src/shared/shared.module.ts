@@ -19,6 +19,7 @@ import { S3ObjectStorageProvider } from './infrastructure/storage/s3/s3-object-s
 import { ProjectAccessRepo } from './repositories/project-access.repo.ts';
 import { ProjectAccessPolicy } from './services/project-access.policy.ts';
 import { QueueModule } from './infrastructure/queue/queue.ts';
+import { UploadSessionRepository } from './repositories/upload-session.repo.ts';
 
 const sharedServices = [
   PrismaService,
@@ -33,6 +34,7 @@ const sharedServices = [
   StaticService,
   ProjectAccessRepo,
   ProjectAccessPolicy,
+  UploadSessionRepository,
 ];
 
 const objectStorageProvider = {
