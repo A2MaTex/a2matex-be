@@ -67,6 +67,26 @@ if ! compose run --rm migrate < /dev/null; then
   exit 1
 fi
 
+# Bring up the broker on its own first: this only adds a container, it never
+# replaces one that is serving. Then provision topics as a one-off job. A failure
+# in either step stops the deploy while the whole previous stack is still running -
+# the same protection `run --rm migrate` above gives the database.
+log "Starting Kafka broker"
+if ! compose up -d kafka; then
+  echo "Kafka broker failed to start. The previous stack is still running; nothing was replaced." >&2
+  printf 'IMAGE_REPO=%s\nIMAGE_TAG=%s\n' "$PREVIOUS_REPO" "$PREVIOUS_TAG" > "$DEPLOY_ENV_FILE"
+  docker logout ghcr.io >/dev/null 2>&1 || true
+  exit 1
+fi
+
+log "Provisioning Kafka topics"
+if ! compose run --rm kafka-init < /dev/null; then
+  echo "Kafka topic provisioning failed. The previous stack is still running; nothing was replaced." >&2
+  printf 'IMAGE_REPO=%s\nIMAGE_TAG=%s\n' "$PREVIOUS_REPO" "$PREVIOUS_TAG" > "$DEPLOY_ENV_FILE"
+  docker logout ghcr.io >/dev/null 2>&1 || true
+  exit 1
+fi
+
 log "Starting stack"
 compose up -d --remove-orphans
 
@@ -74,9 +94,11 @@ docker logout ghcr.io >/dev/null 2>&1 || true
 
 # All long-running processes come from the same image and must be healthy before
 # the deploy counts as done. They share one deadline.
-log "Waiting for the API, cron, and consumer services to report healthy"
+# Kafka goes first so a broker problem surfaces immediately instead of after the
+# other three have each burned through the shared deadline.
+log "Waiting for Kafka, the API, cron, and consumer services to report healthy"
 deadline=$(( $(date +%s) + HEALTH_TIMEOUT ))
-for container in a2matex-app a2matex-cron a2matex-consumer; do
+for container in a2matex-kafka a2matex-app a2matex-cron a2matex-consumer; do
   while :; do
     status="$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null || echo missing)"
     if [ "$status" = "healthy" ]; then

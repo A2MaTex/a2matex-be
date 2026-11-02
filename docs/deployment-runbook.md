@@ -686,6 +686,79 @@ Mỗi deploy `compose pull` kéo `redis:7-alpine` mới và tạo lại containe
 docker exec a2matex-redis redis-server --version
 ```
 
+### Kafka: broker, topic và Kafka UI
+
+Chi tiết thiết kế ở `specs/006-kafka-broker-deployment/`. Broker chạy nội bộ trong stack
+(`kafka:29092`), không publish cổng nào; Kafka UI ở `https://kafka.a2matex.com` sau basic auth và
+**chỉ đọc**.
+
+**Bật lần đầu — hai lần deploy, không gộp.** Bật hàng đợi với `KAFKA_BROKERS` rỗng làm `app`,
+`cron` **và** `consumer` cùng dừng lúc khởi động (`src/shared/config.ts` gọi `process.exit(1)` khi
+nạp mã), mà `up -d` xoá container cũ trước khi chờ — đúng kiểu hỏng của hai lần gián đoạn
+2026-10-06 và 2026-10-20. Lần một deploy broker với `KAFKA_ENABLED=false`, lần hai mới bật cờ.
+
+Luôn validate trước khi thay container đang chạy, và nối bằng `&&`:
+
+```bash
+a2c run --rm --entrypoint node app -e "import('/app/dist/shared/config.js')" \
+  && a2c up -d --remove-orphans
+```
+
+**Thêm topic mới**: khai báo cặp `X` và `X.dlq` trong `src/shared/constants/kafka.constant.ts`,
+thêm vào vòng lặp của service `kafka-init` trong `deploy/docker-compose.prod.yaml`, rồi chạy lại
+job đó. Không cần khởi động lại broker.
+
+```bash
+a2c run --rm kafka-init
+a2c exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list
+```
+
+**Đọc topic thư chết** (Kafka UI chỉ đọc nên xem được nhưng không phát lại được; quy trình phát
+lại sẽ có cùng handler đầu tiên):
+
+```bash
+a2c exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server kafka:29092 \
+  --topic production.submission.scan.requested.dlq \
+  --from-beginning --formatter-property print.headers=true --timeout-ms 10000
+```
+
+Header `original-topic` cho biết tin đến từ đâu, `failure-reason` cho biết vì sao chết.
+
+**Rollback**: đổi `KAFKA_ENABLED=true` thành `false` trong `/opt/a2matex/.env.production` rồi chạy
+lại cặp lệnh validate `&&` deploy ở trên. Broker và UI vẫn chạy, vô hại. **Đừng xoá volume
+`kafka-data`** — xoá là mất `__consumer_offsets`, tức vị trí đọc của mọi nhóm tiêu thụ.
+
+**Ba bẫy đã kiểm chứng bằng thực nghiệm, đừng mất công tìm lại:**
+
+1. **Hash basic auth phải nhân đôi mọi `$`.** Docker Compose nội suy biến trong cả `env_file` lẫn
+   `--env-file`, nên `$2a$14$...` để thuần sẽ tới container dưới dạng `$2a$14` cụt và không ai
+   đăng nhập được. Viết `$$2a$$14$$...`. Ngược lại `docker run --env-file` **không** nội suy nên
+   nó hiện dạng `$$` — đừng lấy đó làm căn cứ để xoá bớt `$`. Kiểm đúng cách:
+
+   ```bash
+   a2c exec caddy printenv KAFKA_UI_PASSWORD_HASH   # phải thấy MỘT "$" mỗi nhóm
+   ```
+
+2. **Thêm biến môi trường mới cho Caddy buộc tạo lại container** (~1-2 giây mất kết nối): compose
+   bơm `environment:` lúc tạo container chứ không phải lúc `exec`, nên `a2c exec caddy caddy
+   validate` trong container cũ luôn báo `server block without any key`. Từ lần sau, khi chỉ sửa
+   nội dung Caddyfile, dùng đường không gián đoạn:
+
+   ```bash
+   a2c exec caddy caddy validate --config /etc/caddy/Caddyfile \
+     && a2c exec caddy caddy reload --config /etc/caddy/Caddyfile
+   ```
+
+   Trước khi merge một Caddyfile đã sửa, luôn validate nó trong container dùng một lần ở máy cá
+   nhân — xem `specs/006-kafka-broker-deployment/quickstart.md` §5.
+
+3. **`ns1.zonedns.vn` cần `dig +time=6`.** Ở `+time=3` nó timeout nhưng bản ghi vẫn đúng; một lần
+   timeout ngắn không có nghĩa là chưa lan truyền.
+
+**Kiểm cổng**: dùng `docker port a2matex-kafka` (phải không in gì), **không** dùng cột `Ports` của
+`a2c ps` — cột đó hiện `9092/tcp` từ `EXPOSE` của image kể cả khi không publish gì ra host.
+
 ### Gỡ VM cũ sau khi thay máy
 
 Máy cũ `a2matex-vps` (`34.87.57.207`) nằm trong project `robust-habitat-505713-b6` của **tài khoản

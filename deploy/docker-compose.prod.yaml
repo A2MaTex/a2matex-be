@@ -36,6 +36,95 @@ services:
       - backend
       - edge
 
+  # Kafka broker, KRaft single node (specs/006-kafka-broker-deployment). Internal
+  # only: no published port and no PLAINTEXT_HOST listener, so nothing outside the
+  # `backend` network can reach it. Replication factor 1 everywhere: one broker on
+  # one VM, so replicas would buy no durability.
+  kafka:
+    image: apache/kafka:4.4.0
+    container_name: a2matex-kafka
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: CONTROLLER://:9093,PLAINTEXT://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      # The image defaults to -Xmx1G and grows to ~620 MiB of anonymous memory under
+      # load; mem_limit below is what actually forces reclaim (measured 338 -> 198 MiB).
+      KAFKA_HEAP_OPTS: '-Xmx768m -Xms256m'
+      # retention.bytes defaults to -1 (unlimited), which is how a 20 GB disk fills.
+      # 256 MB x 4 topics x 1 partition stays well under the 2 GB budget.
+      KAFKA_LOG_RETENTION_BYTES: 268435456
+      KAFKA_LOG_RETENTION_HOURS: 168
+      # Defaults to 50 and CANNOT be changed once __consumer_offsets exists; at 50 a
+      # single consumer group took the data dir from 33 to 283 files.
+      KAFKA_OFFSETS_TOPIC_NUM_PARTITIONS: 8
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    mem_limit: 1g
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      # Probes 29092, NOT 9092: tools/docker-compose.yaml can probe 9092 because it
+      # publishes a PLAINTEXT_HOST listener there. This file drops that listener, so a
+      # copied 9092 probe leaves the broker running but never healthy.
+      test:
+        [
+          'CMD-SHELL',
+          '/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 >/dev/null 2>&1',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - backend
+
+  # One-shot job: creates the business topics at the production prefix, then exits.
+  # vps-deploy.sh runs it explicitly before `up -d` so a failure leaves the running
+  # stack untouched; `up -d` then runs it a second time, which --if-not-exists makes
+  # harmless. Same shape as `migrate`.
+  kafka-init:
+    image: apache/kafka:4.4.0
+    container_name: a2matex-kafka-init
+    restart: 'no'
+    environment:
+      KAFKA_TOPIC_PREFIX: ${KAFKA_TOPIC_PREFIX}
+    # $$ keeps the expansion for the container shell instead of compose, so the
+    # :? guard fails this job (and the deploy) rather than silently creating
+    # ".submission.scan.requested" at an empty prefix.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        : "$${KAFKA_TOPIC_PREFIX:?KAFKA_TOPIC_PREFIX is required}"
+        for topic in \
+          "$${KAFKA_TOPIC_PREFIX}.submission.scan.requested" \
+          "$${KAFKA_TOPIC_PREFIX}.submission.scan.requested.dlq" \
+          "$${KAFKA_TOPIC_PREFIX}.product-release.build.requested" \
+          "$${KAFKA_TOPIC_PREFIX}.product-release.build.requested.dlq"
+        do
+          /opt/kafka/bin/kafka-topics.sh \
+            --bootstrap-server kafka:29092 \
+            --create \
+            --if-not-exists \
+            --topic "$$topic" \
+            --partitions 1 \
+            --replication-factor 1
+        done
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - backend
+
   # One-shot job: applies pending migrations against Cloud SQL, then exits. The app
   # only starts after it succeeds, so a failed migration leaves the previous app running.
   migrate:
@@ -130,6 +219,39 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      # Stronger than waiting on `kafka` being healthy: subscribing to a topic that
+      # does not exist is a hard error (allowAutoTopicCreation is false), so the
+      # consumer must not start until the topics are provisioned. `app` deliberately
+      # has no Kafka dependency - it only throws when publish() is called, so a dead
+      # broker must not take the API down with it.
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - backend
+      - edge
+
+  # Read-only Kafka UI, reached only through Caddy. Joins BOTH networks: `backend`
+  # to talk to the broker (that network is internal:true) and `edge` because Caddy
+  # lives there. No published port - the subdomain is the only way in.
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: a2matex-kafka-ui
+    restart: unless-stopped
+    environment:
+      KAFKA_CLUSTERS_0_NAME: a2matex-production
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      # Verified: /api/clusters reports readOnly true and a topic-create POST returns
+      # 405 ReadOnlyModeException. The UI sits on a public address behind only basic
+      # auth and can read every message body, so it gets no write path.
+      KAFKA_CLUSTERS_0_READONLY: 'true'
+      DYNAMIC_CONFIG_ENABLED: 'false'
+      # The image ships no heap flag, so the JVM would take 25% of host RAM (~950 MB
+      # on this VM). JAVA_OPTS replaces the image default, so --add-opens must stay.
+      JAVA_OPTS: '--add-opens java.rmi/javax.rmi.ssl=ALL-UNNAMED -Xmx256m'
+    mem_limit: 384m
+    depends_on:
+      kafka:
+        condition: service_healthy
     networks:
       - backend
       - edge
@@ -146,6 +268,14 @@ services:
       APP_DOMAIN: ${APP_DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL}
       APP_UPSTREAM: app:${PORT:-9999}
+      # Adding these recreates the caddy container once (~1-2s), because compose
+      # injects environment at container creation, not at `exec`. Later Caddyfile-only
+      # edits can use `exec caddy reload`, which is zero-downtime.
+      KAFKA_UI_DOMAIN: ${KAFKA_UI_DOMAIN}
+      KAFKA_UI_UPSTREAM: ${KAFKA_UI_UPSTREAM}
+      KAFKA_UI_USER: ${KAFKA_UI_USER}
+      # Must carry doubled "$$" in .env.production or compose interpolation eats it.
+      KAFKA_UI_PASSWORD_HASH: ${KAFKA_UI_PASSWORD_HASH}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -187,6 +317,7 @@ volumes:
   redis-data:
   caddy-data:
   caddy-config:
+  kafka-data:
 
 networks:
   backend:

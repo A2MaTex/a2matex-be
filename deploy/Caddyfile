@@ -24,3 +24,22 @@
 		format console
 	}
 }
+
+# Kafka UI. Separate site block so a problem with this name cannot take down the
+# API above; Caddy issues and renews its certificate independently.
+{$KAFKA_UI_DOMAIN} {
+	encode zstd gzip
+
+	# The only thing between the public internet and every message body in the
+	# queue. The cluster itself is configured read-only as a second layer.
+	basic_auth {
+		{$KAFKA_UI_USER} {$KAFKA_UI_PASSWORD_HASH}
+	}
+
+	reverse_proxy {$KAFKA_UI_UPSTREAM}
+
+	log {
+		output stdout
+		format console
+	}
+}
