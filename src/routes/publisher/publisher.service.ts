@@ -6,6 +6,7 @@ import {
   ACCEPTANCE_METADATA_SCHEMA_VERSION,
   PublisherAccountStatus,
 } from '../../shared/constants/publisher.constant.ts';
+import { AdminUserAuditAction } from '../../shared/constants/user.constant.ts';
 import { DistributedLock } from '../../shared/decorators/distributed-lock.decorator.ts';
 import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
 import { CACHE_PROVIDER } from '../../shared/infrastructure/cache/cache.interface.ts';
@@ -214,6 +215,7 @@ export class PublisherService {
       throw PublisherStatusConflictException;
     }
 
+    const changedAt = new Date();
     if (data.status === PublisherAccountStatus.ACTIVE) {
       const role = await this.publisherRepo.getActivePublisherRole();
       if (!role) {
@@ -223,7 +225,7 @@ export class PublisherService {
     } else {
       await this.publisherRepo.softDeletePublisherRole({
         userId: account.userId,
-        deletedAt: new Date(),
+        deletedAt: changedAt,
       });
     }
 
@@ -232,6 +234,22 @@ export class PublisherService {
       status: data.status,
       actorId,
       reason: data.reason,
+      changedAt,
+    });
+    await this.publisherRepo.appendUserAuditHistory({
+      userId: account.userId,
+      action:
+        data.status === PublisherAccountStatus.BLOCKED
+          ? AdminUserAuditAction.PUBLISHER_BLOCKED
+          : AdminUserAuditAction.PUBLISHER_UNBLOCKED,
+      reason: data.reason ?? null,
+      performedAt: changedAt,
+      performedById: actorId,
+      details: {
+        publisherAccountId: account.id,
+        previousStatus: account.status,
+        currentStatus: data.status,
+      },
     });
     await this.transactionService.afterCommit(() => {
       this.logger.log(

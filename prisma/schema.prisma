@@ -18,6 +18,7 @@ model User {
   createdAt                                           DateTime           @default(now()) @db.Timestamptz(6)
   updatedAt                                           DateTime?          @db.Timestamptz(6)
   deletedAt                                           DateTime?          @db.Timestamptz(6)
+  auditHistory                                        Json               @default("[]")
   device                                              Device[]
   createdPermissions                                  Permission[]       @relation("PermissionCreatedBy")
   deletedPermissions                                  Permission[]       @relation("PermissionDeletedBy")
