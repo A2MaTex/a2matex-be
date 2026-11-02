@@ -91,11 +91,7 @@ kafka-init:
         "${KAFKA_TOPIC_PREFIX:-dev}.submission.scan.requested" \
         "${KAFKA_TOPIC_PREFIX:-dev}.submission.scan.requested.dlq" \
         "${KAFKA_TOPIC_PREFIX:-dev}.product-release.build.requested" \
-        "${KAFKA_TOPIC_PREFIX:-dev}.product-release.build.requested.dlq" \
-        "${KAFKA_TOPIC_PREFIX:-dev}.user.banned.notification" \
-        "${KAFKA_TOPIC_PREFIX:-dev}.user.banned.notification.dlq" \
-        "${KAFKA_TOPIC_PREFIX:-dev}.user.unbanned.notification" \
-        "${KAFKA_TOPIC_PREFIX:-dev}.user.unbanned.notification.dlq"
+        "${KAFKA_TOPIC_PREFIX:-dev}.product-release.build.requested.dlq"
       do
         /opt/kafka/bin/kafka-topics.sh \
           --bootstrap-server kafka:29092 \

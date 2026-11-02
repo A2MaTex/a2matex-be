@@ -1,12 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import { UserStatus } from '../../shared/constants/auth.constant.ts';
-import { KAFKA_TOPICS } from '../../shared/constants/kafka.constant.ts';
 import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
-import {
-  type MessageProvider,
-  QUEUE_PROVIDER,
-} from '../../shared/infrastructure/queue/queue.interface.ts';
+import { EmailService } from '../../shared/services/email.service.tsx';
 import { TransactionService } from '../../shared/services/transaction.service.ts';
 import {
   AdminTargetProtectedException,
@@ -24,10 +19,6 @@ import type {
 } from './user.model.ts';
 import { AdminUserStatusAction } from './user.model.ts';
 import { AdminUserRepo } from './user.repo.ts';
-import {
-  ADMIN_USER_BANNED_EVENT_TYPE,
-  ADMIN_USER_UNBANNED_EVENT_TYPE,
-} from './user-status.event.ts';
 
 @Injectable()
 export class AdminUserService {
@@ -36,7 +27,7 @@ export class AdminUserService {
   constructor(
     @Inject(AdminUserRepo) private readonly adminUserRepo: AdminUserRepo,
     @Inject(TransactionService) private readonly transactionService: TransactionService,
-    @Inject(QUEUE_PROVIDER) private readonly queue: MessageProvider,
+    @Inject(EmailService) private readonly emailService: EmailService,
   ) {}
 
   getList(query: GetAdminUserListInputType): Promise<GetAdminUserListOutputType> {
@@ -158,29 +149,22 @@ export class AdminUserService {
     reason: string;
     changedAt: Date;
   }): Promise<void> {
-    const messageId = randomUUID();
     await this.transactionService.afterCommit(async () => {
       try {
-        await this.queue.publish({
-          topic: KAFKA_TOPICS.USER_BANNED_NOTIFICATION,
-          key: userId,
-          message: {
-            id: messageId,
-            type: ADMIN_USER_BANNED_EVENT_TYPE,
-            occurredAt: changedAt.toISOString(),
-            payload: {
-              userId,
-              username,
-              email,
-              status: UserStatus.BANNED,
-              reason,
-              changedAt: changedAt.toISOString(),
-            },
-          },
+        const { error } = await this.emailService.sendUserBanned({
+          email,
+          username,
+          reason,
+          changedAt: changedAt.toISOString(),
         });
+        if (error) {
+          this.logger.error(
+            `Ban email provider rejected request userId=${userId}: ${error.message}`,
+          );
+        }
       } catch (error) {
         this.logger.error(
-          `Failed to publish ban notification userId=${userId} messageId=${messageId}`,
+          `Failed to send ban email userId=${userId}`,
           error instanceof Error ? error.stack : String(error),
         );
       }
@@ -202,29 +186,23 @@ export class AdminUserService {
     reason: string;
     changedAt: Date;
   }): Promise<void> {
-    const messageId = randomUUID();
     await this.transactionService.afterCommit(async () => {
       try {
-        await this.queue.publish({
-          topic: KAFKA_TOPICS.USER_UNBANNED_NOTIFICATION,
-          key: userId,
-          message: {
-            id: messageId,
-            type: ADMIN_USER_UNBANNED_EVENT_TYPE,
-            occurredAt: changedAt.toISOString(),
-            payload: {
-              userId,
-              username,
-              email,
-              status,
-              reason,
-              changedAt: changedAt.toISOString(),
-            },
-          },
+        const { error } = await this.emailService.sendUserUnbanned({
+          email,
+          username,
+          status,
+          reason,
+          changedAt: changedAt.toISOString(),
         });
+        if (error) {
+          this.logger.error(
+            `Unban email provider rejected request userId=${userId}: ${error.message}`,
+          );
+        }
       } catch (error) {
         this.logger.error(
-          `Failed to publish unban notification userId=${userId} messageId=${messageId}`,
+          `Failed to send unban email userId=${userId}`,
           error instanceof Error ? error.stack : String(error),
         );
       }
