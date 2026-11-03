@@ -14,6 +14,7 @@ import {
 } from '../../shared/infrastructure/queue/queue.interface.ts';
 import { TransactionService } from '../../shared/services/transaction.service.ts';
 import type { Prisma } from '../../generated/prisma/client.ts';
+import { getPagination } from '../../shared/utils/pagination.ts';
 import {
   isTransactionTimeoutPrismaError,
   isUniqueConstraintPrismaError,
@@ -26,7 +27,14 @@ import {
 import { ProductRepo } from '../product/product.repo.ts';
 import { describeUniqueTarget } from '../product/product.util.ts';
 import { WorkflowRevisionService } from '../workflow-revision/workflow-revision.service.ts';
-import type { CreateSubmissionInputType, CreateSubmissionOutputType } from './submission.model.ts';
+import type {
+  CreateSubmissionInputType,
+  CreateSubmissionOutputType,
+  GetAdminSubmissionListOutputType,
+  GetSubmissionListInputType,
+  GetSubmissionListOutputType,
+} from './submission.model.ts';
+import type { ActivePermissionScope } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import {
   SubmissionAlreadyOpenException,
   SubmissionIdempotencyKeyReusedException,
@@ -36,11 +44,7 @@ import {
   SubmissionScanPublishFailedException,
 } from './submission.error.ts';
 import { SubmissionAccessPolicy } from './submission-access.policy.ts';
-import {
-  isOpenSubmission,
-  SubmissionRepo,
-  type ExistingIdempotentSubmission,
-} from './submission.repo.ts';
+import { SubmissionRepo, type ExistingIdempotentSubmission } from './submission.repo.ts';
 import {
   buildProductSnapshot,
   buildReleaseRequestSnapshot,
@@ -96,6 +100,13 @@ export class SubmissionService {
         userId,
       });
     } catch (error) {
+      // The publish failure already belongs to the row this request just committed.
+      // Probing would find that row and republish it inside the same request, which
+      // doubles the attempt and can emit the message twice if the broker recovers in
+      // between. The client's own retry is what should republish it.
+      if (error === SubmissionScanPublishFailedException) {
+        throw error;
+      }
       // A concurrent request carrying this key commits the row this one was told did
       // not exist yet, and the loser rarely fails on the key's own uniqueness: it
       // usually trips an earlier business rule, or times out waiting for the Product
@@ -124,6 +135,29 @@ export class SubmissionService {
       }
       throw error;
     }
+  }
+
+  // The resolved scope picks the projection, so an Admin never silently receives the
+  // owner shape and an owner can never reach the Admin one.
+  async getList({
+    query,
+    userId,
+    scopes,
+  }: {
+    query: GetSubmissionListInputType;
+    userId: string;
+    scopes: ActivePermissionScope[];
+  }): Promise<GetSubmissionListOutputType | GetAdminSubmissionListOutputType> {
+    const access = await this.submissionAccessPolicy.resolveReadAccess(userId, scopes);
+    if (!access) {
+      return emptyPage(query);
+    }
+
+    const page = access.unrestricted
+      ? await this.submissionRepo.getAdminList({ query, access })
+      : await this.submissionRepo.getOwnerList({ query, access });
+
+    return { ...page, totalPages: Math.ceil(page.totalItems / page.limit) };
   }
 
   @Transactional({
@@ -173,15 +207,14 @@ export class SubmissionService {
       access: { unrestricted: false, publisherAccountId },
     });
 
-    const latest = await this.submissionRepo.getLatestSubmission(product.id);
-    if (latest && isOpenSubmission(latest)) {
+    if (await this.submissionRepo.findOpenSubmission(product.id)) {
       throw SubmissionAlreadyOpenException;
     }
 
     const created = await this.submissionRepo.create({
       productId: product.id,
       workflowRevisionId: revision.id,
-      number: (latest?.number ?? 0) + 1,
+      number: await this.submissionRepo.getNextSubmissionNumber(product.id),
       productSnapshot,
       releaseRequest: buildReleaseRequestSnapshot(data.releaseRequest),
       reviewContext: buildReviewContextSnapshot(data.reviewContext),
@@ -283,4 +316,11 @@ export class SubmissionService {
       throw SubmissionScanPublishFailedException;
     }
   }
+}
+
+// A caller with OWN scope but no Publisher account owns no Submission, which is an
+// empty page rather than an error.
+function emptyPage(query: GetSubmissionListInputType): GetSubmissionListOutputType {
+  const { page, limit } = getPagination(query);
+  return { items: [], totalItems: 0, page, limit, totalPages: 0 };
 }

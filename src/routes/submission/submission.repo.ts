@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { Prisma } from '../../generated/prisma/client.ts';
+import { Prisma } from '../../generated/prisma/client.ts';
 import type {
   SubmissionScanStatusType,
   SubmissionStatusType,
@@ -7,6 +7,14 @@ import type {
 import { SubmissionStatus } from '../../shared/constants/submission.constant.ts';
 import type { ProductStatusType } from '../../shared/constants/product.constant.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
+import { getPagination } from '../../shared/utils/pagination.ts';
+import type { SubmissionAccess, SubmissionListFilter } from './submission-access.model.ts';
+import { AdminSubmissionListItem } from './submission.model.ts';
+import type {
+  AdminSubmissionListItemType,
+  GetSubmissionListInputType,
+  SubmissionListItemType,
+} from './submission.model.ts';
 
 export type LockedSubmissionProduct = {
   id: string;
@@ -37,12 +45,6 @@ export type ExistingIdempotentSubmission = {
   updatedAt: Date | null;
 };
 
-export type LatestSubmission = {
-  number: number;
-  status: SubmissionStatusType;
-  deletedAt: Date | null;
-};
-
 export type CreatedSubmission = {
   id: string;
   scanAttempt: number;
@@ -67,8 +69,84 @@ const OPEN_SUBMISSION_STATUSES: SubmissionStatusType[] = [
   SubmissionStatus.READY_FOR_REVIEW,
 ];
 
-export function isOpenSubmission(submission: LatestSubmission): boolean {
-  return submission.deletedAt === null && OPEN_SUBMISSION_STATUSES.includes(submission.status);
+type ListRow = {
+  id: string;
+  productId: string;
+  workflowRevisionId: string;
+  number: number;
+  status: SubmissionStatusType;
+  productName: string;
+  productSlug: string;
+  iconStaticId: string | null;
+  requestedVersion: string;
+  createdAt: Date;
+  updatedAt: Date | null;
+  createdById: string;
+};
+
+type AdminListRow = ListRow & {
+  scanAttempt: number;
+  scanStatus: SubmissionScanStatusType;
+  scannerVersion: string | null;
+  scanSummary: unknown;
+};
+
+// Only the four presentation values are pulled out of the snapshot. Selecting the
+// whole JSONB would drag an unbounded Product description through every list row.
+const LIST_COLUMNS = Prisma.sql`
+  s.id,
+  s."productId",
+  s."workflowRevisionId",
+  s.number,
+  s.status,
+  s."productSnapshot" ->> 'name' AS "productName",
+  s."productSnapshot" ->> 'slug' AS "productSlug",
+  (
+    SELECT media ->> 'staticId'
+    FROM jsonb_array_elements(s."productSnapshot" -> 'media') AS media
+    WHERE media ->> 'type' = 'ICON'
+    LIMIT 1
+  ) AS "iconStaticId",
+  s."releaseRequest" ->> 'version' AS "requestedVersion",
+  s."createdAt",
+  s."updatedAt",
+  s."createdById"
+`;
+
+const ADMIN_SCAN_COLUMNS = Prisma.sql`
+  s."scanAttempt",
+  s."scanStatus",
+  s."scannerVersion",
+  s."scanResult" -> 'summary' AS "scanSummary"
+`;
+
+// A summary written by anything that skipped the entity schema must not take the
+// whole Admin page down with a serialization failure.
+function toScanSummary(value: unknown): AdminSubmissionListItemType['scanSummary'] {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const parsed = AdminSubmissionListItem.shape.scanSummary.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+function toListItem(row: ListRow): SubmissionListItemType {
+  return {
+    id: row.id,
+    productId: row.productId,
+    workflowRevisionId: row.workflowRevisionId,
+    number: row.number,
+    status: row.status,
+    product: {
+      name: row.productName,
+      slug: row.productSlug,
+      iconStaticId: row.iconStaticId,
+    },
+    requestedVersion: row.requestedVersion,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    createdById: row.createdById,
+  };
 }
 
 @Injectable()
@@ -165,20 +243,94 @@ export class SubmissionRepo {
     });
   }
 
-  // Submissions are numbered sequentially, so the newest row carries both the next
-  // number and the only status that can still be open. Soft-deleted rows stay in
-  // scope because UNIQUE("productId", number) has no deletedAt predicate: skipping
-  // them would re-allocate a number the index still holds.
-  getLatestSubmission(productId: string): Promise<LatestSubmission | null> {
-    return this.prisma.submission.findFirst({
+  // Soft-deleted rows stay in scope because UNIQUE("productId", number) has no
+  // deletedAt predicate: skipping them would re-allocate a number the index holds.
+  async getNextSubmissionNumber(productId: string): Promise<number> {
+    const latest = await this.prisma.submission.findFirst({
       where: { productId },
-      select: {
-        number: true,
-        status: true,
-        deletedAt: true,
-      },
+      select: { number: true },
       orderBy: { number: 'desc' },
     });
+    return (latest?.number ?? 0) + 1;
+  }
+
+  // Asked over every live row rather than only the newest one. Reading just the
+  // highest number would miss an older open Submission once anything soft-deletes a
+  // newer row, and no database constraint backs this rule.
+  findOpenSubmission(productId: string): Promise<{ id: string } | null> {
+    return this.prisma.submission.findFirst({
+      where: {
+        productId,
+        deletedAt: null,
+        status: { in: OPEN_SUBMISSION_STATUSES },
+      },
+      select: { id: true },
+    });
+  }
+
+  // Two statements rather than one projection: an OWN caller's query must never put
+  // a scan column in its SELECT list, not merely drop it before responding.
+  async getOwnerList({
+    query,
+    access,
+  }: {
+    query: GetSubmissionListInputType;
+    access: SubmissionAccess;
+  }) {
+    const { page, limit, skip, take } = getPagination(query);
+    const where = buildListWhere(access, query);
+    const [totalItems, rows] = await Promise.all([
+      this.countList(where),
+      this.prisma.$queryRaw<ListRow[]>`
+        SELECT ${LIST_COLUMNS}
+        FROM "Submission" s
+        JOIN "Product" p ON p.id = s."productId"
+        WHERE ${where}
+        ORDER BY s."createdAt" DESC, s.id DESC
+        LIMIT ${take} OFFSET ${skip}
+      `,
+    ]);
+    return { items: rows.map(toListItem), totalItems, page, limit };
+  }
+
+  async getAdminList({
+    query,
+    access,
+  }: {
+    query: GetSubmissionListInputType;
+    access: SubmissionAccess;
+  }) {
+    const { page, limit, skip, take } = getPagination(query);
+    const where = buildListWhere(access, query);
+    const [totalItems, rows] = await Promise.all([
+      this.countList(where),
+      this.prisma.$queryRaw<AdminListRow[]>`
+        SELECT ${LIST_COLUMNS}, ${ADMIN_SCAN_COLUMNS}
+        FROM "Submission" s
+        JOIN "Product" p ON p.id = s."productId"
+        WHERE ${where}
+        ORDER BY s."createdAt" DESC, s.id DESC
+        LIMIT ${take} OFFSET ${skip}
+      `,
+    ]);
+    const items: AdminSubmissionListItemType[] = rows.map((row) => ({
+      ...toListItem(row),
+      scanAttempt: row.scanAttempt,
+      scanStatus: row.scanStatus,
+      scannerVersion: row.scannerVersion,
+      scanSummary: toScanSummary(row.scanSummary),
+    }));
+    return { items, totalItems, page, limit };
+  }
+
+  private async countList(where: Prisma.Sql): Promise<number> {
+    const rows = await this.prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT count(*) AS count
+      FROM "Submission" s
+      JOIN "Product" p ON p.id = s."productId"
+      WHERE ${where}
+    `;
+    return Number(rows[0]?.count ?? 0);
   }
 
   // createdAt and scanAttempt feed the queue envelope; only `id` reaches the client.
@@ -188,4 +340,23 @@ export class SubmissionRepo {
       select: { id: true, scanAttempt: true, createdAt: true },
     });
   }
+}
+
+// Ownership is never stored on Submission; an OWN caller reaches rows only through
+// the Product join.
+function buildListWhere(access: SubmissionAccess, filter: SubmissionListFilter): Prisma.Sql {
+  const conditions: Prisma.Sql[] = [
+    Prisma.sql`s."deletedAt" IS NULL`,
+    Prisma.sql`p."deletedAt" IS NULL`,
+  ];
+  if (!access.unrestricted) {
+    conditions.push(Prisma.sql`p."publisherAccountId" = ${access.publisherAccountId}::uuid`);
+  }
+  if (filter.status) {
+    conditions.push(Prisma.sql`s.status = ${filter.status}::"SubmissionStatus"`);
+  }
+  if (filter.productId) {
+    conditions.push(Prisma.sql`s."productId" = ${filter.productId}::uuid`);
+  }
+  return Prisma.join(conditions, ' AND ');
 }
