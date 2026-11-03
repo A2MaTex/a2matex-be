@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { Profile } from '../../entities/profile.model.ts';
 import { PublisherAccount } from '../../entities/publisher-account.model.ts';
 import { Role } from '../../entities/role.schema.ts';
-import { User } from '../../entities/user.model.ts';
+import { AdminUserAuditHistory, User } from '../../entities/user.model.ts';
 import { UserStatus } from '../../shared/constants/auth.constant.ts';
 import { PublisherAccountStatus } from '../../shared/constants/publisher.constant.ts';
 import { RoleName } from '../../shared/constants/role.constant.ts';
@@ -162,16 +162,6 @@ export const AdminUserOrderSummaryOutput = z
   })
   .nullable();
 
-export const AdminUserModerationSummaryOutput = z
-  .object({
-    previousStatus: z.enum([UserStatus.ACTIVE, UserStatus.INACTIVE, UserStatus.BANNED]),
-    currentStatus: z.enum([UserStatus.ACTIVE, UserStatus.INACTIVE, UserStatus.BANNED]),
-    reason: z.string(),
-    changedAt: zDate(),
-    changedById: z.uuid(),
-  })
-  .nullable();
-
 export const GetAdminUserDetailOutput = z.object({
   identity: AdminUserIdentityOutput,
   profile: AdminUserProfileOutput.nullable(),
@@ -180,7 +170,7 @@ export const GetAdminUserDetailOutput = z.object({
   sessions: AdminUserSessionSummaryOutput,
   entitlements: AdminUserEntitlementSummaryOutput,
   orders: AdminUserOrderSummaryOutput,
-  moderation: AdminUserModerationSummaryOutput,
+  auditHistory: AdminUserAuditHistory,
 });
 
 export type GetAdminUserListInputType = z.infer<typeof GetAdminUserListInput>;

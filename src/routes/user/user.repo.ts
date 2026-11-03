@@ -1,5 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.ts';
+import {
+  AdminUserAuditHistory,
+  type AdminUserAuditActionType,
+  type AdminUserAuditHistoryEntryType,
+} from '../../entities/user.model.ts';
 import { RoleStatus } from '../../shared/constants/auth.constant.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
 import { getPagination } from '../../shared/utils/pagination.ts';
@@ -77,10 +82,7 @@ const ADMIN_USER_DETAIL_SELECT = {
   status: true,
   createdAt: true,
   updatedAt: true,
-  previousStatus: true,
-  statusReason: true,
-  statusChangedAt: true,
-  statusChangedById: true,
+  auditHistory: true,
   profile: {
     select: {
       id: true,
@@ -160,7 +162,7 @@ const ADMIN_USER_STATUS_TARGET_SELECT = {
   username: true,
   email: true,
   status: true,
-  previousStatus: true,
+  auditHistory: true,
   userRoles: {
     where: {
       deletedAt: null,
@@ -181,7 +183,8 @@ type AdminUserStatusTargetRow = Prisma.UserGetPayload<{
   select: typeof ADMIN_USER_STATUS_TARGET_SELECT;
 }>;
 
-export type AdminUserStatusTarget = Omit<AdminUserStatusTargetRow, 'userRoles'> & {
+export type AdminUserStatusTarget = Omit<AdminUserStatusTargetRow, 'userRoles' | 'auditHistory'> & {
+  auditHistory: AdminUserAuditHistoryEntryType[];
   isProtectedAdmin: boolean;
 };
 
@@ -245,6 +248,7 @@ export class AdminUserRepo {
     const { userRoles, ...target } = user;
     return {
       ...target,
+      auditHistory: this.parseAuditHistory(target.auditHistory),
       isProtectedAdmin: userRoles.length > 0,
     };
   }
@@ -253,6 +257,7 @@ export class AdminUserRepo {
     id,
     expectedStatus,
     status,
+    action,
     reason,
     changedAt,
     changedById,
@@ -260,27 +265,34 @@ export class AdminUserRepo {
     id: string;
     expectedStatus: UserStatus;
     status: UserStatus;
+    action: AdminUserAuditActionType;
     reason: string;
     changedAt: Date;
     changedById: string;
   }): Promise<boolean> {
-    const result = await this.prisma.user.updateMany({
-      where: {
-        id,
-        status: expectedStatus,
-        deletedAt: null,
-      },
-      data: {
-        previousStatus: expectedStatus,
-        status,
-        statusReason: reason,
-        statusChangedAt: changedAt,
-        statusChangedById: changedById,
-        updatedAt: changedAt,
-      },
-    });
+    const changedRows = await this.prisma.$executeRaw`
+      UPDATE "User"
+      SET
+        "status" = ${status}::"UserStatus",
+        "auditHistory" = COALESCE("auditHistory", '[]'::jsonb) || jsonb_build_array(
+          jsonb_build_object(
+            'action', ${action}::text,
+            'reason', ${reason}::text,
+            'performedAt', ${changedAt.toISOString()}::text,
+            'performedById', ${changedById}::text,
+            'details', jsonb_build_object(
+              'previousStatus', ${expectedStatus}::text,
+              'currentStatus', ${status}::text
+            )
+          )
+        ),
+        "updatedAt" = ${changedAt}
+      WHERE "id" = ${id}::uuid
+        AND "status" = ${expectedStatus}::"UserStatus"
+        AND "deletedAt" IS NULL
+    `;
 
-    return result.count === 1;
+    return changedRows === 1;
   }
 
   async revokeAllSessions(userId: string, changedAt: Date): Promise<void> {
@@ -428,16 +440,12 @@ export class AdminUserRepo {
       },
       entitlements: null,
       orders: null,
-      moderation:
-        user.previousStatus && user.statusReason && user.statusChangedAt && user.statusChangedById
-          ? {
-              previousStatus: user.previousStatus,
-              currentStatus: user.status,
-              reason: user.statusReason,
-              changedAt: user.statusChangedAt,
-              changedById: user.statusChangedById,
-            }
-          : null,
+      auditHistory: this.parseAuditHistory(user.auditHistory),
     };
+  }
+
+  private parseAuditHistory(value: Prisma.JsonValue): AdminUserAuditHistoryEntryType[] {
+    const result = AdminUserAuditHistory.safeParse(value);
+    return result.success ? result.data : [];
   }
 }

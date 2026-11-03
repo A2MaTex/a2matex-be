@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Prisma } from '../../generated/prisma/client.ts';
 import type { UserStatus as PrismaUserStatus } from '../../generated/prisma/enums.ts';
+import type { AdminUserAuditActionType } from '../../entities/user.model.ts';
 import type { PublisherAccountStatusType } from '../../shared/constants/publisher.constant.ts';
 import { TermStatus, TermType } from '../../shared/constants/publisher.constant.ts';
 import { RoleName } from '../../shared/constants/role.constant.ts';
@@ -363,13 +364,14 @@ export class PublisherRepo {
     status,
     actorId,
     reason,
+    changedAt,
   }: {
     id: string;
     status: PublisherAccountStatusType;
     actorId: string;
     reason?: string;
+    changedAt: Date;
   }) {
-    const now = new Date();
     return this.prisma.publisherAccount.update({
       where: { id },
       data:
@@ -377,19 +379,56 @@ export class PublisherRepo {
           ? {
               status,
               blockedReason: reason,
-              blockedAt: now,
+              blockedAt: changedAt,
               blockedById: actorId,
-              updatedAt: now,
+              updatedAt: changedAt,
             }
           : {
               status,
               blockedReason: null,
               blockedAt: null,
               blockedById: null,
-              updatedAt: now,
+              updatedAt: changedAt,
             },
       select: { id: true },
     });
+  }
+
+  async appendUserAuditHistory({
+    userId,
+    action,
+    reason,
+    performedAt,
+    performedById,
+    details,
+  }: {
+    userId: string;
+    action: AdminUserAuditActionType;
+    reason: string | null;
+    performedAt: Date;
+    performedById: string;
+    details: Prisma.InputJsonObject;
+  }): Promise<void> {
+    const changedRows = await this.prisma.$executeRaw`
+      UPDATE "User"
+      SET
+        "auditHistory" = COALESCE("auditHistory", '[]'::jsonb) || jsonb_build_array(
+          jsonb_build_object(
+            'action', ${action}::text,
+            'reason', ${reason}::text,
+            'performedAt', ${performedAt.toISOString()}::text,
+            'performedById', ${performedById}::text,
+            'details', ${JSON.stringify(details)}::jsonb
+          )
+        ),
+        "updatedAt" = ${performedAt}
+      WHERE "id" = ${userId}::uuid
+        AND "deletedAt" IS NULL
+    `;
+
+    if (changedRows !== 1) {
+      throw new Error(`Failed to append admin audit history for user ${userId}`);
+    }
   }
 
   getPublicByUsername(username: string) {
