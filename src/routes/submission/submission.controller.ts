@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiExtraModels, ApiHeader, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
 import { ActivePermissionScopes } from '../../shared/decorators/active-permission-scopes.decorator.ts';
@@ -15,12 +15,21 @@ import {
   GetSubmissionListInputDTO,
   GetSubmissionListOutputDTO,
   GetSubmissionListResponseDTO,
+  AdminSubmissionDetailOutputDTO,
+  SubmissionDetailOutputDTO,
+  SubmissionDetailResponseDTO,
+  SubmissionIdParamDTO,
 } from './submission.dto.ts';
 import { SubmissionService } from './submission.service.ts';
 
 @ApiTags('Submissions')
 @ApiBearerAuth('access-token')
-@ApiExtraModels(GetAdminSubmissionListOutputDTO, GetSubmissionListOutputDTO)
+@ApiExtraModels(
+  GetAdminSubmissionListOutputDTO,
+  GetSubmissionListOutputDTO,
+  AdminSubmissionDetailOutputDTO,
+  SubmissionDetailOutputDTO,
+)
 @Controller('submissions')
 export class SubmissionController {
   constructor(@Inject(SubmissionService) private readonly submissionService: SubmissionService) {}
@@ -44,5 +53,15 @@ export class SubmissionController {
     @ActivePermissionScopes() scopes: ActivePermissionScope[],
   ) {
     return this.submissionService.getList({ query, userId, scopes });
+  }
+
+  @Get(':submissionId')
+  @ZodResponse({ type: SubmissionDetailResponseDTO })
+  getDetail(
+    @Param() params: SubmissionIdParamDTO,
+    @ActiveUser('userId') userId: string,
+    @ActivePermissionScopes() scopes: ActivePermissionScope[],
+  ) {
+    return this.submissionService.getDetail({ submissionId: params.submissionId, userId, scopes });
   }
 }

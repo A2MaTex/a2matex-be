@@ -3,13 +3,15 @@ import {
   ProductSubmissionSnapshot,
   ReleaseRequestSnapshot,
   SubmissionReviewContextSnapshot,
+  SubmissionScanResult,
 } from '../../entities/submission.model.ts';
+import { EditorGraph } from '../workflow-validation/workflow-validation.model.ts';
 import {
   SubmissionScanStatus,
   SubmissionStatus,
 } from '../../shared/constants/submission.constant.ts';
 import { PaginationQuerySchema } from '../../shared/models/request.model.ts';
-import { zDate } from '../../shared/utils/zod.ts';
+import { zDate, zJsonObject } from '../../shared/utils/zod.ts';
 
 export const SubmissionStatusSchema = z.enum([
   SubmissionStatus.PENDING_SCAN,
@@ -26,6 +28,16 @@ export const SubmissionScanStatusSchema = z.enum([
   SubmissionScanStatus.FAILED,
   SubmissionScanStatus.ERROR,
 ]);
+
+// Read-side only. Everything these cover was validated by its own schema before it
+// was stored and is immutable afterwards; the schema passed in documents the field
+// without parsing it.
+const StoredJson = zJsonObject();
+const StoredProductSnapshot = zJsonObject(ProductSubmissionSnapshot);
+const StoredReleaseRequest = zJsonObject(ReleaseRequestSnapshot);
+const StoredReviewContext = zJsonObject(SubmissionReviewContextSnapshot);
+const StoredScanResult = zJsonObject(SubmissionScanResult);
+const StoredEditorGraph = zJsonObject(EditorGraph);
 
 export const SubmissionIdParam = z
   .object({
@@ -122,6 +134,61 @@ export const GetSubmissionListResponse = listOutput(
   }),
 );
 
+// The complete frozen revision, which spec section 6.3 puts behind detail and keeps
+// out of list output.
+export const SubmissionWorkflowRevision = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  sourceDraftVersion: z.number().int().positive(),
+  sourceDraftContentHash: z.string(),
+  contentHash: z.string(),
+  editorGraph: StoredEditorGraph,
+  runtimeIr: StoredJson,
+  inputSchema: StoredJson,
+  nodeDefinitionManifest: StoredJson,
+  capabilityManifest: StoredJson,
+  validationSummary: StoredJson,
+  testSummary: StoredJson,
+  createdAt: zDate(),
+});
+
+export const SubmissionDetailOutput = z.object({
+  id: z.uuid(),
+  productId: z.uuid(),
+  workflowRevisionId: z.uuid(),
+  number: z.number().int().positive(),
+  status: SubmissionStatusSchema,
+  productSnapshot: StoredProductSnapshot,
+  releaseRequest: StoredReleaseRequest,
+  reviewContext: StoredReviewContext,
+  // Admin-authored and intentionally shown to the Publisher; the Review module owns
+  // its shape, so it stays an opaque object until that module lands.
+  reviewedAt: zDate().nullable(),
+  reviewFeedback: StoredJson.nullable(),
+  workflowRevision: SubmissionWorkflowRevision,
+  createdAt: zDate(),
+  createdById: z.uuid(),
+  updatedAt: zDate().nullable(),
+});
+
+export const AdminSubmissionDetailOutput = SubmissionDetailOutput.extend({
+  scanAttempt: z.number().int().positive(),
+  scanStatus: SubmissionScanStatusSchema,
+  scannerVersion: z.string().nullable(),
+  scanResult: StoredScanResult.nullable(),
+  updatedById: z.uuid().nullable(),
+});
+
+// Same reason as the list response: one route, two shapes, and `createZodDto` takes
+// no union. The owner query is what actually withholds the scan columns.
+export const SubmissionDetailResponse = SubmissionDetailOutput.extend({
+  scanAttempt: AdminSubmissionDetailOutput.shape.scanAttempt.optional(),
+  scanStatus: AdminSubmissionDetailOutput.shape.scanStatus.optional(),
+  scannerVersion: AdminSubmissionDetailOutput.shape.scannerVersion.optional(),
+  scanResult: AdminSubmissionDetailOutput.shape.scanResult.optional(),
+  updatedById: AdminSubmissionDetailOutput.shape.updatedById.optional(),
+});
+
 export type ReleaseRequestInputType = z.infer<typeof ReleaseRequestInput>;
 export type SubmissionReviewContextInputType = z.infer<typeof SubmissionReviewContextInput>;
 export type CreateSubmissionInputType = z.infer<typeof CreateSubmissionInput>;
@@ -133,6 +200,9 @@ export type AdminSubmissionListItemType = z.infer<typeof AdminSubmissionListItem
 export type GetSubmissionListOutputType = z.infer<typeof GetSubmissionListOutput>;
 export type GetAdminSubmissionListOutputType = z.infer<typeof GetAdminSubmissionListOutput>;
 export type GetSubmissionListResponseType = z.infer<typeof GetSubmissionListResponse>;
+export type SubmissionDetailOutputType = z.infer<typeof SubmissionDetailOutput>;
+export type AdminSubmissionDetailOutputType = z.infer<typeof AdminSubmissionDetailOutput>;
+export type SubmissionDetailResponseType = z.infer<typeof SubmissionDetailResponse>;
 export type ProductSubmissionSnapshotInput = Omit<
   z.infer<typeof ProductSubmissionSnapshot>,
   'schemaVersion'

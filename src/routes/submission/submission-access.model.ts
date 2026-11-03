@@ -3,7 +3,9 @@ import type { SubmissionStatusType } from '../../shared/constants/submission.con
 export type SubmissionAccess =
   { unrestricted: true } | { unrestricted: false; publisherAccountId: string };
 
-export type SubmissionListFilter = {
+// Detail narrows the same predicate to one id rather than writing a second one:
+// this is the ownership boundary, and two copies of it are two things to drift.
+export type SubmissionScopeFilter = {
   status?: SubmissionStatusType;
   productId?: string;
 };

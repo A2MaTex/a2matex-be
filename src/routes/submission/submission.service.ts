@@ -33,12 +33,14 @@ import type {
   GetAdminSubmissionListOutputType,
   GetSubmissionListInputType,
   GetSubmissionListOutputType,
+  SubmissionDetailResponseType,
 } from './submission.model.ts';
 import type { ActivePermissionScope } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import {
   SubmissionAlreadyOpenException,
   SubmissionIdempotencyKeyReusedException,
   SubmissionCreateTimeoutException,
+  SubmissionNotFoundException,
   SubmissionNumberConflictException,
   SubmissionProductIncompleteException,
   SubmissionScanPublishFailedException,
@@ -158,6 +160,33 @@ export class SubmissionService {
       : await this.submissionRepo.getOwnerList({ query, access });
 
     return { ...page, totalPages: Math.ceil(page.totalItems / page.limit) };
+  }
+
+  // A missing Submission and one owned by another Publisher answer identically, so an
+  // OWN caller cannot probe for ids it may not see.
+  async getDetail({
+    submissionId,
+    userId,
+    scopes,
+  }: {
+    submissionId: string;
+    userId: string;
+    scopes: ActivePermissionScope[];
+  }): Promise<SubmissionDetailResponseType> {
+    const access = await this.submissionAccessPolicy.resolveReadAccess(userId, scopes);
+    if (!access) {
+      throw SubmissionNotFoundException;
+    }
+
+    const submission = access.unrestricted
+      ? await this.submissionRepo.getAdminDetail({ submissionId, access })
+      : await this.submissionRepo.getOwnerDetail({ submissionId, access });
+    if (!submission) {
+      throw SubmissionNotFoundException;
+    }
+
+    const { WorkflowRevision, ...rest } = submission;
+    return { ...rest, workflowRevision: WorkflowRevision };
   }
 
   @Transactional({

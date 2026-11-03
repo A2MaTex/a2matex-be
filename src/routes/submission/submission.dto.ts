@@ -6,6 +6,9 @@ import {
   GetSubmissionListInput,
   GetSubmissionListOutput,
   GetSubmissionListResponse,
+  AdminSubmissionDetailOutput,
+  SubmissionDetailOutput,
+  SubmissionDetailResponse,
   SubmissionIdParam,
 } from './submission.model.ts';
 
@@ -24,3 +27,9 @@ export class GetSubmissionListOutputDTO extends createZodDto(GetSubmissionListOu
 export class GetAdminSubmissionListOutputDTO extends createZodDto(GetAdminSubmissionListOutput) {}
 
 export class GetSubmissionListResponseDTO extends createZodDto(GetSubmissionListResponse) {}
+
+export class SubmissionDetailOutputDTO extends createZodDto(SubmissionDetailOutput) {}
+
+export class AdminSubmissionDetailOutputDTO extends createZodDto(AdminSubmissionDetailOutput) {}
+
+export class SubmissionDetailResponseDTO extends createZodDto(SubmissionDetailResponse) {}

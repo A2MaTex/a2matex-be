@@ -8,7 +8,7 @@ import { SubmissionStatus } from '../../shared/constants/submission.constant.ts'
 import type { ProductStatusType } from '../../shared/constants/product.constant.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
 import { getPagination } from '../../shared/utils/pagination.ts';
-import type { SubmissionAccess, SubmissionListFilter } from './submission-access.model.ts';
+import type { SubmissionAccess, SubmissionScopeFilter } from './submission-access.model.ts';
 import { AdminSubmissionListItem } from './submission.model.ts';
 import type {
   AdminSubmissionListItemType,
@@ -119,6 +119,57 @@ const ADMIN_SCAN_COLUMNS = Prisma.sql`
   s."scannerVersion",
   s."scanResult" -> 'summary' AS "scanSummary"
 `;
+
+// Detail is the one place the complete immutable revision is returned. Unlike list,
+// every JSONB column here is wanted, so there is nothing to project away.
+const DETAIL_SELECT = {
+  id: true,
+  productId: true,
+  workflowRevisionId: true,
+  number: true,
+  status: true,
+  productSnapshot: true,
+  releaseRequest: true,
+  reviewContext: true,
+  reviewedAt: true,
+  reviewFeedback: true,
+  createdAt: true,
+  createdById: true,
+  updatedAt: true,
+  WorkflowRevision: {
+    select: {
+      id: true,
+      projectId: true,
+      sourceDraftVersion: true,
+      sourceDraftContentHash: true,
+      contentHash: true,
+      editorGraph: true,
+      runtimeIr: true,
+      inputSchema: true,
+      nodeDefinitionManifest: true,
+      capabilityManifest: true,
+      validationSummary: true,
+      testSummary: true,
+      createdAt: true,
+    },
+  },
+} satisfies Prisma.SubmissionSelect;
+
+// idempotencyKey, requestHash and the soft-delete columns are absent from both: spec
+// section 6.3 keeps them off the wire entirely.
+const ADMIN_DETAIL_SELECT = {
+  ...DETAIL_SELECT,
+  scanAttempt: true,
+  scanStatus: true,
+  scannerVersion: true,
+  scanResult: true,
+  updatedById: true,
+} satisfies Prisma.SubmissionSelect;
+
+export type SubmissionDetailRow = Prisma.SubmissionGetPayload<{ select: typeof DETAIL_SELECT }>;
+export type AdminSubmissionDetailRow = Prisma.SubmissionGetPayload<{
+  select: typeof ADMIN_DETAIL_SELECT;
+}>;
 
 // A summary written by anything that skipped the entity schema must not take the
 // whole Admin page down with a serialization failure.
@@ -278,7 +329,7 @@ export class SubmissionRepo {
     access: SubmissionAccess;
   }) {
     const { page, limit, skip, take } = getPagination(query);
-    const where = buildListWhere(access, query);
+    const where = buildScopeWhere(access, query);
     const [totalItems, rows] = await Promise.all([
       this.countList(where),
       this.prisma.$queryRaw<ListRow[]>`
@@ -301,7 +352,7 @@ export class SubmissionRepo {
     access: SubmissionAccess;
   }) {
     const { page, limit, skip, take } = getPagination(query);
-    const where = buildListWhere(access, query);
+    const where = buildScopeWhere(access, query);
     const [totalItems, rows] = await Promise.all([
       this.countList(where),
       this.prisma.$queryRaw<AdminListRow[]>`
@@ -333,6 +384,29 @@ export class SubmissionRepo {
     return Number(rows[0]?.count ?? 0);
   }
 
+  // Ownership travels with the read itself. A repo method that returns a full
+  // Submission for any id would be safe only while every caller remembers to
+  // authorise first, and would still return a row soft-deleted since that check.
+  getOwnerDetail(input: {
+    submissionId: string;
+    access: SubmissionAccess;
+  }): Promise<SubmissionDetailRow | null> {
+    return this.prisma.submission.findFirst({
+      where: buildScopeWhereInput(input.access, input.submissionId),
+      select: DETAIL_SELECT,
+    });
+  }
+
+  getAdminDetail(input: {
+    submissionId: string;
+    access: SubmissionAccess;
+  }): Promise<AdminSubmissionDetailRow | null> {
+    return this.prisma.submission.findFirst({
+      where: buildScopeWhereInput(input.access, input.submissionId),
+      select: ADMIN_DETAIL_SELECT,
+    });
+  }
+
   // createdAt and scanAttempt feed the queue envelope; only `id` reaches the client.
   create(data: CreateSubmissionRecord): Promise<CreatedSubmission> {
     return this.prisma.submission.create({
@@ -342,9 +416,9 @@ export class SubmissionRepo {
   }
 }
 
-// Ownership is never stored on Submission; an OWN caller reaches rows only through
-// the Product join.
-function buildListWhere(access: SubmissionAccess, filter: SubmissionListFilter): Prisma.Sql {
+// The single ownership predicate. List narrows it with filters, detail narrows it to
+// one id, and nothing else is allowed to express this rule.
+function buildScopeWhere(access: SubmissionAccess, filter: SubmissionScopeFilter): Prisma.Sql {
   const conditions: Prisma.Sql[] = [
     Prisma.sql`s."deletedAt" IS NULL`,
     Prisma.sql`p."deletedAt" IS NULL`,
@@ -359,4 +433,21 @@ function buildListWhere(access: SubmissionAccess, filter: SubmissionListFilter):
     conditions.push(Prisma.sql`s."productId" = ${filter.productId}::uuid`);
   }
   return Prisma.join(conditions, ' AND ');
+}
+
+// The same rule for the reads that go through Prisma rather than raw SQL. List needs
+// raw SQL to project out of JSONB and detail needs Prisma to pull the relation, so
+// the two forms live side by side deliberately; change one and change the other.
+function buildScopeWhereInput(
+  access: SubmissionAccess,
+  submissionId: string,
+): Prisma.SubmissionWhereInput {
+  return {
+    id: submissionId,
+    deletedAt: null,
+    Product: {
+      deletedAt: null,
+      ...(access.unrestricted ? {} : { publisherAccountId: access.publisherAccountId }),
+    },
+  };
 }
