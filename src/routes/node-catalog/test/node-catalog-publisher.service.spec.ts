@@ -9,7 +9,7 @@ vi.mock('../node-catalog.repo.ts', () => ({
 describe('NodeCatalogPublisherService', () => {
   it('publishes all definitions with deterministic content hashes', async () => {
     const syncCatalog = vi.fn().mockResolvedValue({
-      created: 11,
+      created: 12,
       updated: 0,
       unchanged: 0,
       disabled: 0,
@@ -17,14 +17,14 @@ describe('NodeCatalogPublisherService', () => {
     const service = new NodeCatalogPublisherService({ syncCatalog } as unknown as NodeCatalogRepo);
 
     await expect(service.publish()).resolves.toEqual({
-      created: 11,
+      created: 12,
       updated: 0,
       unchanged: 0,
       disabled: 0,
     });
 
     const payload = syncCatalog.mock.calls[0][0];
-    expect(payload.definitions).toHaveLength(11);
+    expect(payload.definitions).toHaveLength(12);
     expect(payload.capabilities).toHaveLength(2);
     payload.definitions.forEach(({ contentHash }: { contentHash: string }) => {
       expect(contentHash).toMatch(/^[0-9a-f]{64}$/);

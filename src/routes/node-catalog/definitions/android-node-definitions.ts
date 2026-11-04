@@ -42,6 +42,15 @@ const DEVICE_CONTROL_CAPABILITY: NodeDefinitionType['capabilities'] = [
   NodeCapability.ANDROID_DEVICE_CONTROL,
 ];
 
+const PIXEL_COORDINATE_FIELD = {
+  type: 'integer',
+  minimum: 0,
+  maximum: MAX_ANDROID_COORDINATE,
+} as const;
+const POINT_TARGET_MODES = ['ABSOLUTE_PIXELS', 'SCREEN_PERCENT', 'SELECTOR_ID'] satisfies NonNullable<
+  NodeDefinitionType['editorHints']['targetModes']
+>;
+
 export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
   {
     type: 'android.launch_app',
@@ -86,16 +95,8 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        x: {
-          type: 'integer',
-          minimum: 0,
-          maximum: MAX_ANDROID_COORDINATE,
-        },
-        y: {
-          type: 'integer',
-          minimum: 0,
-          maximum: MAX_ANDROID_COORDINATE,
-        },
+        x: PIXEL_COORDINATE_FIELD,
+        y: PIXEL_COORDINATE_FIELD,
       },
       required: ['x', 'y'],
       additionalProperties: false,
@@ -104,7 +105,9 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
     outputPorts: SUCCESS_AND_ERROR_PORTS,
     editorHints: {
       icon: 'mouse-pointer-click',
+      documentation: 'Coordinates are absolute screen pixels measured from the top-left corner.',
       fieldOrder: ['x', 'y'],
+      targetModes: POINT_TARGET_MODES,
     },
     supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
     capabilities: DEVICE_CONTROL_CAPABILITY,
@@ -121,10 +124,10 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        startX: { type: 'integer', minimum: 0, maximum: MAX_ANDROID_COORDINATE },
-        startY: { type: 'integer', minimum: 0, maximum: MAX_ANDROID_COORDINATE },
-        endX: { type: 'integer', minimum: 0, maximum: MAX_ANDROID_COORDINATE },
-        endY: { type: 'integer', minimum: 0, maximum: MAX_ANDROID_COORDINATE },
+        startX: PIXEL_COORDINATE_FIELD,
+        startY: PIXEL_COORDINATE_FIELD,
+        endX: PIXEL_COORDINATE_FIELD,
+        endY: PIXEL_COORDINATE_FIELD,
         durationMs: { type: 'integer', minimum: 1, maximum: MAX_SWIPE_DURATION_MS },
       },
       required: ['startX', 'startY', 'endX', 'endY', 'durationMs'],
@@ -134,7 +137,10 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
     outputPorts: SUCCESS_AND_ERROR_PORTS,
     editorHints: {
       icon: 'move',
+      documentation:
+        'Both endpoints use absolute screen pixels. Duration controls how long the gesture takes.',
       fieldOrder: ['startX', 'startY', 'endX', 'endY', 'durationMs'],
+      targetModes: ['ABSOLUTE_PIXELS', 'SCREEN_PERCENT'],
     },
     supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
     capabilities: DEVICE_CONTROL_CAPABILITY,
@@ -234,5 +240,34 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
     },
     supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
     capabilities: [NodeCapability.ANDROID_SCREEN_CAPTURE],
+  },
+  {
+    type: 'android.long_press',
+    name: 'Long Press',
+    description: 'Press and hold a point on the selected Android device.',
+    category: NodeCategory.ANDROID,
+    runtimeHandler: 'android.long_press',
+    minimumRuntimeVersion: '0.1.0',
+    defaultTimeoutMs: DEFAULT_ANDROID_NODE_TIMEOUT_MS,
+    configSchema: EMPTY_OBJECT_SCHEMA,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        x: PIXEL_COORDINATE_FIELD,
+        y: PIXEL_COORDINATE_FIELD,
+        durationMs: { type: 'integer', minimum: 1 },
+      },
+      required: ['x', 'y', 'durationMs'],
+      additionalProperties: false,
+    },
+    outputSchema: EMPTY_OBJECT_SCHEMA,
+    outputPorts: SUCCESS_AND_ERROR_PORTS,
+    editorHints: {
+      icon: 'hand',
+      fieldOrder: ['x', 'y', 'durationMs'],
+      targetModes: POINT_TARGET_MODES,
+    },
+    supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
+    capabilities: DEVICE_CONTROL_CAPABILITY,
   },
 ];
