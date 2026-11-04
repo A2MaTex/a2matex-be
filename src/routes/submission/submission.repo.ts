@@ -12,6 +12,7 @@ import type { ProductStatusType } from '../../shared/constants/product.constant.
 import { PrismaService } from '../../shared/services/prisma.service.ts';
 import { getPagination } from '../../shared/utils/pagination.ts';
 import type { SubmissionAccess, SubmissionScopeFilter } from './submission-access.model.ts';
+import type { SubmissionScanResultType } from '../../entities/submission.model.ts';
 import { AdminSubmissionListItem } from './submission.model.ts';
 import type {
   AdminSubmissionListItemType,
@@ -177,6 +178,37 @@ const ADMIN_DETAIL_SELECT = {
   scanResult: true,
   updatedById: true,
 } satisfies Prisma.SubmissionSelect;
+
+// Everything a scan reads: the frozen revision plus the snapshots it must verify.
+const SCAN_TARGET_SELECT = {
+  id: true,
+  productId: true,
+  number: true,
+  status: true,
+  scanAttempt: true,
+  scanStatus: true,
+  productSnapshot: true,
+  releaseRequest: true,
+  reviewContext: true,
+  WorkflowRevision: {
+    select: {
+      id: true,
+      projectId: true,
+      sourceDraftVersion: true,
+      sourceDraftContentHash: true,
+      contentHash: true,
+      editorGraph: true,
+      runtimeIr: true,
+      inputSchema: true,
+      nodeDefinitionManifest: true,
+      capabilityManifest: true,
+      validationSummary: true,
+      testSummary: true,
+    },
+  },
+} satisfies Prisma.SubmissionSelect;
+
+export type ScanTarget = Prisma.SubmissionGetPayload<{ select: typeof SCAN_TARGET_SELECT }>;
 
 export type SubmissionDetailRow = Prisma.SubmissionGetPayload<{ select: typeof DETAIL_SELECT }>;
 export type AdminSubmissionDetailRow = Prisma.SubmissionGetPayload<{
@@ -416,6 +448,106 @@ export class SubmissionRepo {
     return this.prisma.submission.findFirst({
       where: buildScopeWhereInput(input.access, input.submissionId),
       select: ADMIN_DETAIL_SELECT,
+    });
+  }
+
+  // The scan runs without a caller, so identity comes from the message alone. Loaded
+  // before any claim so a stale or impossible attempt is rejected without a write.
+  loadForScan(submissionId: string): Promise<ScanTarget | null> {
+    return this.prisma.submission.findFirst({
+      where: { id: submissionId, deletedAt: null },
+      select: SCAN_TARGET_SELECT,
+    });
+  }
+
+  // Conditional on the attempt and on a status that may still be claimed. RUNNING is
+  // included on purpose (spec section 8.3: a redelivery may safely recompute from
+  // immutable content), so this does NOT make the claim exclusive — two concurrent
+  // deliveries of one attempt can both scan. That is wasteful rather than wrong: the
+  // rules are deterministic, so both write the same result for the same attempt.
+  async claimScan({
+    submissionId,
+    scanAttempt,
+  }: {
+    submissionId: string;
+    scanAttempt: number;
+  }): Promise<boolean> {
+    const { count } = await this.prisma.submission.updateMany({
+      where: {
+        id: submissionId,
+        scanAttempt,
+        scanStatus: {
+          in: [
+            SubmissionScanStatus.QUEUED,
+            SubmissionScanStatus.ERROR,
+            // A redelivered claim is safe to recompute: the scan reads immutable
+            // content and writes one bounded result.
+            SubmissionScanStatus.RUNNING,
+          ],
+        },
+      },
+      data: { scanStatus: SubmissionScanStatus.RUNNING },
+    });
+    return count > 0;
+  }
+
+  // Both writes are keyed on the attempt. An Admin retry that moved the counter while
+  // this attempt was scanning makes its result unwanted, and a result nobody wants
+  // must not promote the Submission either. The caller holds the transaction.
+  async persistScanOutcome({
+    submissionId,
+    scanAttempt,
+    scanStatus,
+    scanResult,
+    scannerVersion,
+  }: {
+    submissionId: string;
+    scanAttempt: number;
+    scanStatus: typeof SubmissionScanStatus.PASSED | typeof SubmissionScanStatus.FAILED;
+    scanResult: SubmissionScanResultType;
+    scannerVersion: string;
+  }): Promise<void> {
+    const { count } = await this.prisma.submission.updateMany({
+      where: { id: submissionId, scanAttempt },
+      data: {
+        scanStatus,
+        scannerVersion,
+        // Prisma's InputJsonValue rejects `unknown`, which a finding's `details` is.
+        // The value already satisfies SubmissionScanResult, so the cast only bridges
+        // that typing limitation at the ORM boundary.
+        scanResult: scanResult as Prisma.InputJsonValue,
+      },
+    });
+    if (count === 0) {
+      return;
+    }
+
+    // Conditional on PENDING_SCAN so a decision an Admin made meanwhile is never
+    // overwritten, and on the attempt so a superseded scan cannot promote the row.
+    await this.prisma.submission.updateMany({
+      where: { id: submissionId, scanAttempt, status: SubmissionStatus.PENDING_SCAN },
+      data: { status: SubmissionStatus.READY_FOR_REVIEW },
+    });
+  }
+
+  // A technical failure keeps the Submission PENDING_SCAN: no business result exists,
+  // so the durable scan request stays available for the Admin retry route. Guarded on
+  // unfinished work, because a failure raised after a result was already written must
+  // not relabel that result as an error.
+  async recordScanError({
+    submissionId,
+    scanAttempt,
+  }: {
+    submissionId: string;
+    scanAttempt: number;
+  }): Promise<void> {
+    await this.prisma.submission.updateMany({
+      where: {
+        id: submissionId,
+        scanAttempt,
+        scanStatus: { in: [SubmissionScanStatus.QUEUED, SubmissionScanStatus.RUNNING] },
+      },
+      data: { scanStatus: SubmissionScanStatus.ERROR },
     });
   }
 

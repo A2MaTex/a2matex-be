@@ -74,6 +74,25 @@ export const SUBMISSION_SCAN_RESULT_MAX_BYTES = 65_536;
 export const SUBMISSION_CREATE_TX_TIMEOUT_MS = 15_000;
 export const SUBMISSION_CREATE_TX_MAX_WAIT_MS = 5_000;
 
+// Bump when the rule set changes. Recorded on every completed scan so an Admin can
+// tell which rules produced a stored result: 0.1.x covers rule groups 1, 2 and 6 only.
+export const SUBMISSION_SCANNER_VERSION = '0.1.0';
+
+// Stable machine-readable codes. Admin UIs branch on these, not on the messages.
+export const SubmissionFindingCode = {
+  REVISION_CONTENT_HASH_MISMATCH: 'REVISION_CONTENT_HASH_MISMATCH',
+  REVISION_IDENTITY_MISMATCH: 'REVISION_IDENTITY_MISMATCH',
+  REVISION_CONTENT_INVALID: 'REVISION_CONTENT_INVALID',
+  EDITOR_GRAPH_INVALID: 'EDITOR_GRAPH_INVALID',
+  PRODUCT_SNAPSHOT_INVALID: 'PRODUCT_SNAPSHOT_INVALID',
+  RELEASE_REQUEST_INVALID: 'RELEASE_REQUEST_INVALID',
+  REVIEW_CONTEXT_INVALID: 'REVIEW_CONTEXT_INVALID',
+  FINDINGS_TRUNCATED: 'FINDINGS_TRUNCATED',
+} as const;
+
+export type SubmissionFindingCodeType =
+  (typeof SubmissionFindingCode)[keyof typeof SubmissionFindingCode];
+
 export const SUBMISSION_SCAN_MESSAGE_TYPE = 'submission.scan.requested.v1';
 export const SUBMISSION_SCAN_MESSAGE_ID_PREFIX = 'submission-scan';
 export const SUBMISSION_SCAN_CONSUMER_GROUP_ID = 'submission-scan-v1';
