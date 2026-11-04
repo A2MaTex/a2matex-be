@@ -1,7 +1,11 @@
 import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import { KAFKA_TOPICS } from '../../shared/constants/kafka.constant.ts';
 import { ProductStatus } from '../../shared/constants/product.constant.ts';
+import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
+import type { MessageResType } from '../../shared/models/response.model.ts';
 import {
+  SubmissionScanStatus,
+  SubmissionStatus,
   SUBMISSION_CREATE_TX_MAX_WAIT_MS,
   SUBMISSION_CREATE_TX_TIMEOUT_MS,
   SUBMISSION_SCAN_MESSAGE_ID_PREFIX,
@@ -41,18 +45,24 @@ import {
   SubmissionIdempotencyKeyReusedException,
   SubmissionCreateTimeoutException,
   SubmissionNotFoundException,
+  SubmissionScanNotRetryableException,
   SubmissionNumberConflictException,
   SubmissionProductIncompleteException,
   SubmissionScanPublishFailedException,
 } from './submission.error.ts';
 import { SubmissionAccessPolicy } from './submission-access.policy.ts';
-import { SubmissionRepo, type ExistingIdempotentSubmission } from './submission.repo.ts';
+import {
+  SubmissionRepo,
+  type ExistingIdempotentSubmission,
+  type ScanRetryTarget,
+} from './submission.repo.ts';
 import {
   buildProductSnapshot,
   buildReleaseRequestSnapshot,
   buildReviewContextSnapshot,
   calculateSubmissionRequestHash,
   isRepublishableScanStatus,
+  scanAttemptOccurredAt,
 } from './submission.util.ts';
 
 const SUBMITTABLE_PRODUCT_STATUSES: string[] = [ProductStatus.DRAFT, ProductStatus.ACTIVE];
@@ -187,6 +197,72 @@ export class SubmissionService {
 
     const { WorkflowRevision, ...rest } = submission;
     return { ...rest, workflowRevision: WorkflowRevision };
+  }
+
+  // Operational recovery for a scan that never ran. Both branches hold the row lock:
+  // the republish one writes nothing, but taking the lock stops a second Admin from
+  // turning one click into two attempts.
+  async retryScan({
+    submissionId,
+    userId,
+    scopes,
+  }: {
+    submissionId: string;
+    userId: string;
+    scopes: ActivePermissionScope[];
+  }): Promise<MessageResType> {
+    this.submissionAccessPolicy.resolveScanRetryAccess(scopes);
+    await this.commitScanRetry({ submissionId, userId });
+    return SUCCESS_RESPONSE;
+  }
+
+  @Transactional()
+  private async commitScanRetry({
+    submissionId,
+    userId,
+  }: {
+    submissionId: string;
+    userId: string;
+  }): Promise<void> {
+    const target = await this.submissionRepo.lockForScanRetry(submissionId);
+    if (!target) {
+      throw SubmissionNotFoundException;
+    }
+    // A reviewed Submission has a business result already; only work that never
+    // produced one is retryable.
+    if (target.status !== SubmissionStatus.PENDING_SCAN) {
+      throw SubmissionScanNotRetryableException;
+    }
+
+    const republished =
+      target.scanStatus === SubmissionScanStatus.QUEUED
+        ? target
+        : await this.startNextAttempt({ target, submissionId, userId });
+
+    await this.transactionService.afterCommit(() =>
+      this.publishScanRequest({
+        submissionId,
+        scanAttempt: republished.scanAttempt,
+        occurredAt: scanAttemptOccurredAt(republished),
+      }),
+    );
+  }
+
+  private async startNextAttempt({
+    target,
+    submissionId,
+    userId,
+  }: {
+    target: ScanRetryTarget;
+    submissionId: string;
+    userId: string;
+  }) {
+    // RUNNING is a claim another worker still holds; PASSED and FAILED are completed
+    // business results that an Admin reviews rather than re-runs.
+    if (target.scanStatus !== SubmissionScanStatus.ERROR) {
+      throw SubmissionScanNotRetryableException;
+    }
+    return this.submissionRepo.startNextScanAttempt({ submissionId, userId });
   }
 
   @Transactional({

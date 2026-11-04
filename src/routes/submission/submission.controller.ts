@@ -1,6 +1,17 @@
-import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Param,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiExtraModels, ApiHeader, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
+import { MessageResDTO } from '../../shared/dtos/response.dto.ts';
 import { ActivePermissionScopes } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import type { ActivePermissionScope } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import { ActiveUser } from '../../shared/decorators/active-user.decorator.ts';
@@ -63,5 +74,18 @@ export class SubmissionController {
     @ActivePermissionScopes() scopes: ActivePermissionScope[],
   ) {
     return this.submissionService.getDetail({ submissionId: params.submissionId, userId, scopes });
+  }
+
+  // Recovery republishes or re-queues an existing Submission; nothing is created, so
+  // this follows the repo's POST-as-action convention rather than defaulting to 201.
+  @Post(':submissionId/scan-retry')
+  @HttpCode(HttpStatus.OK)
+  @ZodResponse({ type: MessageResDTO })
+  retryScan(
+    @Param() params: SubmissionIdParamDTO,
+    @ActiveUser('userId') userId: string,
+    @ActivePermissionScopes() scopes: ActivePermissionScope[],
+  ) {
+    return this.submissionService.retryScan({ submissionId: params.submissionId, userId, scopes });
   }
 }

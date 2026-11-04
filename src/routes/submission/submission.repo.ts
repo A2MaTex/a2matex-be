@@ -4,7 +4,10 @@ import type {
   SubmissionScanStatusType,
   SubmissionStatusType,
 } from '../../shared/constants/submission.constant.ts';
-import { SubmissionStatus } from '../../shared/constants/submission.constant.ts';
+import {
+  SubmissionScanStatus,
+  SubmissionStatus,
+} from '../../shared/constants/submission.constant.ts';
 import type { ProductStatusType } from '../../shared/constants/product.constant.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
 import { getPagination } from '../../shared/utils/pagination.ts';
@@ -41,6 +44,15 @@ export type ExistingIdempotentSubmission = {
   requestHash: string;
   scanAttempt: number;
   scanStatus: SubmissionScanStatusType;
+  createdAt: Date;
+  updatedAt: Date | null;
+};
+
+export type ScanRetryTarget = {
+  id: string;
+  status: SubmissionStatusType;
+  scanStatus: SubmissionScanStatusType;
+  scanAttempt: number;
   createdAt: Date;
   updatedAt: Date | null;
 };
@@ -404,6 +416,42 @@ export class SubmissionRepo {
     return this.prisma.submission.findFirst({
       where: buildScopeWhereInput(input.access, input.submissionId),
       select: ADMIN_DETAIL_SELECT,
+    });
+  }
+
+  // Retry is Admin-only and unrestricted, so no ownership predicate applies. The lock
+  // serialises two Admins clicking retry on the same Submission.
+  async lockForScanRetry(submissionId: string): Promise<ScanRetryTarget | null> {
+    const rows = await this.prisma.$queryRaw<ScanRetryTarget[]>`
+      SELECT id, status, "scanStatus", "scanAttempt", "createdAt", "updatedAt"
+      FROM "Submission"
+      WHERE id = ${submissionId}::uuid
+        AND "deletedAt" IS NULL
+      FOR UPDATE
+    `;
+    return rows[0] ?? null;
+  }
+
+  // One new generation: the counter moves, the previous scanner output is cleared, and
+  // the Admin who asked is recorded. Submission status stays PENDING_SCAN throughout.
+  startNextScanAttempt({
+    submissionId,
+    userId,
+  }: {
+    submissionId: string;
+    userId: string;
+  }): Promise<{ scanAttempt: number; createdAt: Date; updatedAt: Date | null }> {
+    return this.prisma.submission.update({
+      where: { id: submissionId },
+      data: {
+        scanAttempt: { increment: 1 },
+        scanStatus: SubmissionScanStatus.QUEUED,
+        scannerVersion: null,
+        scanResult: Prisma.DbNull,
+        updatedAt: new Date(),
+        updatedById: userId,
+      },
+      select: { scanAttempt: true, createdAt: true, updatedAt: true },
     });
   }
 

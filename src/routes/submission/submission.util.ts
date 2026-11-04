@@ -82,6 +82,19 @@ export function buildReviewContextSnapshot(
   });
 }
 
+// Spec section 9: attempt 1 carries the creation time, a later attempt carries the
+// time its retry was recorded. Both the create replay and the Admin retry publish
+// through this so the two cannot drift.
+export function scanAttemptOccurredAt(submission: {
+  scanAttempt: number;
+  createdAt: Date;
+  updatedAt: Date | null;
+}): Date {
+  return submission.scanAttempt === 1
+    ? submission.createdAt
+    : (submission.updatedAt ?? submission.createdAt);
+}
+
 // A replay only republishes while the durable scan request is still unclaimed.
 export function isRepublishableScanStatus(status: SubmissionScanStatusType): boolean {
   return status === SubmissionScanStatus.QUEUED;
