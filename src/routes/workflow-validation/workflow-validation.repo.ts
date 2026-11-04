@@ -13,7 +13,7 @@ export class WorkflowValidationRepo {
   /**
    * Load the current validation authority in one set-based query.
    * Disabled/deleted definitions are deliberately indistinguishable from unknown node types.
-   * Selecting only these three fields avoids moving complete catalog rows into request memory.
+   * Select only the fields needed for authoring validation.
    */
   getActiveNodeDefinitions(types: string[]) {
     return this.prisma.nodeDefinition.findMany({
@@ -25,6 +25,8 @@ export class WorkflowValidationRepo {
       select: {
         type: true,
         configSchema: true,
+        inputSchema: true,
+        outputSchema: true,
         outputPorts: true,
       },
     });

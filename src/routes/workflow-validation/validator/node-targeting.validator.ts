@@ -77,8 +77,7 @@ export function validateNodeTargeting(
   const modes = bindingsByNodeType.get(node.type);
   const { targetMode, ...config } = node.config;
 
-  // Existing Tap and Swipe drafts keep their original config and binding validation.
-  if (!modes || (targetMode === undefined && node.type !== 'android.long_press')) {
+  if (!modes) {
     return validateNodeConfig(node, index, configSchema);
   }
 

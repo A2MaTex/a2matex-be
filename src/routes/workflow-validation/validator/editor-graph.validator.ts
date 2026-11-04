@@ -15,6 +15,8 @@ import type {
   WorkflowValidationOutputType,
 } from '../workflow-validation.model.ts';
 import { validateNodeTargeting } from './node-targeting.validator.ts';
+import { validateNodeBindings } from './node-binding.validator.ts';
+import { SWITCH_TYPE, validateSwitches } from './switch.validator.ts';
 
 type IndexedEdge = EditorGraphType['edges'][number] & { index: number };
 
@@ -47,6 +49,22 @@ export function buildEditorGraphContractErrors(
   );
 }
 
+function comparePaths(left: Array<string | number>, right: Array<string | number>): number {
+  for (let index = 0; index < Math.min(left.length, right.length); index++) {
+    const a = left[index];
+    const b = right[index];
+    if (a === b) continue;
+    if (typeof a === 'number') return typeof b === 'number' ? a - b : -1;
+    if (typeof b === 'number') return 1;
+    return compareText(a, b);
+  }
+  return left.length - right.length;
+}
+
+function compareText(left: string, right: string): number {
+  return left === right ? 0 : Buffer.compare(Buffer.from(left), Buffer.from(right));
+}
+
 function compareDiagnostics(
   left: WorkflowValidationDiagnosticType,
   right: WorkflowValidationDiagnosticType,
@@ -54,10 +72,10 @@ function compareDiagnostics(
   // Validation traversals may discover the same problems in a different order after an internal
   // refactor. Sorting by stable public fields keeps API responses and Studio rendering predictable.
   return (
-    left.code.localeCompare(right.code) ||
-    (left.nodeId ?? '').localeCompare(right.nodeId ?? '') ||
-    (left.edgeId ?? '').localeCompare(right.edgeId ?? '') ||
-    JSON.stringify(left.path).localeCompare(JSON.stringify(right.path))
+    compareText(left.code, right.code) ||
+    compareText(left.nodeId ?? '', right.nodeId ?? '') ||
+    compareText(left.edgeId ?? '', right.edgeId ?? '') ||
+    comparePaths(left.path, right.path)
   );
 }
 
@@ -302,7 +320,9 @@ export function validateEditorGraphCatalog(
       );
       return;
     }
-    errors.push(...validateNodeTargeting(node, index, definition.configSchema));
+    if (node.type !== SWITCH_TYPE) {
+      errors.push(...validateNodeTargeting(node, index, definition.configSchema));
+    }
   });
 
   // Catalog pass 2 - verify the named output port against the source node definition. Endpoint
@@ -313,6 +333,7 @@ export function validateEditorGraphCatalog(
     const sourceDefinition = sourceNode ? definitionByType.get(sourceNode.type) : undefined;
     if (
       sourceNode &&
+      sourceNode.type !== SWITCH_TYPE &&
       sourceDefinition &&
       !sourceDefinition.outputPorts.ports.some(({ key }) => key === edge.sourcePort)
     ) {
@@ -326,5 +347,8 @@ export function validateEditorGraphCatalog(
     }
   });
 
-  return errors;
+  return errors.concat(
+    validateSwitches(graph, definitionByType.has(SWITCH_TYPE)).diagnostics,
+    validateNodeBindings(graph, definitionByType),
+  );
 }

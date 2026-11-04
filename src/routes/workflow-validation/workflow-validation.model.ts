@@ -67,13 +67,14 @@ export const ValidateEditorGraphInput = z
 
 /**
  * The small part of a Node Definition needed by the validation engine.
- * Keeping this projection explicit prevents Runtime metadata, capabilities, and output schemas from
- * leaking into or accidentally becoming dependencies of Phase 4 validation.
+ * Include field schemas for typed authoring bindings.
  */
 export const WorkflowNodeDefinition = z
   .object({
     type: NodeDefinitionContract.shape.type,
     configSchema: NodeObjectSchema,
+    inputSchema: NodeObjectSchema.optional(),
+    outputSchema: NodeObjectSchema.optional(),
     outputPorts: NodeDefinitionContract.shape.outputPorts,
   })
   .strict();

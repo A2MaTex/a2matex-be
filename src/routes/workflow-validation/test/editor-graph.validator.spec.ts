@@ -1,9 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { ANDROID_NODE_DEFINITIONS } from '../../node-catalog/definitions/android-node-definitions.ts';
+import { BASIC_NODE_DEFINITIONS } from '../../node-catalog/definitions/basic-node-definitions.ts';
 import {
   EDITOR_GRAPH_MAX_DIAGNOSTICS,
   EDITOR_GRAPH_MAX_EDGES,
   EDITOR_GRAPH_MAX_NODES,
+  WORKFLOW_VALIDATION_DIAGNOSTIC_MESSAGES,
 } from '../../../shared/constants/workflow-validation.constant.ts';
 import {
   buildValidationOutput,
@@ -12,6 +15,109 @@ import {
 } from '../validator/editor-graph.validator.ts';
 import { EditorGraph, type EditorGraphType } from '../workflow-validation.model.ts';
 import type { WorkflowNodeDefinitionType } from '../workflow-validation.model.ts';
+
+const targetingCases = JSON.parse(
+  fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'targeting-parity.json'), 'utf8'),
+) as Array<{
+  name: string;
+  type: string;
+  config: EditorGraphType['nodes'][number]['config'];
+  bindings: EditorGraphType['nodes'][number]['bindings'];
+  paths: string[][];
+}>;
+
+const bindingCases = JSON.parse(
+  fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'binding-parity.json'), 'utf8'),
+) as Array<{
+  name: string;
+  graph: unknown;
+  paths: Array<{ node: number; field: string; section?: 'bindings' | 'config' | 'ports' }>;
+}>;
+
+describe('binding parity', () => {
+  it.each(bindingCases)('$name', ({ graph: raw, paths }) => {
+    const graph = EditorGraph.parse(raw);
+    const errors = [
+      ...validateEditorGraphTopology(graph),
+      ...validateEditorGraphCatalog(graph, BASIC_NODE_DEFINITIONS),
+    ];
+    expect(buildValidationOutput({ errors })).toEqual({
+      status: paths.length ? 'INVALID' : 'VALID',
+      errors: paths.map(({ node, field, section = 'bindings' }) => {
+        const code =
+          section === 'ports'
+            ? 'SWITCH_PORT_EDGE_COUNT_INVALID'
+            : section === 'config'
+              ? 'NODE_CONFIG_INVALID'
+              : 'NODE_VALUE_BINDING_INVALID';
+        return {
+          code,
+          message: WORKFLOW_VALIDATION_DIAGNOSTIC_MESSAGES[code],
+          nodeId: graph.nodes[node].id,
+          path: ['nodes', node, section, field],
+        };
+      }),
+      warnings: [],
+      truncated: false,
+    });
+  });
+});
+
+describe('targeting parity', () => {
+  it.each(targetingCases)('$name', ({ type, config, bindings, paths }) => {
+    const graph = EditorGraph.parse({
+      schemaVersion: 1,
+      entryNodeId: 'start',
+      nodes: [
+        {
+          id: 'start',
+          type: 'flow.start',
+          config: {},
+          bindings: {},
+          errorPolicy: 'STOP',
+          editor: { x: 0, y: 0 },
+        },
+        { id: 'target', type, config, bindings, errorPolicy: 'STOP', editor: { x: 0, y: 0 } },
+        {
+          id: 'end',
+          type: 'flow.end',
+          config: {},
+          bindings: {},
+          errorPolicy: 'STOP',
+          editor: { x: 0, y: 0 },
+        },
+      ],
+      edges: [
+        { id: 'e1', sourceNodeId: 'start', sourcePort: 'success', targetNodeId: 'target' },
+        { id: 'e2', sourceNodeId: 'target', sourcePort: 'success', targetNodeId: 'end' },
+      ],
+    });
+    const target = ANDROID_NODE_DEFINITIONS.find((entry) => entry.type === type);
+    if (!target) throw new Error(`Unknown fixture node type ${type}`);
+    const errors = [
+      ...validateEditorGraphTopology(graph),
+      ...validateEditorGraphCatalog(graph, [
+        definition('flow.start', ['success']),
+        target,
+        definition('flow.end', []),
+      ]),
+    ];
+    expect(buildValidationOutput({ errors })).toEqual({
+      status: paths.length ? 'INVALID' : 'VALID',
+      errors: paths.map((segments) => {
+        const code = segments[0] === 'config' ? 'NODE_CONFIG_INVALID' : 'NODE_BINDINGS_INVALID';
+        return {
+          code,
+          message: WORKFLOW_VALIDATION_DIAGNOSTIC_MESSAGES[code],
+          nodeId: 'target',
+          path: ['nodes', 1, ...segments],
+        };
+      }),
+      warnings: [],
+      truncated: false,
+    });
+  });
+});
 
 function fixture(name: string): EditorGraphType {
   const value: unknown = JSON.parse(
