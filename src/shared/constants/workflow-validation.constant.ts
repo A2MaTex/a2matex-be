@@ -33,6 +33,7 @@ export const WorkflowValidationDiagnosticCode = {
   GRAPH_CYCLE_DETECTED: 'GRAPH_CYCLE_DETECTED',
   NODE_TYPE_NOT_ACTIVE: 'NODE_TYPE_NOT_ACTIVE',
   NODE_CONFIG_INVALID: 'NODE_CONFIG_INVALID',
+  NODE_BINDINGS_INVALID: 'NODE_BINDINGS_INVALID',
   GRAPH_NODE_LIMIT_EXCEEDED: 'GRAPH_NODE_LIMIT_EXCEEDED',
   GRAPH_EDGE_LIMIT_EXCEEDED: 'GRAPH_EDGE_LIMIT_EXCEEDED',
 } as const;
@@ -59,6 +60,7 @@ export const WORKFLOW_VALIDATION_DIAGNOSTIC_MESSAGES: Record<
   GRAPH_CYCLE_DETECTED: 'Graph contains an uncontrolled cycle',
   NODE_TYPE_NOT_ACTIVE: 'Node type does not exist in the active Node Catalog',
   NODE_CONFIG_INVALID: 'Node configuration does not match its definition',
+  NODE_BINDINGS_INVALID: 'Node bindings do not match the selected targeting mode',
   GRAPH_NODE_LIMIT_EXCEEDED: 'Graph exceeds the maximum node count',
   GRAPH_EDGE_LIMIT_EXCEEDED: 'Graph exceeds the maximum edge count',
 };

@@ -14,7 +14,7 @@ import type {
   WorkflowValidationDiagnosticType,
   WorkflowValidationOutputType,
 } from '../workflow-validation.model.ts';
-import { validateNodeConfig } from './node-config.validator.ts';
+import { validateNodeTargeting } from './node-targeting.validator.ts';
 
 type IndexedEdge = EditorGraphType['edges'][number] & { index: number };
 
@@ -302,7 +302,7 @@ export function validateEditorGraphCatalog(
       );
       return;
     }
-    errors.push(...validateNodeConfig(node, index, definition.configSchema));
+    errors.push(...validateNodeTargeting(node, index, definition.configSchema));
   });
 
   // Catalog pass 2 - verify the named output port against the source node definition. Endpoint
