@@ -17,8 +17,8 @@ const EditorGraphIdentifier = z.string().trim().min(1).max(EDITOR_GRAPH_IDENTIFI
 // z.json() excludes functions, undefined, NaN, and other values that cannot cross JSON transport.
 const EditorGraphJsonObject = z.record(z.string(), z.json());
 
-// A node keeps static config separate from bindings. Phase 4 validates config only; bindings remain
-// opaque until the binding/type phase can resolve workflow inputs and previous-node outputs.
+// A node keeps static config separate from bindings. Only explicit Android targeting modes
+// validate literal bindings here; other bindings remain opaque.
 export const EditorGraphNode = z
   .object({
     id: EditorGraphIdentifier,
