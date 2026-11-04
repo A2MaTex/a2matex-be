@@ -107,9 +107,13 @@ const NodeOutputPortsContract = z
     });
   });
 
+const TargetMode = z.enum(['ABSOLUTE_PIXELS', 'SCREEN_PERCENT', 'SELECTOR_ID']);
+
 const NodeEditorHintsContract = z
   .object({
     icon: z.string().trim().min(1).max(NODE_ICON_MAX_LENGTH),
+    documentation: z.string().optional(),
+    targetModes: z.array(TargetMode).min(1).optional(),
     fieldOrder: z.array(
       z.string().min(1).max(NODE_FIELD_NAME_MAX_LENGTH).regex(NODE_FIELD_NAME_PATTERN),
     ),

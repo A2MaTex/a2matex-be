@@ -30,6 +30,8 @@ export const EditorGraphNode = z
       .object({
         x: z.number().finite(),
         y: z.number().finite(),
+        label: z.string().min(1).nullable().optional(),
+        description: z.string().min(1).nullable().optional(),
       })
       .strict(),
   })
