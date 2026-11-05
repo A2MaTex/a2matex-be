@@ -16,11 +16,9 @@ import { ProjectModule } from './routes/project/project.module.ts';
 import { ProjectDraftModule } from './routes/project-draft/project-draft.module.ts';
 import { ProductModule } from './routes/product/product.module.ts';
 import { WorkflowValidationModule } from './routes/workflow-validation/workflow-validation.module.ts';
-import { CatchEverythingFilter } from './shared/filters/catch-everything.filter.js';
-import { HttpExceptionFilter } from './shared/filters/http-exception.filter.js';
+import { ApiExceptionFilter } from './shared/filters/api-exception.filter.ts';
 import { AuthenticationGuard } from './shared/guards/authentication.guard.js';
 import { CustomZodSerializerInterceptor } from './shared/interceptors/custom-zod.interceptor.js';
-import { LoggingInterceptor } from './shared/interceptors/logging.interceptor.js';
 import { RequestLoggingMiddleware } from './shared/middlewares/request-logging.middleware.ts';
 import { TransformInterceptor } from './shared/interceptors/transform.interceptor.js';
 import CustomZodValidationPipe from './shared/pipes/custom-zod-validation.pipe.js';
@@ -62,11 +60,7 @@ import { ConfigModule } from '@nestjs/config';
       provide: APP_PIPE,
       useClass: CustomZodValidationPipe,
     },
-    // Interceptors wrap successful handler execution for logging, serialization, and response shaping.
-    {
-      provide: APP_INTERCEPTOR,
-      useClass: LoggingInterceptor,
-    },
+    // Interceptors wrap handler execution for serialization and response shaping.
     {
       provide: APP_INTERCEPTOR,
       useClass: TransformInterceptor,
@@ -75,14 +69,11 @@ import { ConfigModule } from '@nestjs/config';
       provide: APP_INTERCEPTOR,
       useClass: CustomZodSerializerInterceptor,
     },
-    // Filters convert thrown errors into consistent HTTP responses.
+    // One first-match exception boundary preserves response normalization and
+    // records failures without competing filter output.
     {
       provide: APP_FILTER,
-      useClass: HttpExceptionFilter,
-    },
-    {
-      provide: APP_FILTER,
-      useClass: CatchEverythingFilter,
+      useClass: ApiExceptionFilter,
     },
   ],
 })

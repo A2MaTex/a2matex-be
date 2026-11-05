@@ -7,6 +7,7 @@ import {
   Inject,
 } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
+import { RequestLogContextService } from '../infrastructure/logging/request-log-context.service.ts';
 import { isUniqueConstraintPrismaError } from '../utils/prisma.ts';
 
 type ExceptionResponse = {
@@ -21,8 +22,12 @@ type SafeExceptionDetails = Record<string, string | number | boolean | null>;
  * Final exception boundary for API requests. It maps unknown errors to 500 and
  * known Prisma unique constraint errors to 409 so clients receive an HTTP response.
  */
-export class CatchEverythingFilter implements ExceptionFilter {
-  constructor(@Inject(HttpAdapterHost) private readonly httpAdapterHost: HttpAdapterHost) {}
+export class ApiExceptionFilter implements ExceptionFilter {
+  constructor(
+    @Inject(HttpAdapterHost) private readonly httpAdapterHost: HttpAdapterHost,
+    @Inject(RequestLogContextService)
+    private readonly requestLogContext: RequestLogContextService,
+  ) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     // In certain situations `httpAdapter` might not be available in the
@@ -41,11 +46,24 @@ export class CatchEverythingFilter implements ExceptionFilter {
       httpStatus = HttpStatus.CONFLICT;
       normalizedResponse = { message: 'Record already exist' };
     }
+
+    this.requestLogContext.recordFailure(httpStatus, this.toError(exception));
+
     const responseBody = {
       statusCode: httpStatus,
       ...normalizedResponse,
     };
     httpAdapter.reply(ctx.getResponse(), responseBody, httpStatus);
+  }
+
+  private toError(exception: unknown): Error {
+    if (exception instanceof Error) {
+      return exception;
+    }
+    if (typeof exception === 'string') {
+      return new Error(exception);
+    }
+    return new Error('Non-Error exception thrown');
   }
 
   private normalizeExceptionResponse(response: string | object): {

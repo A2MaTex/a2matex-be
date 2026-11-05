@@ -5,7 +5,9 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { cleanupOpenApiDoc } from 'nestjs-zod';
 import { AppModule } from './app.module.js';
 import envConfig from './shared/config.js';
+import { TRACE_ID_HEADER } from './shared/constants/logging.constant.ts';
 import { API_PREFIX, JSON_TRANSPORT_LIMIT } from './shared/constants/system.constant.js';
+import { ContextLoggerService } from './shared/infrastructure/logging/context-logger.service.ts';
 
 /**
  * Explicit origins are allowed with credentials. A wildcard (or nothing) keeps
@@ -75,7 +77,8 @@ function setupSwagger(app: NestExpressApplication) {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(ContextLoggerService));
 
   app.useBodyParser('json', { limit: JSON_TRANSPORT_LIMIT });
 
@@ -84,9 +87,13 @@ async function bootstrap() {
 
   const corsOrigins = parseCorsOrigins(envConfig.CORS_ORIGIN);
   if (corsOrigins) {
-    app.enableCors({ origin: corsOrigins, credentials: true });
+    app.enableCors({
+      origin: corsOrigins,
+      credentials: true,
+      exposedHeaders: [TRACE_ID_HEADER],
+    });
   } else {
-    app.enableCors();
+    app.enableCors({ exposedHeaders: [TRACE_ID_HEADER] });
   }
 
   // Lets Nest close Prisma and Redis connections when the container receives SIGTERM.
