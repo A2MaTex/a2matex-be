@@ -67,9 +67,7 @@ export class KafkaProvider implements MessageProvider, OnModuleDestroy {
         ],
       });
     } catch (error) {
-      this.logger.error(
-        `Failed to publish Kafka message topic=${topic} messageId=${input.message.id} traceId=${input.message.traceId ?? ''}: ${this.formatError(error)}`,
-      );
+      this.logger.error('failed to publish Kafka message', error);
       throw error;
     }
   }
@@ -106,9 +104,7 @@ export class KafkaProvider implements MessageProvider, OnModuleDestroy {
     } catch (error) {
       this.consumers.delete(consumerKey);
       await consumer.disconnect().catch(() => undefined);
-      this.logger.error(
-        `Failed to start Kafka consumer topic=${topic} groupId=${groupId}: ${this.formatError(error)}`,
-      );
+      this.logger.error('failed to start Kafka consumer', error);
       throw error;
     }
   }
@@ -125,9 +121,7 @@ export class KafkaProvider implements MessageProvider, OnModuleDestroy {
     const results = await Promise.allSettled(consumers.map((consumer) => consumer.disconnect()));
     for (const result of results) {
       if (result.status === 'rejected') {
-        this.logger.error(
-          `Failed to disconnect Kafka consumer: ${this.formatError(result.reason)}`,
-        );
+        this.logger.error('failed to disconnect Kafka consumer', result.reason);
       }
     }
 
@@ -173,9 +167,7 @@ export class KafkaProvider implements MessageProvider, OnModuleDestroy {
         result = await handler(consumedMessage);
       } catch (error) {
         result = MessageHandlerResult.RETRY;
-        this.logger.error(
-          `Kafka handler failed topic=${payload.topic} messageId=${parsed.id} attempt=${attempt}/${input.maxAttempts} traceId=${parsed.traceId ?? ''}: ${this.formatError(error)}`,
-        );
+        this.logger.error('failed to handle Kafka message', error);
       }
 
       if (result === MessageHandlerResult.SUCCESS) {
@@ -372,9 +364,5 @@ export class KafkaProvider implements MessageProvider, OnModuleDestroy {
     if (this.shuttingDown) {
       throw new Error('Kafka provider is shutting down');
     }
-  }
-
-  private formatError(error: unknown): string {
-    return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
   }
 }

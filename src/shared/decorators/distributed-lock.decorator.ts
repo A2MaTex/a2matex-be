@@ -66,7 +66,7 @@ export function DistributedLock<Args extends unknown[] = unknown[]>(
           cacheProvider: this.cacheProvider,
           key,
           owner,
-          source: `${this.constructor.name}.${String(propertyKey)}`,
+          source: String(propertyKey),
         });
       }
     };
@@ -117,12 +117,9 @@ async function releaseLock({
   try {
     const released = await cacheProvider.ReleaseLock(DISTRIBUTED_LOCK_CACHE_PREFIX, key, owner);
     if (!released) {
-      logger.error(`Lock was not released because ownership changed: ${source}`);
+      logger.error(`failed to release distributed lock after ${source}`);
     }
   } catch (error) {
-    logger.error(
-      `Failed to release distributed lock after ${source}`,
-      error instanceof Error ? error.stack : String(error),
-    );
+    logger.error(`failed to release distributed lock after ${source}`, error);
   }
 }

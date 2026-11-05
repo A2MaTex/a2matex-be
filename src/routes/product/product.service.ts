@@ -60,10 +60,6 @@ export class ProductService {
       publisherAccountId,
     });
     if (existing) {
-      this.logger.warn(
-        'Product create rejected: Project already has a Product ' +
-          `projectId=${data.projectId} productId=${existing.id} status=${existing.status}`,
-      );
       // An archived Product never frees its Project for a second one (spec section 3).
       throw existing.status === ProductStatus.ARCHIVED
         ? ProductArchivedException
@@ -75,39 +71,26 @@ export class ProductService {
       publisherAccountId,
     });
     if (!project) {
-      this.logger.warn(
-        'Product create rejected: Project missing, archived or owned by another Publisher ' +
-          `projectId=${data.projectId} publisherAccountId=${publisherAccountId}`,
-      );
       throw ProjectNotFoundException;
     }
 
     try {
       return await this.commitCreate({ data, publisherAccountId, userId });
     } catch (error) {
-      // Business rejections raised inside the transaction are already logged.
+      // Expected business rejections use their stable public message as the cause.
       if (error instanceof HttpException) {
         throw error;
       }
       if (isUniqueConstraintPrismaError(error)) {
         if (isProductSlugConflict(error)) {
-          this.logger.warn(
-            `Product create rejected: slug already taken slug=${data.slug} projectId=${data.projectId}`,
-          );
           throw ProductSlugConflictException;
         }
         if (isProductProjectConflict(error)) {
           // A concurrent create took the Project between the existence check and the insert.
-          this.logger.warn(
-            `Product create rejected: concurrent create took the Project projectId=${data.projectId}`,
-          );
           throw ProductAlreadyExistsException;
         }
       }
-      this.logger.error(
-        `Product create failed projectId=${data.projectId} publisherAccountId=${publisherAccountId}`,
-        error instanceof Error ? error.stack : String(error),
-      );
+      this.logger.error('failed to create product', error);
       throw error;
     }
   }
@@ -132,20 +115,14 @@ export class ProductService {
     try {
       result = await this.commitUpdate({ id, data, publisherAccountId, userId });
     } catch (error) {
-      // Business rejections raised inside the transaction are already logged.
+      // Expected business rejections use their stable public message as the cause.
       if (error instanceof HttpException) {
         throw error;
       }
       if (isUniqueConstraintPrismaError(error) && isProductSlugConflict(error)) {
-        this.logger.warn(
-          `Product update rejected: slug already taken slug=${data.slug} productId=${id}`,
-        );
         throw ProductSlugConflictException;
       }
-      this.logger.error(
-        `Product update failed productId=${id} publisherAccountId=${publisherAccountId}`,
-        error instanceof Error ? error.stack : String(error),
-      );
+      this.logger.error('failed to update product', error);
       throw error;
     }
 
@@ -190,17 +167,11 @@ export class ProductService {
   }): Promise<ProductManagementOutputType> {
     const access = await this.productAccessPolicy.resolveReadAccess(userId, scopes);
     if (!access) {
-      this.logger.warn(
-        `Product read rejected: caller owns no Publisher account productId=${id} userId=${userId}`,
-      );
       throw ProductNotFoundException;
     }
 
     const product = await this.productRepo.getById({ id, access });
     if (!product) {
-      this.logger.warn(
-        `Product read rejected: not found or not visible to caller productId=${id} userId=${userId}`,
-      );
       throw ProductNotFoundException;
     }
     return product;
@@ -230,9 +201,6 @@ export class ProductService {
       if (reason === undefined) {
         // Unreachable through the request schema, which requires a reason here.
         // Refusing beats writing a suspension record with no stated cause.
-        this.logger.warn(
-          `Product suspend rejected: reason missing productId=${id} userId=${userId}`,
-        );
         throw ProductSuspendReasonRequiredException;
       }
       await this.suspend({ id, access, userId, reason });
@@ -301,7 +269,6 @@ export class ProductService {
 
     const product = await this.productRepo.getById({ id, access });
     if (!product) {
-      this.logger.warn(`Product reactivate rejected: not found productId=${id}`);
       throw ProductNotFoundException;
     }
     if (product.status === ProductStatus.ACTIVE) {
@@ -309,13 +276,9 @@ export class ProductService {
       return;
     }
     if (product.status !== ProductStatus.SUSPENDED) {
-      this.logger.warn(
-        `Product reactivate rejected: status=${product.status} is not SUSPENDED productId=${id}`,
-      );
       throw ProductCannotBeReactivatedException;
     }
     // Suspended but the release pointer failed the predicate.
-    this.logger.warn(`Product reactivate rejected: no current release productId=${id}`);
     throw ProductReleaseUnavailableException;
   }
 
@@ -334,13 +297,9 @@ export class ProductService {
   }) {
     const product = await this.productRepo.getById({ id, access });
     if (!product) {
-      this.logger.warn(`Product lifecycle rejected: not found productId=${id}`);
       throw ProductNotFoundException;
     }
     if (product.status !== idempotentStatus) {
-      this.logger.warn(
-        `Product lifecycle rejected: status=${product.status} cannot become ${idempotentStatus} productId=${id}`,
-      );
       throw conflict;
     }
   }
@@ -385,10 +344,6 @@ export class ProductService {
     const staticIds = [...new Set(media.map((item) => item.staticId))];
     const eligibleCount = await this.productRepo.countEligibleMedia(staticIds);
     if (eligibleCount !== staticIds.length) {
-      this.logger.warn(
-        `Product media rejected: ${staticIds.length - eligibleCount} of ${staticIds.length} ` +
-          'referenced statics are missing, deleted or not pipeline images',
-      );
       throw ProductMediaInvalidException;
     }
   }
@@ -405,12 +360,8 @@ export class ProductService {
       access: { unrestricted: false, publisherAccountId },
     });
     if (!product) {
-      this.logger.warn(
-        `Product update rejected: not found or not owned productId=${id} publisherAccountId=${publisherAccountId}`,
-      );
       throw ProductNotFoundException;
     }
-    this.logger.warn(`Product update rejected: status=${product.status} productId=${id}`);
     if (product.status === ProductStatus.SUSPENDED) {
       throw ProductSuspendedException;
     }

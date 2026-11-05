@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { DistributedLock } from '../../shared/decorators/distributed-lock.decorator.ts';
 import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
 import { CACHE_PROVIDER } from '../../shared/infrastructure/cache/cache.interface.ts';
@@ -21,8 +21,6 @@ import { LauncherReleaseRepo } from './launcher-release.repo.ts';
 
 @Injectable()
 export class LauncherReleaseService {
-  private readonly logger = new Logger(LauncherReleaseService.name);
-
   constructor(
     @Inject(LauncherReleaseRepo)
     private readonly launcherReleaseRepo: LauncherReleaseRepo,
@@ -75,7 +73,7 @@ export class LauncherReleaseService {
 
   @DistributedLock({ useCase: 'activate_launcher_release' })
   @Transactional()
-  async activate({ id, userId }: { id: string; userId: string }) {
+  async activate({ id }: { id: string; userId: string }) {
     const release = await this.launcherReleaseRepo.getActivationContext(id);
     if (!release) {
       throw LauncherReleaseNotFoundException;
@@ -95,9 +93,6 @@ export class LauncherReleaseService {
       publishedAt: release.publishedAt ?? now,
     });
 
-    await this.transactionService.afterCommit(() => {
-      this.logger.log(`Launcher release activated launcherReleaseId=${id} actorId=${userId}`);
-    });
     return SUCCESS_RESPONSE;
   }
 

@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import {
   CACHE_TTL_SECONDS,
   CURRENT_TERM_CACHE_PREFIX,
@@ -47,8 +47,6 @@ type UpdateTermStatusByTypeParams = UpdateTermStatusParams & {
 
 @Injectable()
 export class TermService {
-  private readonly logger = new Logger(TermService.name);
-
   constructor(
     @Inject(TermRepo) private readonly termRepo: TermRepo,
     @Inject(CACHE_PROVIDER) private readonly cacheProvider: CacheProvider,
@@ -132,12 +130,7 @@ export class TermService {
     resource: ({ type }: UpdateTermStatusByTypeParams) => type,
   })
   @Transactional()
-  private async updateStatusByType({
-    id,
-    type,
-    data,
-    userId,
-  }: UpdateTermStatusByTypeParams) {
+  private async updateStatusByType({ id, type, data, userId }: UpdateTermStatusByTypeParams) {
     const term = await this.termRepo.getStatusContext(id);
     if (!term || term.type !== type) {
       throw TermNotFoundException;
@@ -183,9 +176,6 @@ export class TermService {
     }
 
     await this.transactionService.afterCommit(async () => {
-      this.logger.log(
-        `Term status changed termId=${term.id} status=${data.status} actorId=${userId}`,
-      );
       if (data.status === TermStatus.ACTIVE) {
         await this.cacheProvider.RemoveState(CURRENT_TERM_CACHE_PREFIX, term.type);
       }
