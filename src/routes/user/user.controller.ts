@@ -7,11 +7,10 @@ import {
   GetAdminUserListInputDTO,
   GetAdminUserListOutputDTO,
   UpdateAdminUserStatusInputDTO,
-  UpdateAdminUserStatusOutputDTO,
 } from './user.dto.ts';
 import { AdminUserService } from './user.service.ts';
 import { ActiveUser } from '../../shared/decorators/active-user.decorator.ts';
-import type { UpdateAdminUserStatusInputType } from './user.model.ts';
+import { MessageResDTO } from '../../shared/dtos/response.dto.ts';
 
 @ApiTags('User Management')
 @ApiBearerAuth('access-token')
@@ -32,7 +31,7 @@ export class AdminUserController {
   }
 
   @Put(':userId/status')
-  @ZodResponse({ type: UpdateAdminUserStatusOutputDTO })
+  @ZodResponse({ type: MessageResDTO })
   updateStatus(
     @Param() params: AdminUserIdParamDTO,
     @Body() body: UpdateAdminUserStatusInputDTO,
@@ -41,7 +40,7 @@ export class AdminUserController {
     return this.adminUserService.updateStatus({
       userId: params.userId,
       adminUserId,
-      data: body as UpdateAdminUserStatusInputType,
+      data: body,
     });
   }
 }

@@ -6,15 +6,9 @@ import { AdminUserAuditHistory, User } from '../../entities/user.model.ts';
 import { UserStatus } from '../../shared/constants/auth.constant.ts';
 import { PublisherAccountStatus } from '../../shared/constants/publisher.constant.ts';
 import { RoleName } from '../../shared/constants/role.constant.ts';
-import { zDate } from '../../shared/utils/zod.ts';
 
 export const ADMIN_USER_SEARCH_MAX_LENGTH = 255;
 export const ADMIN_USER_PAGE_SIZE_MAX = 100;
-
-export const AdminUserStatusAction = {
-  BAN: 'BAN',
-  UNBAN: 'UNBAN',
-} as const;
 
 const IsoDateTimeQuery = z.iso.datetime({ offset: true });
 
@@ -24,32 +18,12 @@ export const AdminUserIdParam = z
   })
   .strict();
 
-const AdminUserStatusReason = z.string().trim().min(1);
-
-export const UpdateAdminUserStatusInput = z.discriminatedUnion('action', [
-  z
-    .object({
-      action: z.literal(AdminUserStatusAction.BAN),
-      reason: AdminUserStatusReason,
-      expectedStatus: z.enum([UserStatus.ACTIVE, UserStatus.INACTIVE]),
-    })
-    .strict(),
-  z
-    .object({
-      action: z.literal(AdminUserStatusAction.UNBAN),
-      reason: AdminUserStatusReason,
-      expectedStatus: z.literal(UserStatus.BANNED),
-    })
-    .strict(),
-]);
-
-export const UpdateAdminUserStatusOutput = z.object({
-  id: z.uuid(),
-  previousStatus: z.enum([UserStatus.ACTIVE, UserStatus.INACTIVE, UserStatus.BANNED]),
-  status: z.enum([UserStatus.ACTIVE, UserStatus.INACTIVE, UserStatus.BANNED]),
-  reason: z.string(),
-  changedAt: zDate(),
-});
+export const UpdateAdminUserStatusInput = z
+  .object({
+    status: z.enum([UserStatus.ACTIVE, UserStatus.BANNED]),
+    reason: z.string().trim().min(1),
+  })
+  .strict();
 
 export const GetAdminUserListInput = z
   .object({
@@ -87,8 +61,6 @@ export const AdminUserListItemOutput = User.pick({
   publisherStatus: z
     .enum([PublisherAccountStatus.ACTIVE, PublisherAccountStatus.BLOCKED])
     .nullable(),
-  activeSessionCount: z.number().int().nonnegative(),
-  lastActiveAt: zDate().nullable(),
 });
 
 export const GetAdminUserListOutput = z.object({
@@ -123,8 +95,6 @@ export const AdminUserProfileOutput = Profile.pick({
   address: true,
   phone: true,
   email: true,
-  createdAt: true,
-  updatedAt: true,
 });
 
 export const AdminUserRoleOutput = Role.pick({
@@ -138,13 +108,6 @@ export const AdminUserPublisherOutput = PublisherAccount.pick({
   activatedAt: true,
   blockedReason: true,
   blockedAt: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const AdminUserSessionSummaryOutput = z.object({
-  activeCount: z.number().int().nonnegative(),
-  lastActiveAt: zDate().nullable(),
 });
 
 export const AdminUserEntitlementSummaryOutput = z
@@ -156,26 +119,11 @@ export const AdminUserEntitlementSummaryOutput = z
   })
   .nullable();
 
-export const AdminUserOrderSummaryOutput = z
-  .object({
-    total: z.number().int().nonnegative(),
-  })
-  .nullable();
-
 export const GetAdminUserDetailOutput = z.object({
   identity: AdminUserIdentityOutput,
   profile: AdminUserProfileOutput.nullable(),
   roles: z.array(AdminUserRoleOutput),
   publisher: AdminUserPublisherOutput.nullable(),
-  sessions: AdminUserSessionSummaryOutput,
   entitlements: AdminUserEntitlementSummaryOutput,
-  orders: AdminUserOrderSummaryOutput,
   auditHistory: AdminUserAuditHistory,
 });
-
-export type GetAdminUserListInputType = z.infer<typeof GetAdminUserListInput>;
-export type GetAdminUserListOutputType = z.infer<typeof GetAdminUserListOutput>;
-export type AdminUserListItemOutputType = z.infer<typeof AdminUserListItemOutput>;
-export type GetAdminUserDetailOutputType = z.infer<typeof GetAdminUserDetailOutput>;
-export type UpdateAdminUserStatusInputType = z.infer<typeof UpdateAdminUserStatusInput>;
-export type UpdateAdminUserStatusOutputType = z.infer<typeof UpdateAdminUserStatusOutput>;
