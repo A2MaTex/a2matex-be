@@ -205,19 +205,14 @@ export class AdminUserRepo {
         "status" = ${status}::"UserStatus",
         "auditHistory" = COALESCE("auditHistory", '[]'::jsonb) || jsonb_build_array(
           jsonb_build_object(
-            'action', ${action}::text,
+            'status', ${status}::text,
             'reason', ${reason}::text,
-            'performedAt', ${changedAt.toISOString()}::text,
-            'performedById', ${changedById}::text,
-            'details', jsonb_build_object(
-              'previousStatus', ${expectedStatus}::text,
-              'currentStatus', ${status}::text
-            )
+            'updatedAt', ${changedAt.toISOString()}::text,
+            'updatedById', ${changedById}::text
           )
         ),
         "updatedAt" = ${changedAt}
       WHERE "id" = ${id}::uuid
-        AND "status" = ${expectedStatus}::"UserStatus"
         AND "deletedAt" IS NULL
       RETURNING "id"
     `;
