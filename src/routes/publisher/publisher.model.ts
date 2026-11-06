@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Prisma } from '../../generated/prisma/client.ts';
 import { PublisherAccount } from '../../entities/publisher-account.model.ts';
 import { Profile } from '../../entities/profile.model.ts';
 import {
@@ -7,6 +8,7 @@ import {
 } from '../../shared/constants/publisher.constant.ts';
 import { RoleStatus, UserStatus } from '../../shared/constants/auth.constant.ts';
 import { TermType } from '../../shared/constants/publisher.constant.ts';
+import type { AdminUserAuditActionType } from '../../shared/constants/user.constant.ts';
 import { zDate } from '../../shared/utils/zod.ts';
 
 export const PublisherAccountIdParam = z
@@ -171,3 +173,10 @@ export type ActivatePublisherInputType = z.infer<typeof ActivatePublisherInput>;
 export type GetPublisherListInputType = z.infer<typeof GetPublisherListInput>;
 export type UpdatePublisherStatusInputType = z.infer<typeof UpdatePublisherStatusInput>;
 export type MissingPublisherProfileField = (typeof PUBLISHER_REQUIRED_PROFILE_FIELDS)[number];
+export type AppendUserAuditHistoryInput = {
+  userId: string;
+  action: AdminUserAuditActionType;
+  reason: string | null;
+  performedAt: Date;
+  details: Prisma.InputJsonObject;
+};

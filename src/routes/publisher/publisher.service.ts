@@ -244,7 +244,6 @@ export class PublisherService {
           : AdminUserAuditAction.PUBLISHER_UNBLOCKED,
       reason: data.reason ?? null,
       performedAt: changedAt,
-      performedById: actorId,
       details: {
         publisherAccountId: account.id,
         previousStatus: account.status,

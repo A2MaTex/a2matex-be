@@ -5,43 +5,41 @@ import {
   type AdminUserAuditHistoryEntryType,
 } from '../../entities/user.model.ts';
 import { RoleStatus } from '../../shared/constants/auth.constant.ts';
-import type { AdminUserAuditActionType } from '../../shared/constants/user.constant.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
 import { getPagination } from '../../shared/utils/pagination.ts';
 import type {
+  AdminUserDetailRow,
   AdminUserListItemOutputType,
+  AdminUserListRow,
+  AdminUserStatusTarget,
+  AdminUserStatusTransitionInput,
   GetAdminUserDetailOutputType,
   GetAdminUserListInputType,
   GetAdminUserListOutputType,
-} from './user.model.ts';
+} from './user.type.ts';
 import { RoleName } from '../../shared/constants/role.constant.ts';
-import type { UserStatus } from '../../generated/prisma/client.ts';
 
-const ADMIN_USER_LIST_SELECT = {
+export const ADMIN_USER_LIST_SELECT = {
   id: true,
   username: true,
   email: true,
   status: true,
   createdAt: true,
   profile: {
+    where: { deletedAt: null },
     select: {
       fullName: true,
-      deletedAt: true,
     },
   },
   publisherAccount: {
+    where: { deletedAt: null },
     select: {
       status: true,
-      deletedAt: true,
     },
   },
   userRoles: {
     where: {
       deletedAt: null,
-      role: {
-        status: RoleStatus.ACTIVE,
-        deletedAt: null,
-      },
     },
     select: {
       role: {
@@ -51,31 +49,9 @@ const ADMIN_USER_LIST_SELECT = {
       },
     },
   },
-  _count: {
-    select: {
-      device: {
-        where: {
-          isActive: true,
-          deletedAt: null,
-        },
-      },
-    },
-  },
-  device: {
-    where: {
-      deletedAt: null,
-    },
-    orderBy: [{ lastActive: 'desc' }, { id: 'desc' }],
-    take: 1,
-    select: {
-      lastActive: true,
-    },
-  },
 } satisfies Prisma.UserSelect;
 
-type AdminUserListRow = Prisma.UserGetPayload<{ select: typeof ADMIN_USER_LIST_SELECT }>;
-
-const ADMIN_USER_DETAIL_SELECT = {
+export const ADMIN_USER_DETAIL_SELECT = {
   id: true,
   username: true,
   email: true,
@@ -84,6 +60,7 @@ const ADMIN_USER_DETAIL_SELECT = {
   updatedAt: true,
   auditHistory: true,
   profile: {
+    where: { deletedAt: null },
     select: {
       id: true,
       fullName: true,
@@ -99,30 +76,21 @@ const ADMIN_USER_DETAIL_SELECT = {
       address: true,
       phone: true,
       email: true,
-      createdAt: true,
-      updatedAt: true,
-      deletedAt: true,
     },
   },
   publisherAccount: {
+    where: { deletedAt: null },
     select: {
       id: true,
       status: true,
       activatedAt: true,
       blockedReason: true,
       blockedAt: true,
-      createdAt: true,
-      updatedAt: true,
-      deletedAt: true,
     },
   },
   userRoles: {
     where: {
       deletedAt: null,
-      role: {
-        status: RoleStatus.ACTIVE,
-        deletedAt: null,
-      },
     },
     select: {
       role: {
@@ -133,31 +101,9 @@ const ADMIN_USER_DETAIL_SELECT = {
       },
     },
   },
-  _count: {
-    select: {
-      device: {
-        where: {
-          isActive: true,
-          deletedAt: null,
-        },
-      },
-    },
-  },
-  device: {
-    where: {
-      deletedAt: null,
-    },
-    orderBy: [{ lastActive: 'desc' }, { id: 'desc' }],
-    take: 1,
-    select: {
-      lastActive: true,
-    },
-  },
 } satisfies Prisma.UserSelect;
 
-type AdminUserDetailRow = Prisma.UserGetPayload<{ select: typeof ADMIN_USER_DETAIL_SELECT }>;
-
-const ADMIN_USER_STATUS_TARGET_SELECT = {
+export const ADMIN_USER_STATUS_TARGET_SELECT = {
   id: true,
   username: true,
   email: true,
@@ -178,15 +124,6 @@ const ADMIN_USER_STATUS_TARGET_SELECT = {
     take: 1,
   },
 } satisfies Prisma.UserSelect;
-
-type AdminUserStatusTargetRow = Prisma.UserGetPayload<{
-  select: typeof ADMIN_USER_STATUS_TARGET_SELECT;
-}>;
-
-export type AdminUserStatusTarget = Omit<AdminUserStatusTargetRow, 'userRoles' | 'auditHistory'> & {
-  auditHistory: AdminUserAuditHistoryEntryType[];
-  isProtectedAdmin: boolean;
-};
 
 @Injectable()
 export class AdminUserRepo {
@@ -261,16 +198,8 @@ export class AdminUserRepo {
     reason,
     changedAt,
     changedById,
-  }: {
-    id: string;
-    expectedStatus: UserStatus;
-    status: UserStatus;
-    action: AdminUserAuditActionType;
-    reason: string;
-    changedAt: Date;
-    changedById: string;
-  }): Promise<boolean> {
-    const changedRows = await this.prisma.$executeRaw`
+  }: AdminUserStatusTransitionInput): Promise<boolean> {
+    const preparedStatement = Prisma.sql`
       UPDATE "User"
       SET
         "status" = ${status}::"UserStatus",
@@ -290,9 +219,11 @@ export class AdminUserRepo {
       WHERE "id" = ${id}::uuid
         AND "status" = ${expectedStatus}::"UserStatus"
         AND "deletedAt" IS NULL
+      RETURNING "id"
     `;
+    const changedUsers = await this.prisma.$queryRaw<{ id: string }[]>(preparedStatement);
 
-    return changedRows === 1;
+    return changedUsers.length === 1;
   }
 
   async revokeAllSessions(userId: string, changedAt: Date): Promise<void> {
@@ -373,14 +304,10 @@ export class AdminUserRepo {
       id: user.id,
       username: user.username,
       email: user.email,
-      displayName: user.profile?.deletedAt ? null : (user.profile?.fullName ?? null),
+      displayName: user.profile?.fullName ?? null,
       status: user.status,
       roles,
-      publisherStatus: user.publisherAccount?.deletedAt
-        ? null
-        : (user.publisherAccount?.status ?? null),
-      activeSessionCount: user._count.device,
-      lastActiveAt: user.device[0]?.lastActive ?? null,
+      publisherStatus: user.publisherAccount?.status ?? null,
       createdAt: user.createdAt,
     };
   }
@@ -400,46 +327,35 @@ export class AdminUserRepo {
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       },
-      profile:
-        profile && !profile.deletedAt
-          ? {
-              id: profile.id,
-              fullName: profile.fullName,
-              avatarStaticId: profile.avatarStaticId,
-              bio: profile.bio,
-              website: profile.website,
-              twitter: profile.twitter,
-              linkedin: profile.linkedin,
-              github: profile.github,
-              instagram: profile.instagram,
-              gender: profile.gender,
-              birthday: profile.birthday,
-              address: profile.address,
-              phone: profile.phone,
-              email: profile.email,
-              createdAt: profile.createdAt,
-              updatedAt: profile.updatedAt,
-            }
-          : null,
+      profile: profile
+        ? {
+            id: profile.id,
+            fullName: profile.fullName,
+            avatarStaticId: profile.avatarStaticId,
+            bio: profile.bio,
+            website: profile.website,
+            twitter: profile.twitter,
+            linkedin: profile.linkedin,
+            github: profile.github,
+            instagram: profile.instagram,
+            gender: profile.gender,
+            birthday: profile.birthday,
+            address: profile.address,
+            phone: profile.phone,
+            email: profile.email,
+          }
+        : null,
       roles,
-      publisher:
-        publisherAccount && !publisherAccount.deletedAt
-          ? {
-              id: publisherAccount.id,
-              status: publisherAccount.status,
-              activatedAt: publisherAccount.activatedAt,
-              blockedReason: publisherAccount.blockedReason,
-              blockedAt: publisherAccount.blockedAt,
-              createdAt: publisherAccount.createdAt,
-              updatedAt: publisherAccount.updatedAt,
-            }
-          : null,
-      sessions: {
-        activeCount: user._count.device,
-        lastActiveAt: user.device[0]?.lastActive ?? null,
-      },
+      publisher: publisherAccount
+        ? {
+            id: publisherAccount.id,
+            status: publisherAccount.status,
+            activatedAt: publisherAccount.activatedAt,
+            blockedReason: publisherAccount.blockedReason,
+            blockedAt: publisherAccount.blockedAt,
+          }
+        : null,
       entitlements: null,
-      orders: null,
       auditHistory: this.parseAuditHistory(user.auditHistory),
     };
   }
