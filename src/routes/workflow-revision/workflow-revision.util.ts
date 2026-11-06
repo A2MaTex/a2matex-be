@@ -59,6 +59,28 @@ export function requireAssetFreeWorkflow(editorGraph: Prisma.JsonObject): void {
   }
 }
 
+export type WorkflowRevisionHashContent = {
+  editorGraph: Prisma.JsonObject;
+  runtimeIr: Prisma.JsonObject;
+  inputSchema: Prisma.JsonObject;
+  nodeDefinitionManifest: Prisma.JsonObject;
+  capabilityManifest: Prisma.JsonObject;
+  validationSummary: Prisma.JsonObject;
+  testSummary: Prisma.JsonObject;
+};
+
+// Canonical JSON sorts keys, so the envelope hashes the same whether it is built here
+// at freeze time or rebuilt from the stored columns when a scan re-verifies it.
+function buildHashEnvelope(content: WorkflowRevisionHashContent) {
+  return { hashVersion: WORKFLOW_REVISION_HASH_VERSION, ...content, assets: [] };
+}
+
+// The scan recomputes this from what was stored and compares it with the recorded
+// hash: the one check that proves an immutable snapshot was not altered after freeze.
+export function calculateWorkflowRevisionContentHash(content: WorkflowRevisionHashContent): string {
+  return sha256Hex(buildHashEnvelope(content));
+}
+
 export function prepareWorkflowRevisionSnapshot({
   draft,
   definitions,
@@ -105,8 +127,7 @@ export function prepareWorkflowRevisionSnapshot({
     definitions: frozenDefinitions,
   };
 
-  const hashEnvelope = {
-    hashVersion: WORKFLOW_REVISION_HASH_VERSION,
+  const hashEnvelope = buildHashEnvelope({
     editorGraph,
     runtimeIr,
     inputSchema,
@@ -114,8 +135,7 @@ export function prepareWorkflowRevisionSnapshot({
     capabilityManifest,
     validationSummary,
     testSummary,
-    assets: [],
-  };
+  });
 
   if (
     Buffer.byteLength(canonicalJson(hashEnvelope), 'utf8') > WORKFLOW_REVISION_MAX_CONTENT_BYTES
