@@ -1,11 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
-import {
-  CanActivate,
-  ExecutionContext,
-  Injectable,
-  Logger,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import type { Request } from 'express';
 import envConfig from '../../shared/config.ts';
 
@@ -17,11 +11,9 @@ const SEPAY_AUTH_HEADER_PREFIX = 'Apikey ';
 /**
  * Verifies that an incoming Sepay webhook call carries the shared-secret API
  * key configured in the Sepay dashboard, before the payload reaches business
- * logic (FR-010). Request without a matching key is rejected and logged.
+ * logic (FR-010).
  */
 export class SepayWebhookGuard implements CanActivate {
-  private readonly logger = new Logger(SepayWebhookGuard.name);
-
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
     const authorizationHeader = request.headers.authorization;
@@ -30,7 +22,6 @@ export class SepayWebhookGuard implements CanActivate {
       : undefined;
 
     if (!providedKey || !this.isValidKey(providedKey)) {
-      this.logger.error(`Rejected Sepay webhook call from ${request.ip} — invalid API key`);
       throw new UnauthorizedException();
     }
 

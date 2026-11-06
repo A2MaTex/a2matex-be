@@ -90,10 +90,7 @@ async function runPostProcessHandlers({
         throw error;
       }
 
-      logger.error(
-        `Post-process handler ${String(handlerName)} failed after ${String(sourceMethod)}`,
-        error instanceof Error ? error.stack : String(error),
-      );
+      logger.error(`post-process operation failed after ${String(sourceMethod)}`, error);
     }
   }
 }

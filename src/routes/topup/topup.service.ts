@@ -46,7 +46,7 @@ export class TopUpService {
     const accountHolderName = envConfig.SEPAY_BANK_ACCOUNT_HOLDER;
 
     if (!bankAccountNumber || !bankName || !accountHolderName) {
-      this.logger.error('Sepay bank transfer configuration is incomplete');
+      this.logger.error('failed to load Sepay bank transfer configuration');
       throw new ServiceUnavailableException('Error.SepayBankTransferNotConfigured');
     }
 

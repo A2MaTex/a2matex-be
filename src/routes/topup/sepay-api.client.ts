@@ -46,7 +46,10 @@ export class SepayApiClient {
     });
 
     if (!response.ok) {
-      this.logger.error(`Sepay transaction list request failed: ${response.status}`);
+      this.logger.error(
+        'failed to list recent Sepay transactions',
+        new Error(`Sepay API returned HTTP ${response.status}`),
+      );
       return [];
     }
 
@@ -60,7 +63,8 @@ export class SepayApiClient {
       const result = SepayTransactionListItem.safeParse(transaction);
       if (!result.success) {
         this.logger.error(
-          'Skipped a Sepay transaction with unexpected shape during reconciliation',
+          'failed to parse Sepay transaction during reconciliation',
+          new Error('Sepay transaction response shape is invalid'),
         );
         continue;
       }

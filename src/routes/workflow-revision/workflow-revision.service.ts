@@ -83,13 +83,7 @@ export class WorkflowRevisionService {
     };
     const recomputedDraftHash = calculateProjectDraftContentHash(draftContent);
     if (recomputedDraftHash !== draft.contentHash) {
-      this.logger.error(
-        'Workflow Revision source integrity failed ' +
-          `projectId=${projectId} ` +
-          `sourceDraftVersion=${sourceDraftVersion}\n` +
-          `storedHash=${draft.contentHash}\n` +
-          `recomputedHash=${recomputedDraftHash}`,
-      );
+      this.logger.error('failed to verify workflow revision source integrity');
       throw WorkflowRevisionSourceIntegrityFailedException;
     }
 
@@ -114,6 +108,7 @@ export class WorkflowRevisionService {
       if (isUniqueConstraintPrismaError(error)) {
         throw WorkflowRevisionAlreadyExistsException;
       }
+      this.logger.error('failed to create workflow revision', error);
       throw error;
     }
   }

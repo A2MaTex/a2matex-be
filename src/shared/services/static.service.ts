@@ -496,10 +496,7 @@ export class StaticService {
     );
     const failedDeletion = deletionResults.find((result) => result.status === 'rejected');
     if (failedDeletion?.status === 'rejected') {
-      this.logger.error(
-        `Failed to delete one or more stored objects for staticId=${id}`,
-        failedDeletion.reason instanceof Error ? failedDeletion.reason.stack : undefined,
-      );
+      this.logger.error('failed to delete stored static objects', failedDeletion.reason);
       throw failedDeletion.reason;
     }
 
@@ -668,12 +665,9 @@ export class StaticService {
       objectKeys.map((objectKey) => this.storageProvider.deleteFile(objectKey)),
     );
 
-    cleanupResults.forEach((result, index) => {
+    cleanupResults.forEach((result) => {
       if (result.status === 'rejected') {
-        this.logger.error(
-          `Failed to clean up image object ${objectKeys[index]}`,
-          result.reason instanceof Error ? result.reason.stack : undefined,
-        );
+        this.logger.error('failed to clean up stored image object', result.reason);
       }
     });
   }
@@ -686,14 +680,14 @@ export class StaticService {
 
     if (storageCleanup.status === 'rejected') {
       this.logger.error(
-        `Failed to clean up object ${objectKey} after upload failure`,
-        storageCleanup.reason instanceof Error ? storageCleanup.reason.stack : undefined,
+        'failed to clean up stored object after upload failure',
+        storageCleanup.reason,
       );
     }
     if (metadataCleanup.status === 'rejected') {
       this.logger.error(
-        `Failed to clean up static metadata ${id} after upload failure`,
-        metadataCleanup.reason instanceof Error ? metadataCleanup.reason.stack : undefined,
+        'failed to clean up static metadata after upload failure',
+        metadataCleanup.reason,
       );
     }
   }
