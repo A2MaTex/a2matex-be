@@ -9,5 +9,7 @@ import { ProductService } from './product.service.ts';
   imports: [PublisherModule],
   controllers: [ProductController],
   providers: [ProductService, ProductAccessPolicy, ProductRepo],
+  // Submission reuses the Static media-eligibility rule instead of copying it.
+  exports: [ProductRepo],
 })
 export class ProductModule {}

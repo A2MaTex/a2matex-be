@@ -13,8 +13,9 @@ service, and return `SUCCESS`, `RETRY`, or `FAILED`.
 ## Add a handler
 
 1. Export the service from its feature module, then import that module in
-   `consumer.module.ts`.
-2. Create a handler implementing `QueueConsumerHandler`:
+   `consumer.module.ts`. The feature module stays unaware that a queue drives it.
+2. Create a handler in `handlers/` implementing `QueueConsumerHandler`. It belongs here,
+   not in the feature folder, because it is a transport adapter:
 
 ```ts
 @Injectable()
