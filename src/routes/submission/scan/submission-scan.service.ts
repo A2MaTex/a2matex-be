@@ -8,8 +8,8 @@ import { TransactionService } from '../../../shared/services/transaction.service
 import { SubmissionRepo } from '../submission.repo.ts';
 import { SubmissionScannerService } from './submission-scanner.service.ts';
 
-// What the consumer should tell the queue, decided from database state rather than
-// from how many times the message has been delivered.
+// How a scan request ended, decided from database state rather than from how many
+// times the request was delivered.
 export const ScanOutcome = {
   COMPLETED: 'COMPLETED',
   ALREADY_DONE: 'ALREADY_DONE',
@@ -37,7 +37,7 @@ export class SubmissionScanService {
     scanAttempt: number;
   }): Promise<ScanOutcomeType> {
     const target = await this.submissionRepo.loadForScan(submissionId);
-    // A message naming a Submission that does not exist can never succeed.
+    // A request naming a Submission that does not exist can never succeed.
     if (!target) {
       return ScanOutcome.INVALID;
     }
@@ -58,8 +58,8 @@ export class SubmissionScanService {
     }
 
     const claimed = await this.submissionRepo.claimScan({ submissionId, scanAttempt });
-    // Another delivery claimed it between the load and here, or the retry route moved
-    // the counter. Either way this delivery has nothing left to do.
+    // Another attempt claimed it between the load and here, or the retry route moved
+    // the counter. Either way this attempt has nothing left to do.
     if (!claimed) {
       return ScanOutcome.ALREADY_DONE;
     }
@@ -87,14 +87,14 @@ export class SubmissionScanService {
 
   // The result and the status move commit together. Split across two transactions, a
   // crash between them leaves a passed scan on a Submission still marked PENDING_SCAN:
-  // redelivery then sees a terminal scan and stops, so the status would never move.
+  // a later attempt then sees a terminal scan and stops, so the status would never move.
   @Transactional()
   private persistOutcome(input: Parameters<SubmissionRepo['persistScanOutcome']>[0]) {
     return this.submissionRepo.persistScanOutcome(input);
   }
 
   // Best effort: a scan that failed for infrastructure reasons should say so, but if
-  // the database is the thing that is down this write fails too and the delivery still
+  // the database is the thing that is down this write fails too and the caller still
   // retries.
   async markTechnicalFailure(input: { submissionId: string; scanAttempt: number }): Promise<void> {
     try {

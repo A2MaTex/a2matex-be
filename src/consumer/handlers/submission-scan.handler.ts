@@ -1,23 +1,26 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { KAFKA_TOPICS } from '../../../shared/constants/kafka.constant.ts';
+import { KAFKA_TOPICS } from '../../shared/constants/kafka.constant.ts';
 import {
   SUBMISSION_SCAN_CONSUMER_GROUP_ID,
   SUBMISSION_SCAN_MAX_ATTEMPTS,
   SUBMISSION_SCAN_MESSAGE_TYPE,
   SUBMISSION_SCAN_RETRY_DELAY_MS,
-} from '../../../shared/constants/submission.constant.ts';
+} from '../../shared/constants/submission.constant.ts';
 import {
   MessageHandlerResult,
   type ConsumedMessage,
   type SubscribeInput,
-} from '../../../shared/infrastructure/queue/queue.interface.ts';
-import type { QueueConsumerHandler } from '../../../consumer/consumer.service.ts';
-import { SubmissionScanRequestedPayload } from './submission-scan.model.ts';
-import { ScanOutcome, SubmissionScanService } from './submission-scan.service.ts';
+} from '../../shared/infrastructure/queue/queue.interface.ts';
+import { SubmissionScanRequestedPayload } from '../../routes/submission/scan/submission-scan.model.ts';
+import {
+  ScanOutcome,
+  SubmissionScanService,
+} from '../../routes/submission/scan/submission-scan.service.ts';
+import type { QueueConsumerHandler } from '../consumer.service.ts';
 
 @Injectable()
-export class SubmissionScanConsumer implements QueueConsumerHandler {
-  private readonly logger = new Logger(SubmissionScanConsumer.name);
+export class SubmissionScanHandler implements QueueConsumerHandler {
+  private readonly logger = new Logger(SubmissionScanHandler.name);
 
   readonly name = 'submission-scan';
 
