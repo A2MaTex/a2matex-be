@@ -194,7 +194,9 @@ describe('WorkflowRevisionService', () => {
     lockProjectDraft.mockResolvedValue(draft({ contentHash: 'f'.repeat(64) }));
 
     await expect(createRevision()).rejects.toThrow('Error.WorkflowRevisionSourceIntegrityFailed');
-    expect(errorLog).toHaveBeenCalledWith(expect.stringContaining(`projectId=${PROJECT_ID}`));
+    expect(errorLog).toHaveBeenCalledWith('failed to verify workflow revision source integrity');
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain(PROJECT_ID);
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain('f'.repeat(64));
     errorLog.mockRestore();
   });
 

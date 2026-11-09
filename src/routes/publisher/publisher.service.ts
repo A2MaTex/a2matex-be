@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type { Prisma } from '../../generated/prisma/client.ts';
 import { z } from 'zod';
 import { UserStatus } from '../../shared/constants/auth.constant.ts';
@@ -39,8 +39,6 @@ type AcceptanceContext = {
 
 @Injectable()
 export class PublisherService {
-  private readonly logger = new Logger(PublisherService.name);
-
   constructor(
     @Inject(PublisherRepo) private readonly publisherRepo: PublisherRepo,
     @Inject(TransactionService) private readonly transactionService: TransactionService,
@@ -162,10 +160,6 @@ export class PublisherService {
     });
     await this.publisherRepo.ensureUserRole({ userId, roleId: role.id });
 
-    await this.transactionService.afterCommit(() => {
-      this.logger.log(`Publisher activated userId=${userId} publisherAccountId=${account.id}`);
-    });
-
     return SUCCESS_RESPONSE;
   }
 
@@ -232,11 +226,6 @@ export class PublisherService {
       status: data.status,
       actorId,
       reason: data.reason,
-    });
-    await this.transactionService.afterCommit(() => {
-      this.logger.log(
-        `Publisher status changed publisherAccountId=${id} status=${data.status} actorId=${actorId}`,
-      );
     });
     return SUCCESS_RESPONSE;
   }

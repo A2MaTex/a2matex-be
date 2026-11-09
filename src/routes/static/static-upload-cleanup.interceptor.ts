@@ -25,10 +25,7 @@ export class StaticUploadCleanupInterceptor implements NestInterceptor {
         }
 
         void rm(temporaryFilePath, { force: true }).catch((error: unknown) => {
-          this.logger.error(
-            `Failed to remove temporary upload ${temporaryFilePath}`,
-            error instanceof Error ? error.stack : undefined,
-          );
+          this.logger.error('failed to remove temporary upload', error);
         });
       }),
     );

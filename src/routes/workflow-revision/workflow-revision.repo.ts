@@ -1,4 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
 import { Prisma } from '../../generated/prisma/client.ts';
 import { NodeDefinitionStatus } from '../../generated/prisma/enums.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
@@ -20,6 +21,8 @@ const WORKFLOW_REVISION_CREATE_SELECT = {
 
 @Injectable()
 export class WorkflowRevisionRepo {
+  private readonly logger = new Logger(WorkflowRevisionRepo.name);
+
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
 
   private get prisma() {
@@ -103,7 +106,7 @@ export class WorkflowRevisionRepo {
     });
   }
 
-  create({
+  async create({
     projectId,
     sourceDraftVersion,
     sourceDraftContentHash,
@@ -116,22 +119,29 @@ export class WorkflowRevisionRepo {
     snapshot: WorkflowRevisionSnapshot;
     createdById: string;
   }): Promise<CreateWorkflowRevisionOutput> {
-    return this.prisma.workflowRevision.create({
-      data: {
-        projectId,
-        sourceDraftVersion,
-        sourceDraftContentHash,
-        editorGraph: snapshot.editorGraph,
-        runtimeIr: snapshot.runtimeIr,
-        inputSchema: snapshot.inputSchema,
-        nodeDefinitionManifest: snapshot.nodeDefinitionManifest,
-        capabilityManifest: snapshot.capabilityManifest,
-        validationSummary: snapshot.validationSummary,
-        testSummary: snapshot.testSummary,
-        contentHash: snapshot.contentHash,
-        createdById,
-      },
-      select: WORKFLOW_REVISION_CREATE_SELECT,
-    });
+    try {
+      return await this.prisma.workflowRevision.create({
+        data: {
+          projectId,
+          sourceDraftVersion,
+          sourceDraftContentHash,
+          editorGraph: snapshot.editorGraph,
+          runtimeIr: snapshot.runtimeIr,
+          inputSchema: snapshot.inputSchema,
+          nodeDefinitionManifest: snapshot.nodeDefinitionManifest,
+          capabilityManifest: snapshot.capabilityManifest,
+          validationSummary: snapshot.validationSummary,
+          testSummary: snapshot.testSummary,
+          contentHash: snapshot.contentHash,
+          createdById,
+        },
+        select: WORKFLOW_REVISION_CREATE_SELECT,
+      });
+    } catch (error) {
+      if (!isUniqueConstraintPrismaError(error)) {
+        this.logger.error('failed to persist workflow revision', error);
+      }
+      throw error;
+    }
   }
 }

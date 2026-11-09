@@ -20,6 +20,9 @@ import { ProjectAccessRepo } from './repositories/project-access.repo.ts';
 import { ProjectAccessPolicy } from './services/project-access.policy.ts';
 import { QueueModule } from './infrastructure/queue/queue.ts';
 import { UploadSessionRepository } from './repositories/upload-session.repo.ts';
+import { RequestLogContextService } from './infrastructure/logging/request-log-context.service.ts';
+import { LogSanitizer } from './infrastructure/logging/log-sanitizer.ts';
+import { ContextLoggerService } from './infrastructure/logging/context-logger.service.ts';
 
 const sharedServices = [
   PrismaService,
@@ -35,6 +38,9 @@ const sharedServices = [
   ProjectAccessRepo,
   ProjectAccessPolicy,
   UploadSessionRepository,
+  RequestLogContextService,
+  LogSanitizer,
+  ContextLoggerService,
 ];
 
 const objectStorageProvider = {
