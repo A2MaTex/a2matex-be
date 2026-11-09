@@ -62,7 +62,7 @@ export class RequestLoggingMiddleware implements NestMiddleware {
       severity: this.getSeverity(context, response.statusCode),
       traceId: context.traceId,
       method: context.method,
-      route: context.route,
+      route: this.sanitizer.sanitizeMessage(context.route),
       statusCode: response.statusCode,
       durationMs: Math.max(0, Date.now() - context.startedAt),
       message: buildRequestLogMessage(context, this.sanitizer),

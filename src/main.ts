@@ -7,7 +7,7 @@ import { AppModule } from './app.module.js';
 import envConfig from './shared/config.js';
 import { TRACE_ID_HEADER } from './shared/constants/logging.constant.ts';
 import { API_PREFIX, JSON_TRANSPORT_LIMIT } from './shared/constants/system.constant.js';
-import { ContextLoggerService } from './shared/infrastructure/logging/context-logger.service.ts';
+import { installContextLogger } from './shared/infrastructure/logging/install-context-logger.ts';
 
 /**
  * Explicit origins are allowed with credentials. A wildcard (or nothing) keeps
@@ -78,7 +78,7 @@ function setupSwagger(app: NestExpressApplication) {
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
-  app.useLogger(app.get(ContextLoggerService));
+  installContextLogger(app);
 
   app.useBodyParser('json', { limit: JSON_TRANSPORT_LIMIT });
 
