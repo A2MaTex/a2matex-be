@@ -17,8 +17,8 @@ const EditorGraphIdentifier = z.string().trim().min(1).max(EDITOR_GRAPH_IDENTIFI
 // z.json() excludes functions, undefined, NaN, and other values that cannot cross JSON transport.
 const EditorGraphJsonObject = z.record(z.string(), z.json());
 
-// A node keeps static config separate from bindings. Phase 4 validates config only; bindings remain
-// opaque until the binding/type phase can resolve workflow inputs and previous-node outputs.
+// A node keeps static config separate from bindings. Only explicit Android targeting modes
+// validate literal bindings here; other bindings remain opaque.
 export const EditorGraphNode = z
   .object({
     id: EditorGraphIdentifier,
@@ -30,6 +30,8 @@ export const EditorGraphNode = z
       .object({
         x: z.number().finite(),
         y: z.number().finite(),
+        label: z.string().min(1).nullable().optional(),
+        description: z.string().min(1).nullable().optional(),
       })
       .strict(),
   })
@@ -65,13 +67,14 @@ export const ValidateEditorGraphInput = z
 
 /**
  * The small part of a Node Definition needed by the validation engine.
- * Keeping this projection explicit prevents Runtime metadata, capabilities, and output schemas from
- * leaking into or accidentally becoming dependencies of Phase 4 validation.
+ * Include field schemas for typed authoring bindings.
  */
 export const WorkflowNodeDefinition = z
   .object({
     type: NodeDefinitionContract.shape.type,
     configSchema: NodeObjectSchema,
+    inputSchema: NodeObjectSchema.optional(),
+    outputSchema: NodeObjectSchema.optional(),
     outputPorts: NodeDefinitionContract.shape.outputPorts,
   })
   .strict();
