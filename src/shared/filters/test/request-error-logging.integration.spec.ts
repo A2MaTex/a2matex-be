@@ -145,6 +145,17 @@ class PhaseThreeTestController {
     return 'fallback response';
   }
 
+  @Get('cleanup-then-failure')
+  cleanupThenFailure(): never {
+    const cleanupError = new Error('cleanup noise');
+    cleanupError.stack = 'Error: cleanup-only-stack';
+    this.logger.error('failed to clean up stored object after upload failure', cleanupError);
+
+    const requestError = new Error('S3 upload rejected: disk quota');
+    requestError.stack = 'Error: terminal-request-stack';
+    throw requestError;
+  }
+
   @Post('request-body')
   requestBodyFailure(@Body() _requestBody: unknown): never {
     throw new Error('failed to process request');
@@ -295,6 +306,23 @@ describe('request error logging integration', () => {
       error: { name: 'Error' },
     });
     expect(JSON.stringify(record)).not.toContain('private-cache-value');
+  });
+
+  it('uses the terminal request failure after an earlier cleanup error', async () => {
+    await request(app.getHttpServer()).get('/phase-three/cleanup-then-failure').expect(500);
+
+    const record = parseRecord(stdout);
+    expect(record).toMatchObject({
+      statusCode: 500,
+      severity: 'ERROR',
+      message:
+        'failed to clean up stored object after upload failure: S3 upload rejected: disk quota',
+      error: {
+        name: 'Error',
+        stack: 'Error: terminal-request-stack',
+      },
+    });
+    expect(record.error?.stack).not.toContain('cleanup-only-stack');
   });
 
   it('never captures request bodies or workflow documents', async () => {

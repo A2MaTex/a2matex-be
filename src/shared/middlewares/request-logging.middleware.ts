@@ -1,4 +1,4 @@
-import { HttpException, Injectable, NestMiddleware } from '@nestjs/common';
+import { HttpException, Inject, Injectable, NestMiddleware } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 import { randomBytes } from 'node:crypto';
 import { TRACE_ID_HEADER } from '../constants/logging.constant.ts';
@@ -19,8 +19,11 @@ import { buildRequestLogMessage } from '../infrastructure/logging/request-log-fo
  */
 export class RequestLoggingMiddleware implements NestMiddleware {
   constructor(
+    @Inject(RequestLogContextService)
     private readonly requestContext: RequestLogContextService,
+    @Inject(ContextLoggerService)
     private readonly logger: ContextLoggerService,
+    @Inject(LogSanitizer)
     private readonly sanitizer: LogSanitizer,
   ) {}
 

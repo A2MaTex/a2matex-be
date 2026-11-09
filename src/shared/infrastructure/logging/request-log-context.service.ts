@@ -59,7 +59,7 @@ export class RequestLogContextService {
     }
 
     context.failureStatusCode = statusCode;
-    if (!context.rootError && error instanceof Error) {
+    if (error instanceof Error) {
       context.rootError = error;
     }
   }

@@ -1,4 +1,4 @@
-import { Injectable, type LoggerService, type LogLevel } from '@nestjs/common';
+import { Inject, Injectable, type LoggerService, type LogLevel } from '@nestjs/common';
 import { LogSanitizer } from './log-sanitizer.ts';
 import { RequestLogContextService } from './request-log-context.service.ts';
 import type { RequestLogLevel, StructuredRequestLogRecord } from './request-log-context.ts';
@@ -20,7 +20,9 @@ export class ContextLoggerService implements LoggerService {
   private enabledLevels: Set<LogLevel> | undefined;
 
   constructor(
+    @Inject(RequestLogContextService)
     private readonly requestContext: RequestLogContextService,
+    @Inject(LogSanitizer)
     private readonly sanitizer: LogSanitizer,
   ) {}
 

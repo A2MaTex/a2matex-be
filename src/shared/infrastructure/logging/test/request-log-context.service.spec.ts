@@ -82,7 +82,7 @@ describe('RequestLogContextService', () => {
     expect(context.rootError).toBeUndefined();
   });
 
-  it('retains the first concrete root error', () => {
+  it('retains the first concrete diagnostic error added by messages', () => {
     const service = new RequestLogContextService();
     const context = createContext(service, 'd'.repeat(32));
     const deepestError = new Error('deepest');
@@ -93,6 +93,24 @@ describe('RequestLogContextService', () => {
     });
 
     expect(context.rootError).toBe(deepestError);
+  });
+
+  it('prioritizes the terminal request failure over an earlier diagnostic error', () => {
+    const service = new RequestLogContextService();
+    const context = createContext(service, 'e'.repeat(32));
+    const cleanupError = new Error('cleanup noise');
+    const requestError = new Error('S3 upload rejected: disk quota');
+
+    service.run(context, () => {
+      service.addMessage('error', 'failed to clean up stored object', cleanupError);
+      service.recordFailure(500, requestError);
+    });
+
+    expect(context.rootError).toBe(requestError);
+    expect(context.failureStatusCode).toBe(500);
+    expect(context.messages).toEqual([
+      { level: 'error', message: 'failed to clean up stored object' },
+    ]);
   });
 
   it('isolates trace, user, messages, and errors under concurrent stress', async () => {
