@@ -24,19 +24,6 @@ export const SubmissionScanStatus = {
 export type SubmissionScanStatusType =
   (typeof SubmissionScanStatus)[keyof typeof SubmissionScanStatus];
 
-export const SubmissionSelfReviewCode = {
-  PRODUCT_PRESENTATION_MATCHES_BEHAVIOR: 'PRODUCT_PRESENTATION_MATCHES_BEHAVIOR',
-  WORKFLOW_TESTED: 'WORKFLOW_TESTED',
-  NO_RAW_CREDENTIALS: 'NO_RAW_CREDENTIALS',
-  NO_ASSET_REFERENCES: 'NO_ASSET_REFERENCES',
-  RELEASE_INFORMATION_ACCURATE: 'RELEASE_INFORMATION_ACCURATE',
-} as const;
-
-export type SubmissionSelfReviewCodeType =
-  (typeof SubmissionSelfReviewCode)[keyof typeof SubmissionSelfReviewCode];
-
-export const SUBMISSION_SELF_REVIEW_CODES = Object.values(SubmissionSelfReviewCode);
-
 export const SubmissionFindingSeverity = {
   INFO: 'INFO',
   WARNING: 'WARNING',
