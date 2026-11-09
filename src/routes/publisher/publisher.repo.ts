@@ -1,12 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { Prisma } from '../../generated/prisma/client.ts';
+import { Prisma } from '../../generated/prisma/client.ts';
 import type { UserStatus as PrismaUserStatus } from '../../generated/prisma/enums.ts';
 import type { PublisherAccountStatusType } from '../../shared/constants/publisher.constant.ts';
 import { TermStatus, TermType } from '../../shared/constants/publisher.constant.ts';
 import { RoleName } from '../../shared/constants/role.constant.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
 import { getPagination } from '../../shared/utils/pagination.ts';
-import type { GetPublisherListInputType } from './publisher.model.ts';
+import type { AppendUserAuditHistoryInput, GetPublisherListInputType } from './publisher.model.ts';
 
 type LockedUser = {
   id: string;
@@ -363,13 +363,14 @@ export class PublisherRepo {
     status,
     actorId,
     reason,
+    changedAt,
   }: {
     id: string;
     status: PublisherAccountStatusType;
     actorId: string;
     reason?: string;
+    changedAt: Date;
   }) {
-    const now = new Date();
     return this.prisma.publisherAccount.update({
       where: { id },
       data:
@@ -377,19 +378,50 @@ export class PublisherRepo {
           ? {
               status,
               blockedReason: reason,
-              blockedAt: now,
+              blockedAt: changedAt,
               blockedById: actorId,
-              updatedAt: now,
+              updatedAt: changedAt,
             }
           : {
               status,
               blockedReason: null,
               blockedAt: null,
               blockedById: null,
-              updatedAt: now,
+              updatedAt: changedAt,
             },
       select: { id: true },
     });
+  }
+
+  async appendUserAuditHistory({
+    userId,
+    action,
+    reason,
+    performedAt,
+    details,
+  }: AppendUserAuditHistoryInput): Promise<void> {
+    const auditHistoryEntry: Prisma.InputJsonObject = {
+      action,
+      reason,
+      performedAt: performedAt.toISOString(),
+      details,
+    };
+    const preparedStatement = Prisma.sql`
+      UPDATE "User"
+      SET
+        "auditHistory" = COALESCE("auditHistory", '[]'::jsonb) || jsonb_build_array(
+          ${auditHistoryEntry}::jsonb
+        ),
+        "updatedAt" = ${performedAt}
+      WHERE "id" = ${userId}::uuid
+        AND "deletedAt" IS NULL
+      RETURNING "id"
+    `;
+    const changedUsers = await this.prisma.$queryRaw<{ id: string }[]>(preparedStatement);
+
+    if (changedUsers.length !== 1) {
+      throw new Error(`Failed to append admin audit history for user ${userId}`);
+    }
   }
 
   getPublicByUsername(username: string) {
