@@ -53,3 +53,11 @@ export const SUBMISSION_REVIEW_EMAIL_COPY: Record<
     nextStep: 'Vui lòng xem nhận xét trong Publisher Portal trước khi gửi bản tiếp theo.',
   },
 };
+// Feedback reaches a Publisher as display text, so a paste carrying machine output is
+// refused rather than trimmed: a credential cannot be un-sent once it is stored.
+export const SUBMISSION_REVIEW_FORBIDDEN_PATTERNS = [
+  /bearer\s+[\w.~+/-]{8,}/i,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+  /\beyJ[\w-]{8,}\.[\w-]{8,}\./,
+  /[?&](?:x-amz-signature|x-amz-credential|signature|sig|token)=/i,
+] as const;
