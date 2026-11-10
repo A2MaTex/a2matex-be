@@ -1,6 +1,9 @@
 import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import { KAFKA_TOPICS } from '../../shared/constants/kafka.constant.ts';
-import { ProductStatus } from '../../shared/constants/product.constant.ts';
+import {
+  ProductStatus,
+  RELEASABLE_PRODUCT_STATUSES,
+} from '../../shared/constants/product.constant.ts';
 import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import type { MessageResType } from '../../shared/models/response.model.ts';
 import {
@@ -64,8 +67,6 @@ import {
   isRepublishableScanStatus,
   scanAttemptOccurredAt,
 } from './submission.util.ts';
-
-const SUBMITTABLE_PRODUCT_STATUSES: string[] = [ProductStatus.DRAFT, ProductStatus.ACTIVE];
 
 @Injectable()
 export class SubmissionService {
@@ -297,7 +298,7 @@ export class SubmissionService {
     if (product.status === ProductStatus.ARCHIVED) {
       throw ProductArchivedException;
     }
-    if (!SUBMITTABLE_PRODUCT_STATUSES.includes(product.status)) {
+    if (!RELEASABLE_PRODUCT_STATUSES.includes(product.status)) {
       throw ProductNotFoundException;
     }
 

@@ -98,3 +98,12 @@ export const SUBMISSION_SCAN_MESSAGE_ID_PREFIX = 'submission-scan';
 export const SUBMISSION_SCAN_CONSUMER_GROUP_ID = 'submission-scan-v1';
 export const SUBMISSION_SCAN_MAX_ATTEMPTS = 5;
 export const SUBMISSION_SCAN_RETRY_DELAY_MS = 5_000;
+
+// Review feedback is Publisher-facing text an Admin writes by hand. Message and node id
+// reuse the scan finding bounds: the two sides of one Submission must not drift, and a
+// node id longer than the Editor Graph allows cannot name a real node.
+export const SUBMISSION_REVIEW_SUMMARY_MAX_LENGTH = 2_000;
+export const SUBMISSION_REVIEW_MAX_ITEMS = 50;
+export const SUBMISSION_REVIEW_ITEM_MESSAGE_MAX_LENGTH = SUBMISSION_FINDING_MESSAGE_MAX_LENGTH;
+export const SUBMISSION_REVIEW_ITEM_NODE_ID_MAX_LENGTH = SUBMISSION_FINDING_NODE_ID_MAX_LENGTH;
+export const SUBMISSION_REVIEW_FEEDBACK_MAX_BYTES = 65_536;

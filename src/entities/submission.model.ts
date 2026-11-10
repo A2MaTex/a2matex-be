@@ -15,6 +15,11 @@ import {
   SUBMISSION_PURPOSE_MAX_LENGTH,
   SUBMISSION_RELEASE_VERSION_MAX_LENGTH,
   SUBMISSION_REQUEST_HASH_LENGTH,
+  SUBMISSION_REVIEW_FEEDBACK_MAX_BYTES,
+  SUBMISSION_REVIEW_ITEM_MESSAGE_MAX_LENGTH,
+  SUBMISSION_REVIEW_ITEM_NODE_ID_MAX_LENGTH,
+  SUBMISSION_REVIEW_MAX_ITEMS,
+  SUBMISSION_REVIEW_SUMMARY_MAX_LENGTH,
   SUBMISSION_SCAN_MAX_FINDINGS,
   SUBMISSION_SCAN_RESULT_MAX_BYTES,
   SUBMISSION_SCANNER_VERSION_MAX_LENGTH,
@@ -158,6 +163,69 @@ export const SubmissionScanResult = z
     message: 'Error.SubmissionScanResultTooLarge',
   });
 
+// Feedback is rendered as plain text, so a control character can only come from pasted
+// machine output rather than from an Admin writing to a Publisher. Tab, newline and
+// carriage return stay allowed: an Admin writes paragraphs. A lone surrogate is refused
+// here too -- it survives JSON.stringify as an escape PostgreSQL cannot store as jsonb,
+// so letting it through turns a validation error into a failure mid-transaction.
+const ALLOWED_CONTROL_CHARACTERS = new Set([0x09, 0x0a, 0x0d]);
+
+const isStorableText = (value: string) => {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if ((code <= 0x1f || code === 0x7f) && !ALLOWED_CONTROL_CHARACTERS.has(code)) {
+      return false;
+    }
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const low = value.charCodeAt(index + 1);
+      if (!(low >= 0xdc00 && low <= 0xdfff)) {
+        return false;
+      }
+      index += 1;
+      continue;
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
+};
+
+// Whitespace alone is nothing a Publisher can act on, and a decision that refuses a
+// Submission owes them more than a space.
+const plainText = (max: number) =>
+  z
+    .string()
+    .min(1)
+    .max(max)
+    .refine((value) => value.trim().length > 0, {
+      message: 'Error.InvalidSubmissionReviewFeedback',
+    })
+    .refine(isStorableText, { message: 'Error.InvalidSubmissionReviewFeedback' });
+
+// The only Submission content an Admin authors and the only one a Publisher reads back.
+// Nothing here is copied from a scan result: `nodeId` is a Publisher-safe locator, not a
+// finding identifier or rule code.
+export const SubmissionReviewFeedback = z
+  .object({
+    summary: plainText(SUBMISSION_REVIEW_SUMMARY_MAX_LENGTH),
+    items: z
+      .array(
+        z
+          .object({
+            message: plainText(SUBMISSION_REVIEW_ITEM_MESSAGE_MAX_LENGTH),
+            nodeId: plainText(SUBMISSION_REVIEW_ITEM_NODE_ID_MAX_LENGTH).optional(),
+          })
+          .strict(),
+      )
+      .max(SUBMISSION_REVIEW_MAX_ITEMS)
+      .optional(),
+  })
+  .strict()
+  .refine(withinSerializedBytes(SUBMISSION_REVIEW_FEEDBACK_MAX_BYTES), {
+    message: 'Error.SubmissionReviewFeedbackTooLarge',
+  });
+
 export const Submission = BaseWithUserFields.extend({
   productId: z.uuid(),
   workflowRevisionId: z.uuid(),
@@ -185,7 +253,7 @@ export const Submission = BaseWithUserFields.extend({
   scannerVersion: z.string().max(SUBMISSION_SCANNER_VERSION_MAX_LENGTH).nullable(),
   scanResult: SubmissionScanResult.nullable(),
   reviewedAt: zDate().nullable(),
-  reviewFeedback: z.record(z.string(), z.unknown()).nullable(),
+  reviewFeedback: SubmissionReviewFeedback.nullable(),
 });
 
 export type ProductSubmissionSnapshotType = z.infer<typeof ProductSubmissionSnapshot>;
@@ -193,4 +261,5 @@ export type ReleaseRequestSnapshotType = z.infer<typeof ReleaseRequestSnapshot>;
 export type SubmissionReviewContextSnapshotType = z.infer<typeof SubmissionReviewContextSnapshot>;
 export type SubmissionScanFindingType = z.infer<typeof SubmissionScanFinding>;
 export type SubmissionScanResultType = z.infer<typeof SubmissionScanResult>;
+export type SubmissionReviewFeedbackType = z.infer<typeof SubmissionReviewFeedback>;
 export type SubmissionType = z.infer<typeof Submission>;

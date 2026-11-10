@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   ProductSubmissionSnapshot,
+  SubmissionReviewFeedback,
   ReleaseRequestSnapshot,
   SubmissionReviewContextSnapshot,
   SubmissionScanResult,
@@ -37,6 +38,7 @@ const StoredProductSnapshot = zJsonObject(ProductSubmissionSnapshot);
 const StoredReleaseRequest = zJsonObject(ReleaseRequestSnapshot);
 const StoredReviewContext = zJsonObject(SubmissionReviewContextSnapshot);
 const StoredScanResult = zJsonObject(SubmissionScanResult);
+const StoredReviewFeedback = zJsonObject(SubmissionReviewFeedback);
 const StoredEditorGraph = zJsonObject(EditorGraph);
 
 export const SubmissionIdParam = z
@@ -161,10 +163,11 @@ export const SubmissionDetailOutput = z.object({
   productSnapshot: StoredProductSnapshot,
   releaseRequest: StoredReleaseRequest,
   reviewContext: StoredReviewContext,
-  // Admin-authored and intentionally shown to the Publisher; the Review module owns
-  // its shape, so it stays an opaque object until that module lands.
+  // Admin-authored and intentionally shown to the Publisher. The Review module owns the
+  // shape and is its only writer, so this documents it the way every other stored
+  // document on this response is documented: described in OpenAPI, not re-parsed.
   reviewedAt: zDate().nullable(),
-  reviewFeedback: StoredJson.nullable(),
+  reviewFeedback: StoredReviewFeedback.nullable(),
   workflowRevision: SubmissionWorkflowRevision,
   createdAt: zDate(),
   createdById: z.uuid(),
