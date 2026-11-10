@@ -456,7 +456,7 @@ model Product {
   PublisherAccount                 PublisherAccount @relation(fields: [publisherAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_Product_suspendedByIdToUser User?            @relation("Product_suspendedByIdToUser", fields: [suspendedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_Product_updatedByIdToUser   User?            @relation("Product_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  ProductMedia                     ProductMedia?
+  ProductMedia                     ProductMedia[]
   Submission                       Submission[]
 
   @@unique([projectId, publisherAccountId])
@@ -464,13 +464,9 @@ model Product {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// Partial unique indexes ProductMedia_single_icon_idx and ProductMedia_single_cover_idx
-/// live only in the migration SQL. `prisma db pull` collapses the COVER one into a
-/// field-level @unique on productId and drops the ICON one, which turns this into a
-/// one-to-one relation and breaks GALLERY. After any db pull, re-apply this by hand.
 model ProductMedia {
   id        String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  productId String           @unique(map: "ProductMedia_single_cover_idx", where: raw("((\"deletedAt\" IS NULL) AND (type = 'COVER'::\"ProductMediaType\"))")) @db.Uuid
+  productId String           @db.Uuid
   staticId  String           @db.Uuid
   type      ProductMediaType
   sortOrder Int              @default(0)
@@ -482,6 +478,7 @@ model ProductMedia {
   Static    Static           @relation(fields: [staticId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([productId, staticId], map: "ProductMedia_product_static_idx", where: raw("(\"deletedAt\" IS NULL)"))
+  @@unique([productId, type], map: "ProductMedia_active_icon_cover_idx", where: raw("((\"deletedAt\" IS NULL) AND (type = ANY (ARRAY['ICON'::\"ProductMediaType\", 'COVER'::\"ProductMediaType\"])))"))
 }
 
 /// Hand-written to match prisma/migrations/20261103093000_add_submission. Spec:

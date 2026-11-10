@@ -139,19 +139,13 @@ const EMPTY_SCHEMA = {
 
 function definition(
   type: string,
-  ports: string[],
+  ports: WorkflowNodeDefinitionType['outputPorts']['ports'],
   configSchema: WorkflowNodeDefinitionType['configSchema'] = EMPTY_SCHEMA,
 ): WorkflowNodeDefinitionType {
   return {
     type,
     configSchema,
-    outputPorts: {
-      ports: ports.map((key) => ({
-        key: key as WorkflowNodeDefinitionType['outputPorts']['ports'][number]['key'],
-        kind: key === 'error' ? ('ERROR' as const) : ('CONTROL' as const),
-        label: key,
-      })),
-    },
+    outputPorts: { ports },
   };
 }
 

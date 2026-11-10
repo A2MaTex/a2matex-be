@@ -71,7 +71,7 @@ export function isNodeFieldValueValid(value: Prisma.JsonValue, schema: FieldSche
     case 'integer':
       return (
         typeof value === 'number' &&
-        Number.isInteger(value) &&
+        Number.isSafeInteger(value) &&
         isNumberConstraintSatisfied(value, schema)
       );
     case 'number':

@@ -1,5 +1,5 @@
 [
-{"name":"global is invalid for targeting","type":"android.tap","config":{"targetMode":"SELECTOR_ID"},"bindings":{"selector_id":{"kind":"globalVariable","name":"target"}},"paths":[["bindings","selector_id"],["bindings","selector_id","kind"],["bindings","selector_id","value"]]},
+{"name":"global is invalid for targeting","type":"android.tap","config":{"targetMode":"SELECTOR_ID"},"bindings":{"selector_id":{"kind":"GLOBAL_VARIABLE","name":"target"}},"paths":[["bindings","selector_id"],["bindings","selector_id","kind"],["bindings","selector_id","value"]]},
   {
     "name": "tap missing mode",
     "type": "android.tap",
@@ -19,8 +19,8 @@
     "type": "android.tap",
     "config": { "targetMode": "ABSOLUTE_PIXELS" },
     "bindings": {
-      "x": { "kind": "literal", "value": 0 },
-      "y": { "kind": "literal", "value": 100000 }
+      "x": { "kind": "LITERAL", "value": 0 },
+      "y": { "kind": "LITERAL", "value": 100000 }
     },
     "paths": []
   },
@@ -29,8 +29,8 @@
     "type": "android.tap",
     "config": { "targetMode": "SCREEN_PERCENT" },
     "bindings": {
-      "xPercent": { "kind": "literal", "value": 0 },
-      "yPercent": { "kind": "literal", "value": 100 }
+      "xPercent": { "kind": "LITERAL", "value": 0 },
+      "yPercent": { "kind": "LITERAL", "value": 100 }
     },
     "paths": []
   },
@@ -38,7 +38,7 @@
     "name": "tap selector",
     "type": "android.tap",
     "config": { "targetMode": "SELECTOR_ID" },
-    "bindings": { "selector_id": { "kind": "literal", "value": "com.example:id/login" } },
+    "bindings": { "selector_id": { "kind": "LITERAL", "value": "com.example:id/login" } },
     "paths": []
   },
   {
@@ -46,9 +46,9 @@
     "type": "android.long_press",
     "config": { "targetMode": "ABSOLUTE_PIXELS" },
     "bindings": {
-      "x": { "kind": "literal", "value": 0 },
-      "y": { "kind": "literal", "value": 100000 },
-      "durationMs": { "kind": "literal", "value": 1 }
+      "x": { "kind": "LITERAL", "value": 0 },
+      "y": { "kind": "LITERAL", "value": 100000 },
+      "durationMs": { "kind": "LITERAL", "value": 1 }
     },
     "paths": []
   },
@@ -57,9 +57,9 @@
     "type": "android.long_press",
     "config": { "targetMode": "SCREEN_PERCENT" },
     "bindings": {
-      "xPercent": { "kind": "literal", "value": 0 },
-      "yPercent": { "kind": "literal", "value": 100 },
-      "durationMs": { "kind": "literal", "value": 1 }
+      "xPercent": { "kind": "LITERAL", "value": 0 },
+      "yPercent": { "kind": "LITERAL", "value": 100 },
+      "durationMs": { "kind": "LITERAL", "value": 1 }
     },
     "paths": []
   },
@@ -68,8 +68,8 @@
     "type": "android.long_press",
     "config": { "targetMode": "SELECTOR_ID" },
     "bindings": {
-      "selector_id": { "kind": "literal", "value": "com.example:id/login" },
-      "durationMs": { "kind": "literal", "value": 1 }
+      "selector_id": { "kind": "LITERAL", "value": "com.example:id/login" },
+      "durationMs": { "kind": "LITERAL", "value": 1 }
     },
     "paths": []
   },
@@ -78,11 +78,11 @@
     "type": "android.swipe",
     "config": { "targetMode": "ABSOLUTE_PIXELS" },
     "bindings": {
-      "startX": { "kind": "literal", "value": 0 },
-      "startY": { "kind": "literal", "value": 0 },
-      "endX": { "kind": "literal", "value": 1 },
-      "endY": { "kind": "literal", "value": 1 },
-      "durationMs": { "kind": "literal", "value": 60000 }
+      "startX": { "kind": "LITERAL", "value": 0 },
+      "startY": { "kind": "LITERAL", "value": 0 },
+      "endX": { "kind": "LITERAL", "value": 1 },
+      "endY": { "kind": "LITERAL", "value": 1 },
+      "durationMs": { "kind": "LITERAL", "value": 60000 }
     },
     "paths": []
   },
@@ -91,11 +91,11 @@
     "type": "android.swipe",
     "config": { "targetMode": "SCREEN_PERCENT" },
     "bindings": {
-      "startXPercent": { "kind": "literal", "value": 50 },
-      "startYPercent": { "kind": "literal", "value": 80 },
-      "endXPercent": { "kind": "literal", "value": 50 },
-      "endYPercent": { "kind": "literal", "value": 20 },
-      "durationMs": { "kind": "literal", "value": 1 }
+      "startXPercent": { "kind": "LITERAL", "value": 50 },
+      "startYPercent": { "kind": "LITERAL", "value": 80 },
+      "endXPercent": { "kind": "LITERAL", "value": 50 },
+      "endYPercent": { "kind": "LITERAL", "value": 20 },
+      "durationMs": { "kind": "LITERAL", "value": 1 }
     },
     "paths": []
   },
@@ -118,8 +118,8 @@
     "type": "android.tap",
     "config": { "targetMode": "SCREEN_PERCENT" },
     "bindings": {
-      "xPercent": { "kind": "literal", "value": 0 },
-      "y": { "kind": "literal", "value": 10 }
+      "xPercent": { "kind": "LITERAL", "value": 0 },
+      "y": { "kind": "LITERAL", "value": 10 }
     },
     "paths": [["bindings"], ["bindings", "yPercent"]]
   },
@@ -128,8 +128,8 @@
     "type": "android.tap",
     "config": { "targetMode": "SCREEN_PERCENT" },
     "bindings": {
-      "xPercent": { "kind": "literal", "value": -1 },
-      "yPercent": { "kind": "literal", "value": 100.5 }
+      "xPercent": { "kind": "LITERAL", "value": -1 },
+      "yPercent": { "kind": "LITERAL", "value": 100.5 }
     },
     "paths": [
       ["bindings", "xPercent", "value"],
@@ -141,8 +141,8 @@
     "type": "android.tap",
     "config": { "targetMode": "ABSOLUTE_PIXELS" },
     "bindings": {
-      "x": { "kind": "literal", "value": 100001 },
-      "y": { "kind": "literal", "value": 0 }
+      "x": { "kind": "LITERAL", "value": 100001 },
+      "y": { "kind": "LITERAL", "value": 0 }
     },
     "paths": [["bindings", "x", "value"]]
   },
@@ -150,21 +150,21 @@
     "name": "invalid selector",
     "type": "android.tap",
     "config": { "targetMode": "SELECTOR_ID" },
-    "bindings": { "selector_id": { "kind": "literal", "value": "login" } },
+    "bindings": { "selector_id": { "kind": "LITERAL", "value": "login" } },
     "paths": [["bindings", "selector_id", "value"]]
   },
   {
     "name": "invalid selector whitespace",
     "type": "android.tap",
     "config": { "targetMode": "SELECTOR_ID" },
-    "bindings": { "selector_id": { "kind": "literal", "value": "com.example:id/log in" } },
+    "bindings": { "selector_id": { "kind": "LITERAL", "value": "com.example:id/log in" } },
     "paths": [["bindings", "selector_id", "value"]]
   },
   {
     "name": "nonliteral selector",
     "type": "android.tap",
     "config": { "targetMode": "SELECTOR_ID" },
-    "bindings": { "selector_id": { "kind": "nodeOutput", "nodeId": "read" } },
+    "bindings": { "selector_id": { "kind": "NODE_OUTPUT", "nodeId": "read" } },
     "paths": [
       ["bindings", "selector_id"],
       ["bindings", "selector_id", "kind"],
@@ -176,8 +176,8 @@
     "type": "android.long_press",
     "config": { "targetMode": "SELECTOR_ID" },
     "bindings": {
-      "selector_id": { "kind": "literal", "value": "app:id/item" },
-      "durationMs": { "kind": "literal", "value": 0 }
+      "selector_id": { "kind": "LITERAL", "value": "app:id/item" },
+      "durationMs": { "kind": "LITERAL", "value": 0 }
     },
     "paths": [["bindings", "durationMs", "value"]]
   },
@@ -186,9 +186,9 @@
     "type": "android.long_press",
     "config": { "targetMode": "ABSOLUTE_PIXELS" },
     "bindings": {
-      "x": { "kind": "literal", "value": 0 },
-      "y": { "kind": "literal", "value": 1 },
-      "durationMs": { "kind": "literal", "value": 9007199254740992 }
+      "x": { "kind": "LITERAL", "value": 0 },
+      "y": { "kind": "LITERAL", "value": 1 },
+      "durationMs": { "kind": "LITERAL", "value": 9007199254740992 }
     },
     "paths": [["bindings", "durationMs", "value"]]
   },
@@ -197,11 +197,11 @@
     "type": "android.swipe",
     "config": { "targetMode": "ABSOLUTE_PIXELS" },
     "bindings": {
-      "startX": { "kind": "literal", "value": 0 },
-      "startY": { "kind": "literal", "value": 0 },
-      "endX": { "kind": "literal", "value": 1 },
-      "endY": { "kind": "literal", "value": 1 },
-      "durationMs": { "kind": "literal", "value": 60001 }
+      "startX": { "kind": "LITERAL", "value": 0 },
+      "startY": { "kind": "LITERAL", "value": 0 },
+      "endX": { "kind": "LITERAL", "value": 1 },
+      "endY": { "kind": "LITERAL", "value": 1 },
+      "durationMs": { "kind": "LITERAL", "value": 60001 }
     },
     "paths": [["bindings", "durationMs", "value"]]
   }
