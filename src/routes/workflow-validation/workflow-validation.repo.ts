@@ -28,6 +28,7 @@ export class WorkflowValidationRepo {
         inputSchema: true,
         outputSchema: true,
         outputPorts: true,
+        editorHints: true,
       },
     });
   }

@@ -108,7 +108,6 @@ export function prepareWorkflowRevisionSnapshot({
       outputSchema: requireJsonObject(definition.outputSchema),
       outputPorts: requireJsonObject(definition.outputPorts),
       editorHints: requireJsonObject(definition.editorHints),
-      supportedErrorPolicies: requireJsonObject(definition.supportedErrorPolicies),
       capabilityCodes: [
         ...new Set(definition.NodeDefinitionCapability.map(({ Capability }) => Capability.code)),
       ].sort(),

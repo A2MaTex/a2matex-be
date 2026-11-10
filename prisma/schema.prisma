@@ -13,12 +13,12 @@ model User {
   id                                                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   username                                            String                @db.VarChar(255)
   email                                               String
-  password                                            String             @db.VarChar(255)
-  status                                              UserStatus         @default(INACTIVE)
-  createdAt                                           DateTime           @default(now()) @db.Timestamptz(6)
-  updatedAt                                           DateTime?          @db.Timestamptz(6)
-  deletedAt                                           DateTime?          @db.Timestamptz(6)
-  auditHistory                                        Json               @default("[]")
+  password                                            String                @db.VarChar(255)
+  status                                              UserStatus            @default(INACTIVE)
+  createdAt                                           DateTime              @default(now()) @db.Timestamptz(6)
+  updatedAt                                           DateTime?             @db.Timestamptz(6)
+  deletedAt                                           DateTime?             @db.Timestamptz(6)
+  auditHistory                                        Json                  @default("[]")
   device                                              Device[]
   createdPermissions                                  Permission[]          @relation("PermissionCreatedBy")
   deletedPermissions                                  Permission[]          @relation("PermissionDeletedBy")
@@ -309,7 +309,6 @@ model NodeDefinition {
   outputSchema             Json
   outputPorts              Json
   editorHints              Json
-  supportedErrorPolicies   Json
   contentHash              String                     @db.VarChar(64)
   createdAt                DateTime                   @default(now()) @db.Timestamptz(6)
   updatedAt                DateTime?                  @db.Timestamptz(6)
@@ -453,13 +452,14 @@ model Product {
   deletedById                      String?          @db.Uuid
   User_Product_createdByIdToUser   User             @relation("Product_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_Product_deletedByIdToUser   User?            @relation("Product_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  Project                          Project          @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Project                          Project          @relation(fields: [projectId, publisherAccountId], references: [id, publisherAccountId], onDelete: NoAction, onUpdate: NoAction)
   PublisherAccount                 PublisherAccount @relation(fields: [publisherAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_Product_suspendedByIdToUser User?            @relation("Product_suspendedByIdToUser", fields: [suspendedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_Product_updatedByIdToUser   User?            @relation("Product_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  ProductMedia                     ProductMedia[]
+  ProductMedia                     ProductMedia?
   Submission                       Submission[]
 
+  @@unique([projectId, publisherAccountId])
   @@index([publisherAccountId, status], where: raw("(\"deletedAt\" IS NULL)"))
 }
 
@@ -470,7 +470,7 @@ model Product {
 /// one-to-one relation and breaks GALLERY. After any db pull, re-apply this by hand.
 model ProductMedia {
   id        String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  productId String           @db.Uuid
+  productId String           @unique(map: "ProductMedia_single_cover_idx", where: raw("((\"deletedAt\" IS NULL) AND (type = 'COVER'::\"ProductMediaType\"))")) @db.Uuid
   staticId  String           @db.Uuid
   type      ProductMediaType
   sortOrder Int              @default(0)
@@ -521,21 +521,24 @@ model Submission {
 }
 
 model StaticUploadSession {
-  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  fileHash    String         @unique(map: "idx_unique_uploading_session", where: raw("(status = 'UPLOADING'::\"SessionStatus\")")) @map("file_hash")
-  uploadId    String         @map("upload_id")
-  fileKey     String         @map("file_key")
-  status      SessionStatus?
-  expiresAt   DateTime?      @map("expires_at") @db.Timestamp(6)
-  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt   DateTime?      @map("updated_at") @db.Timestamp(6)
-  deletedAt   DateTime?      @map("deleted_at") @db.Timestamp(6)
-  createdById String?        @map("created_by") @db.Uuid
-  updatedById String?        @map("updated_by") @db.Uuid
-  deletedById String?        @map("deleted_by") @db.Uuid
-  createdBy   User?          @relation("UploadSessionCreatedBy", fields: [createdById], references: [id])
-  deletedBy   User?          @relation("UploadSessionDeletedBy", fields: [deletedById], references: [id])
-  updatedBy   User?          @relation("UploadSessionUpdatedBy", fields: [updatedById], references: [id])
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fileHash     String         @unique(map: "idx_unique_uploading_session", where: raw("(status = 'UPLOADING'::\"SessionStatus\")")) @map("file_hash")
+  uploadId     String         @map("upload_id")
+  fileKey      String         @map("file_key")
+  status       SessionStatus?
+  expiresAt    DateTime?      @map("expires_at") @db.Timestamp(6)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime?      @map("updated_at") @db.Timestamp(6)
+  deletedAt    DateTime?      @map("deleted_at") @db.Timestamp(6)
+  createdById  String?        @map("created_by") @db.Uuid
+  updatedById  String?        @map("updated_by") @db.Uuid
+  deletedById  String?        @map("deleted_by") @db.Uuid
+  contentType  String         @map("content_type")
+  originalName String         @map("original_name")
+  size         BigInt
+  createdBy    User?          @relation("UploadSessionCreatedBy", fields: [createdById], references: [id])
+  deletedBy    User?          @relation("UploadSessionDeletedBy", fields: [deletedById], references: [id])
+  updatedBy    User?          @relation("UploadSessionUpdatedBy", fields: [updatedById], references: [id])
 
   @@index([fileHash], map: "idx_StaticUploadSession_file_hash", where: raw("(deleted_at IS NULL)"))
 }

@@ -15,6 +15,14 @@ export const WorkflowValidationStatus = {
   VALID: 'VALID',
 } as const;
 
+export const WorkflowBindingKind = {
+  LITERAL: 'LITERAL',
+  WORKFLOW_INPUT: 'WORKFLOW_INPUT',
+  NODE_OUTPUT: 'NODE_OUTPUT',
+  FLOW_VARIABLE: 'FLOW_VARIABLE',
+  GLOBAL_VARIABLE: 'GLOBAL_VARIABLE',
+} as const;
+
 // Diagnostic codes are stable machine-readable API values. Studio should branch on these codes,
 // not on the English messages below, which remain safe human-readable explanations.
 export const WorkflowValidationDiagnosticCode = {
@@ -33,6 +41,7 @@ export const WorkflowValidationDiagnosticCode = {
   GRAPH_CYCLE_DETECTED: 'GRAPH_CYCLE_DETECTED',
   NODE_TYPE_NOT_ACTIVE: 'NODE_TYPE_NOT_ACTIVE',
   NODE_CONFIG_INVALID: 'NODE_CONFIG_INVALID',
+  NODE_ERROR_POLICY_INVALID: 'NODE_ERROR_POLICY_INVALID',
   NODE_BINDINGS_INVALID: 'NODE_BINDINGS_INVALID',
   NODE_VALUE_BINDING_INVALID: 'NODE_VALUE_BINDING_INVALID',
   SWITCH_PORT_EDGE_COUNT_INVALID: 'SWITCH_PORT_EDGE_COUNT_INVALID',
@@ -62,6 +71,7 @@ export const WORKFLOW_VALIDATION_DIAGNOSTIC_MESSAGES: Record<
   GRAPH_CYCLE_DETECTED: 'Graph contains an uncontrolled cycle',
   NODE_TYPE_NOT_ACTIVE: 'Node type does not exist in the active Node Catalog',
   NODE_CONFIG_INVALID: 'Node configuration does not match its definition',
+  NODE_ERROR_POLICY_INVALID: 'Node error policy is not supported by its definition',
   NODE_BINDINGS_INVALID: 'Node bindings do not match the selected targeting mode',
   NODE_VALUE_BINDING_INVALID: 'Node input binding is invalid or its source is unavailable',
   SWITCH_PORT_EDGE_COUNT_INVALID: 'Switch port must have exactly one outgoing edge',

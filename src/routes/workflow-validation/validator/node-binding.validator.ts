@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { SWITCH_TYPE, switchRules } from './switch.validator.ts';
-import { WORKFLOW_VALIDATION_DIAGNOSTIC_MESSAGES } from '../../../shared/constants/workflow-validation.constant.ts';
+import {
+  WorkflowBindingKind,
+  WORKFLOW_VALIDATION_DIAGNOSTIC_MESSAGES,
+} from '../../../shared/constants/workflow-validation.constant.ts';
 import type {
   EditorGraphType,
   WorkflowNodeDefinitionType,
@@ -11,16 +14,18 @@ const name = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,99}$/);
 const identifier = z.string().min(1).max(100);
 const binding = z.discriminatedUnion('kind', [
   z.strictObject({
-    kind: z.literal('literal'),
+    kind: z.literal(WorkflowBindingKind.LITERAL),
     value: z.union([z.string(), z.number().int(), z.boolean()]),
   }),
-  z.strictObject({ kind: z.literal('workflowInput'), inputName: name }),
-  z.strictObject({ kind: z.literal('nodeOutput'), nodeId: identifier, field: name }),
-  z.strictObject({ kind: z.literal('flowVariable'), name }),
-  z.strictObject({ kind: z.literal('globalVariable'), name }),
+  z.strictObject({ kind: z.literal(WorkflowBindingKind.WORKFLOW_INPUT), inputName: name }),
+  z.strictObject({
+    kind: z.literal(WorkflowBindingKind.NODE_OUTPUT),
+    nodeId: identifier,
+    field: name,
+  }),
+  z.strictObject({ kind: z.literal(WorkflowBindingKind.FLOW_VARIABLE), name }),
+  z.strictObject({ kind: z.literal(WorkflowBindingKind.GLOBAL_VARIABLE), name }),
 ]);
-
-const targeting = new Set(['android.tap', 'android.swipe', 'android.long_press']);
 
 export function validateNodeBindings(
   graph: EditorGraphType,
@@ -55,7 +60,7 @@ export function validateNodeBindings(
 
   graph.nodes.forEach((node, index) => {
     const definition = definitions.get(node.type);
-    if (!definition || targeting.has(node.type)) return;
+    if (!definition || definition.editorHints?.targeting) return;
     const isSet = node.type === 'flow.set_variable';
     const isWait = node.type === 'flow.wait_variable';
     const isSwitch = node.type === SWITCH_TYPE;
@@ -91,9 +96,9 @@ export function validateNodeBindings(
       if (
         !isSet &&
         !isSwitch &&
-        kind !== 'nodeOutput' &&
-        kind !== 'flowVariable' &&
-        kind !== 'globalVariable'
+        kind !== WorkflowBindingKind.NODE_OUTPUT &&
+        kind !== WorkflowBindingKind.FLOW_VARIABLE &&
+        kind !== WorkflowBindingKind.GLOBAL_VARIABLE
       )
         continue;
       const parsed = binding.safeParse(raw);
@@ -107,13 +112,13 @@ export function validateNodeBindings(
         report(field);
         continue;
       }
-      if (parsed.data.kind === 'literal' && isSwitch) {
+      if (parsed.data.kind === WorkflowBindingKind.LITERAL && isSwitch) {
         types.set(
           field,
           typeof parsed.data.value === 'number' ? 'integer' : typeof parsed.data.value,
         );
       }
-      if (parsed.data.kind !== 'nodeOutput') continue;
+      if (parsed.data.kind !== WorkflowBindingKind.NODE_OUTPUT) continue;
       const { nodeId, field: outputField } = parsed.data;
       const producer = nodes.get(nodeId);
       const output = producer && definitions.get(producer.type)?.outputSchema;

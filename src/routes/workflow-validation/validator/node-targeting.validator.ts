@@ -1,113 +1,97 @@
-import { z } from 'zod';
-import {
-  MAX_ANDROID_COORDINATE,
-  MAX_SWIPE_DURATION_MS,
-} from '../../node-catalog/node-catalog.constant.ts';
+import type { Prisma } from '../../../generated/prisma/client.ts';
 import {
   WORKFLOW_VALIDATION_DIAGNOSTIC_MESSAGES,
   WorkflowValidationDiagnosticCode,
 } from '../../../shared/constants/workflow-validation.constant.ts';
-import type { EditorGraphType, WorkflowNodeDefinitionType } from '../workflow-validation.model.ts';
-import { validateNodeConfig } from './node-config.validator.ts';
+import type {
+  EditorGraphType,
+  WorkflowNodeDefinitionType,
+  WorkflowValidationDiagnosticType,
+} from '../workflow-validation.model.ts';
+import { WorkflowBindingKind } from '../../../shared/constants/workflow-validation.constant.ts';
+import { isNodeFieldValueValid, validateNodeConfig } from './node-config.validator.ts';
 
-const literal = (value: z.ZodType) => z.strictObject({ kind: z.literal('literal'), value });
+type Targeting = NonNullable<WorkflowNodeDefinitionType['editorHints']>['targeting'];
+type TargetBindingSchema = NonNullable<Targeting>['modes'][number]['bindingSchema'];
 
-const pixel = literal(z.number().int().min(0).max(MAX_ANDROID_COORDINATE));
-const percent = literal(z.number().int().min(0).max(100));
-const selector = literal(z.string().regex(/^[^\s:]+:id\/[^\s/]+$/));
-const swipeDuration = literal(z.number().int().min(1).max(MAX_SWIPE_DURATION_MS));
-const holdDuration = literal(z.number().int().min(1));
-
-const pointInputs = {
-  ABSOLUTE_PIXELS: { x: pixel, y: pixel },
-  SCREEN_PERCENT: { xPercent: percent, yPercent: percent },
-  SELECTOR_ID: { selector_id: selector },
-};
-
-const bindingsByNodeType = new Map<string, ReadonlyMap<string, z.ZodType>>([
-  [
-    'android.tap',
-    new Map<string, z.ZodType>([
-      ['ABSOLUTE_PIXELS', z.strictObject(pointInputs.ABSOLUTE_PIXELS)],
-      ['SCREEN_PERCENT', z.strictObject(pointInputs.SCREEN_PERCENT)],
-      ['SELECTOR_ID', z.strictObject(pointInputs.SELECTOR_ID)],
-    ]),
-  ],
-  [
-    'android.swipe',
-    new Map<string, z.ZodType>([
-      [
-        'ABSOLUTE_PIXELS',
-        z.strictObject({
-          startX: pixel,
-          startY: pixel,
-          endX: pixel,
-          endY: pixel,
-          durationMs: swipeDuration,
-        }),
+function bindingDiagnostic(
+  node: EditorGraphType['nodes'][number],
+  nodeIndex: number,
+  ...path: string[]
+): WorkflowValidationDiagnosticType {
+  return {
+    code: WorkflowValidationDiagnosticCode.NODE_BINDINGS_INVALID,
+    message:
+      WORKFLOW_VALIDATION_DIAGNOSTIC_MESSAGES[
+        WorkflowValidationDiagnosticCode.NODE_BINDINGS_INVALID
       ],
-      [
-        'SCREEN_PERCENT',
-        z.strictObject({
-          startXPercent: percent,
-          startYPercent: percent,
-          endXPercent: percent,
-          endYPercent: percent,
-          durationMs: swipeDuration,
-        }),
-      ],
-    ]),
-  ],
-  [
-    'android.long_press',
-    new Map(
-      Object.entries(pointInputs).map(([mode, fields]) => [
-        mode,
-        z.strictObject({ ...fields, durationMs: holdDuration }),
-      ]),
-    ),
-  ],
-]);
+    nodeId: node.id,
+    path: ['nodes', nodeIndex, 'bindings', ...path],
+  };
+}
+
+function isJsonObject(value: unknown): value is Record<string, Prisma.JsonValue> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function validateTargetBindings(
+  node: EditorGraphType['nodes'][number],
+  nodeIndex: number,
+  schema: TargetBindingSchema,
+): WorkflowValidationDiagnosticType[] {
+  const diagnostics: WorkflowValidationDiagnosticType[] = [];
+
+  new Set(schema.required).forEach((field) => {
+    if (!Object.hasOwn(node.bindings, field)) {
+      diagnostics.push(bindingDiagnostic(node, nodeIndex, field));
+    }
+  });
+
+  let reportedAdditionalField = false;
+  Object.entries(node.bindings).forEach(([field, value]) => {
+    const fieldSchema = schema.properties[field];
+    if (!fieldSchema) {
+      if (!reportedAdditionalField) {
+        diagnostics.push(bindingDiagnostic(node, nodeIndex));
+        reportedAdditionalField = true;
+      }
+      return;
+    }
+
+    if (!isJsonObject(value)) {
+      diagnostics.push(bindingDiagnostic(node, nodeIndex, field));
+      return;
+    }
+
+    if (value.kind !== WorkflowBindingKind.LITERAL) {
+      diagnostics.push(bindingDiagnostic(node, nodeIndex, field, 'kind'));
+    }
+    if (!Object.hasOwn(value, 'value') || !isNodeFieldValueValid(value.value, fieldSchema)) {
+      diagnostics.push(bindingDiagnostic(node, nodeIndex, field, 'value'));
+    }
+    if (Object.keys(value).some((key) => key !== 'kind' && key !== 'value')) {
+      diagnostics.push(bindingDiagnostic(node, nodeIndex, field));
+    }
+  });
+
+  return diagnostics;
+}
 
 export function validateNodeTargeting(
   node: EditorGraphType['nodes'][number],
-  index: number,
-  configSchema: WorkflowNodeDefinitionType['configSchema'],
-) {
-  const modes = bindingsByNodeType.get(node.type);
-  const { targetMode, ...config } = node.config;
-
-  if (!modes) {
-    return validateNodeConfig(node, index, configSchema);
+  nodeIndex: number,
+  definition: WorkflowNodeDefinitionType,
+): WorkflowValidationDiagnosticType[] {
+  const errors = validateNodeConfig(node, nodeIndex, definition.configSchema);
+  const targeting = definition.editorHints?.targeting;
+  if (!targeting) {
+    return errors;
   }
 
-  const bindingSchema = typeof targetMode === 'string' ? modes.get(targetMode) : undefined;
-  if (!bindingSchema) {
-    return validateNodeConfig(node, index, configSchema).concat(
-      targetMode === undefined
-        ? [
-            {
-              code: WorkflowValidationDiagnosticCode.NODE_CONFIG_INVALID,
-              message: WORKFLOW_VALIDATION_DIAGNOSTIC_MESSAGES.NODE_CONFIG_INVALID,
-              nodeId: node.id,
-              path: ['nodes', index, 'config', 'targetMode'],
-            },
-          ]
-        : [],
-    );
+  const mode = targeting.modes.find(({ mode }) => mode === node.config.targetMode);
+  if (!mode) {
+    return errors;
   }
 
-  const errors = validateNodeConfig({ ...node, config }, index, configSchema);
-  const result = bindingSchema.safeParse(node.bindings);
-  if (!result.success) {
-    for (const issue of result.error.issues) {
-      errors.push({
-        code: WorkflowValidationDiagnosticCode.NODE_BINDINGS_INVALID,
-        message: WORKFLOW_VALIDATION_DIAGNOSTIC_MESSAGES.NODE_BINDINGS_INVALID,
-        nodeId: node.id,
-        path: ['nodes', index, 'bindings', ...issue.path.map(String)],
-      });
-    }
-  }
-  return errors;
+  return errors.concat(validateTargetBindings(node, nodeIndex, mode.bindingSchema));
 }

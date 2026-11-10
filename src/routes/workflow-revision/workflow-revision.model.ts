@@ -44,7 +44,6 @@ export type WorkflowRevisionNodeDefinition = {
   outputSchema: Prisma.JsonValue;
   outputPorts: Prisma.JsonValue;
   editorHints: Prisma.JsonValue;
-  supportedErrorPolicies: Prisma.JsonValue;
   contentHash: string;
   NodeDefinitionCapability: Array<{
     Capability: { code: string };

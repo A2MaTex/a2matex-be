@@ -6,9 +6,7 @@ import {
   MAX_SWIPE_DURATION_MS,
   NodeCapability,
   NodeCategory,
-  NodeErrorPolicy,
   NodeOutputPort,
-  NodeOutputPortKind,
 } from '../node-catalog.constant.ts';
 import type { NodeDefinitionType } from '../node-definition.model.ts';
 
@@ -20,22 +18,7 @@ const EMPTY_OBJECT_SCHEMA: NodeDefinitionType['configSchema'] = {
 };
 
 const SUCCESS_AND_ERROR_PORTS: NodeDefinitionType['outputPorts'] = {
-  ports: [
-    {
-      key: NodeOutputPort.SUCCESS,
-      kind: NodeOutputPortKind.CONTROL,
-      label: 'Success',
-    },
-    {
-      key: NodeOutputPort.ERROR,
-      kind: NodeOutputPortKind.ERROR,
-      label: 'Error',
-    },
-  ],
-};
-
-const STOP_OR_ERROR_BRANCH: NodeDefinitionType['supportedErrorPolicies'] = {
-  supported: [NodeErrorPolicy.STOP, NodeErrorPolicy.ERROR_BRANCH],
+  ports: [NodeOutputPort.SUCCESS, NodeOutputPort.ERROR],
 };
 
 const DEVICE_CONTROL_CAPABILITY: NodeDefinitionType['capabilities'] = [
@@ -47,9 +30,104 @@ const PIXEL_COORDINATE_FIELD = {
   minimum: 0,
   maximum: MAX_ANDROID_COORDINATE,
 } as const;
-const POINT_TARGET_MODES = ['ABSOLUTE_PIXELS', 'SCREEN_PERCENT', 'SELECTOR_ID'] satisfies NonNullable<
-  NodeDefinitionType['editorHints']['targetModes']
->;
+const PERCENT_COORDINATE_FIELD = {
+  type: 'integer',
+  minimum: 0,
+  maximum: 100,
+} as const;
+const SELECTOR_ID_FIELD = {
+  type: 'string',
+  pattern: '^[^\\s:]+:id/[^\\s/]+$',
+} as const;
+const SWIPE_DURATION_FIELD = {
+  type: 'integer',
+  minimum: 1,
+  maximum: MAX_SWIPE_DURATION_MS,
+} as const;
+const HOLD_DURATION_FIELD = {
+  type: 'integer',
+  minimum: 1,
+} as const;
+
+type TargetingContract = NonNullable<NodeDefinitionType['editorHints']['targeting']>;
+type TargetingModeDefinition = TargetingContract['modes'][number];
+
+function targetingMode(
+  mode: TargetingModeDefinition['mode'],
+  properties: TargetingModeDefinition['bindingSchema']['properties'],
+): TargetingModeDefinition {
+  const required = Object.keys(properties);
+  return {
+    mode,
+    bindingSchema: {
+      type: 'object',
+      properties,
+      required,
+      additionalProperties: false,
+    },
+  };
+}
+
+const POINT_TARGETING: TargetingContract = {
+  modes: [
+    targetingMode('ABSOLUTE_PIXELS', {
+      x: PIXEL_COORDINATE_FIELD,
+      y: PIXEL_COORDINATE_FIELD,
+    }),
+    targetingMode('SCREEN_PERCENT', {
+      xPercent: PERCENT_COORDINATE_FIELD,
+      yPercent: PERCENT_COORDINATE_FIELD,
+    }),
+    targetingMode('SELECTOR_ID', { selector_id: SELECTOR_ID_FIELD }),
+  ],
+};
+
+const SWIPE_TARGETING: TargetingContract = {
+  modes: [
+    targetingMode('ABSOLUTE_PIXELS', {
+      startX: PIXEL_COORDINATE_FIELD,
+      startY: PIXEL_COORDINATE_FIELD,
+      endX: PIXEL_COORDINATE_FIELD,
+      endY: PIXEL_COORDINATE_FIELD,
+      durationMs: SWIPE_DURATION_FIELD,
+    }),
+    targetingMode('SCREEN_PERCENT', {
+      startXPercent: PERCENT_COORDINATE_FIELD,
+      startYPercent: PERCENT_COORDINATE_FIELD,
+      endXPercent: PERCENT_COORDINATE_FIELD,
+      endYPercent: PERCENT_COORDINATE_FIELD,
+      durationMs: SWIPE_DURATION_FIELD,
+    }),
+  ],
+};
+
+const LONG_PRESS_TARGETING: TargetingContract = {
+  modes: POINT_TARGETING.modes.map((definition) => ({
+    ...definition,
+    bindingSchema: {
+      ...definition.bindingSchema,
+      properties: {
+        ...definition.bindingSchema.properties,
+        durationMs: HOLD_DURATION_FIELD,
+      },
+      required: [...definition.bindingSchema.required, 'durationMs'],
+    },
+  })),
+};
+
+function targetModeConfig(targeting: TargetingContract): NodeDefinitionType['configSchema'] {
+  return {
+    type: 'object',
+    properties: {
+      targetMode: {
+        type: 'string',
+        enum: targeting.modes.map(({ mode }) => mode),
+      },
+    },
+    required: ['targetMode'],
+    additionalProperties: false,
+  };
+}
 
 export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
   {
@@ -76,73 +154,41 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
     },
     outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
-    editorHints: {
-      icon: 'rocket',
-      fieldOrder: ['packageName'],
-    },
-    supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
+    editorHints: {},
     capabilities: DEVICE_CONTROL_CAPABILITY,
   },
   {
     type: 'android.tap',
     name: 'Tap',
-    description: 'Tap an absolute coordinate on the selected Android device.',
+    description: 'Tap a selected target on the Android device.',
     category: NodeCategory.ANDROID,
     runtimeHandler: 'android.tap',
     minimumRuntimeVersion: '0.1.0',
     defaultTimeoutMs: DEFAULT_ANDROID_NODE_TIMEOUT_MS,
-    configSchema: EMPTY_OBJECT_SCHEMA,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        x: PIXEL_COORDINATE_FIELD,
-        y: PIXEL_COORDINATE_FIELD,
-      },
-      required: ['x', 'y'],
-      additionalProperties: false,
-    },
+    configSchema: targetModeConfig(POINT_TARGETING),
+    inputSchema: EMPTY_OBJECT_SCHEMA,
     outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
     editorHints: {
-      icon: 'mouse-pointer-click',
-      documentation: 'Coordinates are absolute screen pixels measured from the top-left corner.',
-      fieldOrder: ['x', 'y'],
-      targetModes: POINT_TARGET_MODES,
+      targeting: POINT_TARGETING,
     },
-    supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
     capabilities: DEVICE_CONTROL_CAPABILITY,
   },
   {
     type: 'android.swipe',
     name: 'Swipe',
-    description: 'Swipe between two absolute coordinates on the selected Android device.',
+    description: 'Swipe between two selected points on the Android device.',
     category: NodeCategory.ANDROID,
     runtimeHandler: 'android.swipe',
     minimumRuntimeVersion: '0.1.0',
     defaultTimeoutMs: DEFAULT_ANDROID_NODE_TIMEOUT_MS,
-    configSchema: EMPTY_OBJECT_SCHEMA,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        startX: PIXEL_COORDINATE_FIELD,
-        startY: PIXEL_COORDINATE_FIELD,
-        endX: PIXEL_COORDINATE_FIELD,
-        endY: PIXEL_COORDINATE_FIELD,
-        durationMs: { type: 'integer', minimum: 1, maximum: MAX_SWIPE_DURATION_MS },
-      },
-      required: ['startX', 'startY', 'endX', 'endY', 'durationMs'],
-      additionalProperties: false,
-    },
+    configSchema: targetModeConfig(SWIPE_TARGETING),
+    inputSchema: EMPTY_OBJECT_SCHEMA,
     outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
     editorHints: {
-      icon: 'move',
-      documentation:
-        'Both endpoints use absolute screen pixels. Duration controls how long the gesture takes.',
-      fieldOrder: ['startX', 'startY', 'endX', 'endY', 'durationMs'],
-      targetModes: ['ABSOLUTE_PIXELS', 'SCREEN_PERCENT'],
+      targeting: SWIPE_TARGETING,
     },
-    supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
     capabilities: DEVICE_CONTROL_CAPABILITY,
   },
   {
@@ -167,11 +213,7 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
     },
     outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
-    editorHints: {
-      icon: 'keyboard',
-      fieldOrder: ['text'],
-    },
-    supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
+    editorHints: {},
     capabilities: DEVICE_CONTROL_CAPABILITY,
   },
   {
@@ -186,11 +228,7 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
     inputSchema: EMPTY_OBJECT_SCHEMA,
     outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
-    editorHints: {
-      icon: 'arrow-left',
-      fieldOrder: [],
-    },
-    supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
+    editorHints: {},
     capabilities: DEVICE_CONTROL_CAPABILITY,
   },
   {
@@ -205,11 +243,7 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
     inputSchema: EMPTY_OBJECT_SCHEMA,
     outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
-    editorHints: {
-      icon: 'house',
-      fieldOrder: [],
-    },
-    supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
+    editorHints: {},
     capabilities: DEVICE_CONTROL_CAPABILITY,
   },
   {
@@ -234,11 +268,7 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
       additionalProperties: false,
     },
     outputPorts: SUCCESS_AND_ERROR_PORTS,
-    editorHints: {
-      icon: 'camera',
-      fieldOrder: [],
-    },
-    supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
+    editorHints: {},
     capabilities: [NodeCapability.ANDROID_SCREEN_CAPTURE],
   },
   {
@@ -249,25 +279,13 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
     runtimeHandler: 'android.long_press',
     minimumRuntimeVersion: '0.1.0',
     defaultTimeoutMs: DEFAULT_ANDROID_NODE_TIMEOUT_MS,
-    configSchema: EMPTY_OBJECT_SCHEMA,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        x: PIXEL_COORDINATE_FIELD,
-        y: PIXEL_COORDINATE_FIELD,
-        durationMs: { type: 'integer', minimum: 1 },
-      },
-      required: ['x', 'y', 'durationMs'],
-      additionalProperties: false,
-    },
+    configSchema: targetModeConfig(LONG_PRESS_TARGETING),
+    inputSchema: EMPTY_OBJECT_SCHEMA,
     outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
     editorHints: {
-      icon: 'hand',
-      fieldOrder: ['x', 'y', 'durationMs'],
-      targetModes: POINT_TARGET_MODES,
+      targeting: LONG_PRESS_TARGETING,
     },
-    supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
     capabilities: DEVICE_CONTROL_CAPABILITY,
   },
 ];
