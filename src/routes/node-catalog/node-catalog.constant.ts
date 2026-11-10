@@ -4,11 +4,6 @@ export const NodeCategory = {
   ANDROID: 'ANDROID',
 } as const;
 
-export const NodeOutputPortKind = {
-  CONTROL: 'CONTROL',
-  ERROR: 'ERROR',
-} as const;
-
 export const NodeErrorPolicy = {
   STOP: 'STOP',
   ERROR_BRANCH: 'ERROR_BRANCH',
@@ -33,7 +28,6 @@ export const NODE_NAME_MAX_LENGTH = 255;
 export const NODE_CATEGORY_MAX_LENGTH = 100;
 export const NODE_RUNTIME_HANDLER_MAX_LENGTH = 255;
 export const NODE_RUNTIME_VERSION_MAX_LENGTH = 100;
-export const NODE_ICON_MAX_LENGTH = 100;
 export const NODE_FIELD_NAME_MAX_LENGTH = 100;
 export const NODE_CAPABILITY_CODE_MAX_LENGTH = 255;
 

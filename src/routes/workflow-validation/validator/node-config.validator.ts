@@ -52,14 +52,17 @@ function isStringConstraintSatisfied(
   if (typeof schema.maxLength === 'number' && value.length > schema.maxLength) {
     return false;
   }
-  return typeof schema.pattern !== 'string' || new RegExp(schema.pattern).test(value);
+  if (typeof schema.pattern === 'string' && !new RegExp(schema.pattern).test(value)) {
+    return false;
+  }
+  return !Array.isArray(schema.enum) || schema.enum.includes(value);
 }
 
 /**
  * Validates the deliberately small schema language published by Node Catalog.
  * Bindings are excluded: Phase 8 will validate values supplied by previous nodes.
  */
-function isConfigValueValid(value: Prisma.JsonValue, schema: FieldSchema): boolean {
+export function isNodeFieldValueValid(value: Prisma.JsonValue, schema: FieldSchema): boolean {
   // This switch is the complete MVP config-schema interpreter. Unsupported schema types fail
   // closed, preventing the backend from silently accepting a value it cannot validate.
   switch (schema.type) {
@@ -99,7 +102,7 @@ export function validateNodeConfig(
   // additional property and is rejected by the same field-level diagnostic as a type/range error.
   Object.entries(node.config).forEach(([field, value]) => {
     const fieldSchema = schema.properties[field];
-    if (!fieldSchema || !isConfigValueValid(value, fieldSchema)) {
+    if (!fieldSchema || !isNodeFieldValueValid(value, fieldSchema)) {
       diagnostics.push(configDiagnostic(node, nodeIndex, field));
     }
   });

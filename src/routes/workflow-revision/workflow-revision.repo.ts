@@ -87,7 +87,6 @@ export class WorkflowRevisionRepo {
         outputSchema: true,
         outputPorts: true,
         editorHints: true,
-        supportedErrorPolicies: true,
         contentHash: true,
         NodeDefinitionCapability: {
           where: {

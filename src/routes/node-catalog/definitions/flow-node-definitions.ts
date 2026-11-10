@@ -4,9 +4,7 @@ import {
   MAX_LOG_MESSAGE_LENGTH,
   MAX_NODE_TIMEOUT_MS,
   NodeCategory,
-  NodeErrorPolicy,
   NodeOutputPort,
-  NodeOutputPortKind,
 } from '../node-catalog.constant.ts';
 import type { NodeDefinitionType } from '../node-definition.model.ts';
 
@@ -17,25 +15,8 @@ const EMPTY_OBJECT_SCHEMA: NodeDefinitionType['configSchema'] = {
   additionalProperties: false,
 };
 
-const SUCCESS_PORT: NodeDefinitionType['outputPorts']['ports'][number] = {
-  key: NodeOutputPort.SUCCESS,
-  kind: NodeOutputPortKind.CONTROL,
-  label: 'Success',
-};
-
-const ERROR_PORT: NodeDefinitionType['outputPorts']['ports'][number] = {
-  key: NodeOutputPort.ERROR,
-  kind: NodeOutputPortKind.ERROR,
-  label: 'Error',
-};
-
-const STOP_ONLY: NodeDefinitionType['supportedErrorPolicies'] = {
-  supported: [NodeErrorPolicy.STOP],
-};
-
-const STOP_OR_ERROR_BRANCH: NodeDefinitionType['supportedErrorPolicies'] = {
-  supported: [NodeErrorPolicy.STOP, NodeErrorPolicy.ERROR_BRANCH],
-};
+const SUCCESS_PORT: NodeDefinitionType['outputPorts']['ports'][number] = NodeOutputPort.SUCCESS;
+const ERROR_PORT: NodeDefinitionType['outputPorts']['ports'][number] = NodeOutputPort.ERROR;
 
 export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
   {
@@ -52,11 +33,7 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
     outputPorts: {
       ports: [SUCCESS_PORT],
     },
-    editorHints: {
-      icon: 'play',
-      fieldOrder: [],
-    },
-    supportedErrorPolicies: STOP_ONLY,
+    editorHints: {},
     capabilities: [],
   },
   {
@@ -73,11 +50,7 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
     outputPorts: {
       ports: [],
     },
-    editorHints: {
-      icon: 'stop',
-      fieldOrder: [],
-    },
-    supportedErrorPolicies: STOP_ONLY,
+    editorHints: {},
     capabilities: [],
   },
   {
@@ -115,11 +88,7 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
     outputPorts: {
       ports: [SUCCESS_PORT, ERROR_PORT],
     },
-    editorHints: {
-      icon: 'clock',
-      fieldOrder: ['durationMs'],
-    },
-    supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
+    editorHints: {},
     capabilities: [],
   },
   {
@@ -147,11 +116,7 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
     outputPorts: {
       ports: [SUCCESS_PORT, ERROR_PORT],
     },
-    editorHints: {
-      icon: 'text',
-      fieldOrder: ['message'],
-    },
-    supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
+    editorHints: {},
     capabilities: [],
   },
   {
@@ -173,8 +138,7 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
     inputSchema: EMPTY_OBJECT_SCHEMA,
     outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: { ports: [SUCCESS_PORT, ERROR_PORT] },
-    editorHints: { icon: 'timer', fieldOrder: ['name', 'timeoutMs'] },
-    supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
+    editorHints: {},
     capabilities: [],
   },
   {
@@ -189,8 +153,7 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
     inputSchema: EMPTY_OBJECT_SCHEMA,
     outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: { ports: [ERROR_PORT] },
-    editorHints: { icon: 'git-branch', fieldOrder: [] },
-    supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
+    editorHints: {},
     capabilities: [],
   },
   {
@@ -212,8 +175,7 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
     inputSchema: EMPTY_OBJECT_SCHEMA,
     outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: { ports: [SUCCESS_PORT, ERROR_PORT] },
-    editorHints: { icon: 'variable', fieldOrder: ['scope', 'name'] },
-    supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
+    editorHints: {},
     capabilities: [],
   },
 ];

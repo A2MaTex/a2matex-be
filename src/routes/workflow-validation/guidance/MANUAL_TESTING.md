@@ -137,7 +137,7 @@ ports, and static config; it does not prove binding type correctness or Android 
         "type": "android.launch_app",
         "config": {},
         "bindings": {
-          "packageName": { "kind": "literal", "value": "com.okinc.okex.gp" }
+          "packageName": { "kind": "LITERAL", "value": "com.okinc.okex.gp" }
         },
         "errorPolicy": "STOP",
         "editor": { "x": 500, "y": 200 }
@@ -147,7 +147,7 @@ ports, and static config; it does not prove binding type correctness or Android 
         "type": "flow.delay",
         "config": {},
         "bindings": {
-          "durationMs": { "kind": "literal", "value": 2000 }
+          "durationMs": { "kind": "LITERAL", "value": 2000 }
         },
         "errorPolicy": "STOP",
         "editor": { "x": 700, "y": 200 }
@@ -157,8 +157,8 @@ ports, and static config; it does not prove binding type correctness or Android 
         "type": "android.tap",
         "config": {},
         "bindings": {
-          "x": { "kind": "literal", "value": 540 },
-          "y": { "kind": "literal", "value": 1800 }
+          "x": { "kind": "LITERAL", "value": 540 },
+          "y": { "kind": "LITERAL", "value": 1800 }
         },
         "errorPolicy": "STOP",
         "editor": { "x": 900, "y": 200 }
@@ -168,11 +168,11 @@ ports, and static config; it does not prove binding type correctness or Android 
         "type": "android.swipe",
         "config": {},
         "bindings": {
-          "startX": { "kind": "literal", "value": 540 },
-          "startY": { "kind": "literal", "value": 1600 },
-          "endX": { "kind": "literal", "value": 540 },
-          "endY": { "kind": "literal", "value": 600 },
-          "durationMs": { "kind": "literal", "value": 500 }
+          "startX": { "kind": "LITERAL", "value": 540 },
+          "startY": { "kind": "LITERAL", "value": 1600 },
+          "endX": { "kind": "LITERAL", "value": 540 },
+          "endY": { "kind": "LITERAL", "value": 600 },
+          "durationMs": { "kind": "LITERAL", "value": 500 }
         },
         "errorPolicy": "STOP",
         "editor": { "x": 1100, "y": 200 }

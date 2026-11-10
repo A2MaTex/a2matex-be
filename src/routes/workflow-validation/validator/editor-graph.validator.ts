@@ -17,6 +17,7 @@ import type {
 import { validateNodeTargeting } from './node-targeting.validator.ts';
 import { validateNodeBindings } from './node-binding.validator.ts';
 import { SWITCH_TYPE, validateSwitches } from './switch.validator.ts';
+import { NodeErrorPolicy, NodeOutputPort } from '../../node-catalog/node-catalog.constant.ts';
 
 type IndexedEdge = EditorGraphType['edges'][number] & { index: number };
 
@@ -321,7 +322,19 @@ export function validateEditorGraphCatalog(
       return;
     }
     if (node.type !== SWITCH_TYPE) {
-      errors.push(...validateNodeTargeting(node, index, definition.configSchema));
+      errors.push(...validateNodeTargeting(node, index, definition));
+    }
+    if (
+      node.errorPolicy === NodeErrorPolicy.ERROR_BRANCH &&
+      !definition.outputPorts.ports.includes(NodeOutputPort.ERROR)
+    ) {
+      errors.push(
+        diagnostic(
+          WorkflowValidationDiagnosticCode.NODE_ERROR_POLICY_INVALID,
+          ['nodes', index, 'errorPolicy'],
+          { nodeId: node.id },
+        ),
+      );
     }
   });
 
@@ -335,7 +348,7 @@ export function validateEditorGraphCatalog(
       sourceNode &&
       sourceNode.type !== SWITCH_TYPE &&
       sourceDefinition &&
-      !sourceDefinition.outputPorts.ports.some(({ key }) => key === edge.sourcePort)
+      !sourceDefinition.outputPorts.ports.some((port) => port === edge.sourcePort)
     ) {
       errors.push(
         diagnostic(
