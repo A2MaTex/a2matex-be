@@ -40,9 +40,7 @@ export const ReviewSubmissionInput = z
     }
   });
 
-// Stored feedback is JSONB: Postgres keeps neither key order nor the difference between
-// an omitted and an empty `items`. Equality is therefore decided on a canonical digest
-// of the parsed value, never on the request body as it was written.
+// JSONB keeps neither key order nor empty-vs-omitted `items`, so equality uses a digest.
 export function canonicalFeedbackHash(
   feedback: SubmissionReviewFeedbackType | null | undefined,
 ): string | null {
@@ -58,8 +56,6 @@ export function canonicalFeedbackHash(
   });
 }
 
-// A stored value that no longer parses must not compare equal to anything: hashing it
-// raw makes the replay a conflict instead of a silent idempotent success.
 export function storedFeedbackHash(value: unknown): string | null {
   if (value === null || value === undefined) {
     return null;
@@ -68,12 +64,15 @@ export function storedFeedbackHash(value: unknown): string | null {
   return parsed.success ? canonicalFeedbackHash(parsed.data) : sha256Hex({ unparseable: value });
 }
 
+// Per field, never joined: `\s` would match the separator and span two innocuous fields.
 function containsForbiddenContent(feedback: SubmissionReviewFeedbackType): boolean {
-  const text = [
+  const fields = [
     feedback.summary,
     ...(feedback.items ?? []).flatMap((item) => [item.message, item.nodeId ?? '']),
-  ].join('\n');
-  return SUBMISSION_REVIEW_FORBIDDEN_PATTERNS.some((pattern) => pattern.test(text));
+  ];
+  return fields.some((field) =>
+    SUBMISSION_REVIEW_FORBIDDEN_PATTERNS.some((pattern) => pattern.test(field)),
+  );
 }
 
 export type ReviewSubmissionInputType = z.infer<typeof ReviewSubmissionInput>;

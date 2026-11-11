@@ -3,6 +3,7 @@ import { Resend } from 'resend';
 import envConfig from '../config.ts';
 import * as React from 'react';
 import OTPEmail from '../notification-templates/otp.email.tsx';
+import SubmissionReviewEmail from '../notification-templates/submission-review.email.tsx';
 
 @Injectable()
 export class EmailService {
@@ -19,6 +20,28 @@ export class EmailService {
       to: [payload.email],
       subject: payload.subject,
       react: <OTPEmail otpCode={payload.code} title={payload.subject} />,
+    });
+  }
+
+  sendSubmissionReviewResult(payload: {
+    email: string;
+    subject: string;
+    productName: string;
+    submissionNumber: number;
+    nextStep: string;
+  }) {
+    return this.resend.emails.send({
+      from: envConfig.EMAIL_FROM,
+      to: [payload.email],
+      subject: payload.subject,
+      react: (
+        <SubmissionReviewEmail
+          title={payload.subject}
+          productName={payload.productName}
+          submissionNumber={payload.submissionNumber}
+          nextStep={payload.nextStep}
+        />
+      ),
     });
   }
 }

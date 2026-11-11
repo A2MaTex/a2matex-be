@@ -18,8 +18,7 @@ export class SubmissionReviewController {
     private readonly submissionReviewService: SubmissionReviewService,
   ) {}
 
-  // PUT rather than the repo's POST-as-action convention: the decision is one terminal
-  // write per Submission, so replaying the same request is the documented success path.
+  // PUT, not the repo's POST-as-action convention: a replay is a documented success.
   @Put(':submissionId/review')
   @ZodResponse({ type: MessageResDTO })
   review(

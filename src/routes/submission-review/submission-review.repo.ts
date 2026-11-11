@@ -26,6 +26,12 @@ export type SubmissionReviewTarget = {
   reviewFeedback: unknown;
 };
 
+export type SubmissionNotificationTarget = {
+  email: string;
+  submissionNumber: number;
+  productName: string | null;
+};
+
 export type ApprovalEligibility = {
   productStatus: ProductStatusType;
   publisherStatus: PublisherAccountStatusType;
@@ -40,8 +46,6 @@ export class SubmissionReviewRepo {
     return this.prismaService.getClient();
   }
 
-  // Read outside the transaction only to learn which Product to lock first. Every value
-  // the decision depends on is re-read under the lock.
   getIdentity(submissionId: string): Promise<SubmissionReviewIdentity | null> {
     return this.prisma.submission.findFirst({
       where: { id: submissionId, deletedAt: null },
@@ -49,9 +53,8 @@ export class SubmissionReviewRepo {
     });
   }
 
-  // First lock of the order the create path established (Product before Submission), and
-  // the one read that decides approval eligibility. `OF p` keeps the Publisher row out of
-  // the lock: its status is read, never mutated here.
+  // First lock of the order the create path established: Product before Submission.
+  // `OF p` keeps the Publisher row out of it, its status is read but never mutated.
   async lockProductForApproval(productId: string): Promise<ApprovalEligibility | null> {
     const rows = await this.prisma.$queryRaw<ApprovalEligibility[]>`
       SELECT
@@ -67,9 +70,6 @@ export class SubmissionReviewRepo {
     return rows[0] ?? null;
   }
 
-  // The lock is what serialises two Admins deciding the same Submission. `scanResult` is
-  // only asked about, never selected: the decision needs to know that evidence exists,
-  // not to carry the findings through the service.
   async lockSubmissionForReview(submissionId: string): Promise<SubmissionReviewTarget | null> {
     const rows = await this.prisma.$queryRaw<SubmissionReviewTarget[]>`
       SELECT
@@ -87,10 +87,23 @@ export class SubmissionReviewRepo {
     return rows[0] ?? null;
   }
 
-  // Exactly the five review-owned fields. The frozen snapshots, the release request, the
-  // review context and every scan column stay untouched. The caller holds the row lock,
-  // so the predicates are defence in depth: without them a caller that forgets the lock
-  // would overwrite a terminal decision or a soft-deleted row instead of writing nothing.
+  async getNotificationTarget(submissionId: string): Promise<SubmissionNotificationTarget | null> {
+    const rows = await this.prisma.$queryRaw<SubmissionNotificationTarget[]>`
+      SELECT
+        u.email,
+        s.number AS "submissionNumber",
+        s."productSnapshot" ->> 'name' AS "productName"
+      FROM "Submission" s
+      JOIN "User" u ON u.id = s."createdById"
+      WHERE s.id = ${submissionId}::uuid
+        AND s."deletedAt" IS NULL
+        AND u."deletedAt" IS NULL
+    `;
+    return rows[0] ?? null;
+  }
+
+  // The caller holds the row lock, so the predicates are defence in depth: without them
+  // a caller that forgets it would overwrite a terminal decision instead of writing nothing.
   async applyDecision({
     submissionId,
     status,

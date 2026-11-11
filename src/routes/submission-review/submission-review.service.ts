@@ -14,6 +14,7 @@ import {
 } from '../../shared/infrastructure/queue/queue.interface.ts';
 import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import type { MessageResType } from '../../shared/models/response.model.ts';
+import { EmailService } from '../../shared/services/email.service.tsx';
 import { TransactionService } from '../../shared/services/transaction.service.ts';
 import { isTransactionTimeoutPrismaError } from '../../shared/utils/prisma.ts';
 import {
@@ -24,6 +25,8 @@ import {
   DECISION_STATUS,
   PRODUCT_RELEASE_BUILD_MESSAGE_ID_PREFIX,
   PRODUCT_RELEASE_BUILD_MESSAGE_TYPE,
+  SUBMISSION_REVIEW_EMAIL_COPY,
+  SUBMISSION_REVIEW_EMAIL_TIMEOUT_MS,
   SUBMISSION_REVIEW_TX_MAX_WAIT_MS,
   SUBMISSION_REVIEW_TX_TIMEOUT_MS,
   SubmissionReviewDecision,
@@ -58,6 +61,7 @@ export class SubmissionReviewService {
   constructor(
     @Inject(SubmissionReviewRepo) private readonly submissionReviewRepo: SubmissionReviewRepo,
     @Inject(QUEUE_PROVIDER) private readonly queue: MessageProvider,
+    @Inject(EmailService) private readonly emailService: EmailService,
     @Inject(TransactionService) readonly transactionService: TransactionService,
   ) {}
 
@@ -72,8 +76,6 @@ export class SubmissionReviewService {
     userId: string;
     scopes: ActivePermissionScope[];
   }): Promise<MessageResType> {
-    // Only the unrestricted grant may decide. An OWN grant on this route is not a weaker
-    // form of the same permission, it is the wrong caller.
     if (!scopes.includes(null)) {
       throw SubmissionAccessDeniedException;
     }
@@ -82,7 +84,6 @@ export class SubmissionReviewService {
     if (!identity) {
       throw SubmissionNotFoundException;
     }
-    // An Admin who also publishes must not sign off on a Submission they created.
     if (identity.createdById === userId) {
       throw SubmissionSelfReviewForbiddenException;
     }
@@ -93,9 +94,6 @@ export class SubmissionReviewService {
       if (error instanceof HttpException) {
         throw error;
       }
-      // The decision rolled back entirely, so sending the same request again is both
-      // safe and what the Admin should do. Approval waits on a Product lock the create
-      // path may hold for its own, longer budget.
       if (isTransactionTimeoutPrismaError(error)) {
         this.logger.error(
           `Submission review transaction timed out submissionId=${identity.id} ` +
@@ -122,11 +120,7 @@ export class SubmissionReviewService {
     userId: string;
   }): Promise<void> {
     const approving = data.decision === SubmissionReviewDecision.APPROVE;
-    // Approval depends on Product state, so it takes the Product lock first and keeps the
-    // order the create path established. A Submission that is already terminal is skipped:
-    // a terminal status never reverts, so that request can only be a replay, and holding
-    // an exclusive Product lock for a request that writes nothing blocks every concurrent
-    // create on the same Product.
+    // Product before Submission, as the create path does. A replay skips the lock.
     const eligibility =
       approving && !TERMINAL_REVIEW_STATUSES.includes(identity.status)
         ? await this.submissionReviewRepo.lockProductForApproval(identity.productId)
@@ -139,8 +133,7 @@ export class SubmissionReviewService {
 
     if (TERMINAL_REVIEW_STATUSES.includes(target.status)) {
       this.assertIdenticalReplay(target, data);
-      // An identical replay writes nothing. Approval still republishes: that is the
-      // documented recovery for a decision that committed before publication succeeded.
+      // Republishing is the documented recovery for a lost publication.
       if (approving) {
         if (!target.reviewedAt) {
           this.logger.error(
@@ -170,19 +163,60 @@ export class SubmissionReviewService {
       feedback: data.feedback ?? null,
       userId,
     });
-    // Unreachable while the row lock above is held; it stays because the guard in the
-    // repository is what makes that lock a requirement rather than an assumption.
     if (updated === 0) {
       throw SubmissionNotReadyForReviewException;
     }
+
+    // Before the publication: callbacks run in order and a publish failure stops them.
+    await this.transactionService.afterCommit(() =>
+      this.notifyPublisher({ submissionId: identity.id, decision: data.decision }),
+    );
 
     if (approving) {
       await this.publishAfterCommit({ identity, occurredAt: reviewedAt });
     }
   }
 
-  // A terminal Submission accepts only the decision it already carries, with the same
-  // feedback. Anything else is a conflict rather than an edit.
+  // Best effort: a provider outage must not turn a committed decision into an error.
+  private async notifyPublisher({
+    submissionId,
+    decision,
+  }: {
+    submissionId: string;
+    decision: SubmissionReviewDecisionType;
+  }): Promise<void> {
+    try {
+      const target = await this.submissionReviewRepo.getNotificationTarget(submissionId);
+      if (!target) {
+        this.logger.warn(`No notification target for reviewed Submission ${submissionId}`);
+        return;
+      }
+
+      const copy = SUBMISSION_REVIEW_EMAIL_COPY[decision];
+      const { error } = await withTimeout(
+        this.emailService.sendSubmissionReviewResult({
+          email: target.email,
+          subject: copy.subject,
+          nextStep: copy.nextStep,
+          productName: target.productName ?? 'sản phẩm của bạn',
+          submissionNumber: target.submissionNumber,
+        }),
+        SUBMISSION_REVIEW_EMAIL_TIMEOUT_MS,
+      );
+      if (error) {
+        this.logger.error(
+          `Review notification rejected submissionId=${submissionId} decision=${decision}: ` +
+            `${error.message}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Review notification failed submissionId=${submissionId} decision=${decision}: ` +
+          `${error instanceof Error ? error.message : 'unknown'}`,
+      );
+    }
+  }
+
   private assertIdenticalReplay(
     target: SubmissionReviewTarget,
     data: ReviewSubmissionInputType,
@@ -212,9 +246,7 @@ export class SubmissionReviewService {
     );
   }
 
-  // Identifiers only: Product Release loads the approved Submission, the frozen revision
-  // and the snapshots from PostgreSQL itself. `occurredAt` comes from the stored review
-  // time so a republish emits the same message as the original approval.
+  // Identifiers only. `occurredAt` is the stored review time so a republish is identical.
   private async publishBuildRequest({
     submissionId,
     productId,
@@ -237,7 +269,6 @@ export class SubmissionReviewService {
         },
       });
     } catch (error) {
-      // Identifiers only: feedback, scan findings and payload contents stay out of logs.
       this.logger.error(
         `Product Release build publication failed submissionId=${submissionId} ` +
           `productId=${productId} messageId=${messageId}: ` +
@@ -248,33 +279,35 @@ export class SubmissionReviewService {
   }
 }
 
+// `decide` waits on the after-commit callbacks and the mail client sets no deadline.
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expiry = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, expiry]).finally(() => clearTimeout(timer));
+}
+
 function assertScanEligible(
   target: SubmissionReviewTarget,
   decision: SubmissionReviewDecisionType,
 ): void {
   if (target.scanStatus === SubmissionScanStatus.PASSED) {
-    // Approval authorises a build from the stored evidence, so the evidence must exist.
     if (decision === SubmissionReviewDecision.APPROVE && !target.hasScanResult) {
       throw SubmissionScanIncompleteException;
     }
     return;
   }
   if (target.scanStatus === SubmissionScanStatus.FAILED) {
-    // A failed business scan can be refused but not approved: an override needs its own
-    // audited contract.
     if (decision === SubmissionReviewDecision.APPROVE) {
       throw SubmissionScanFailedException;
     }
     return;
   }
-  // Unreachable today: READY_FOR_REVIEW is only ever set together with PASSED or FAILED,
-  // and nothing moves a finished scan back to QUEUED, RUNNING or ERROR. It stays because
-  // this function must not approve a scan status it was never taught to judge.
+  // Unreachable today, kept so this never approves a status it was not taught to judge.
   throw SubmissionScanIncompleteException;
 }
 
-// External state can change after the scan and before the decision, and Product Release
-// has to repeat these checks because it can change again before the build runs.
 function assertApprovalEligible(eligibility: ApprovalEligibility | null): void {
   if (!eligibility) {
     throw SubmissionNotEligibleForApprovalException;
