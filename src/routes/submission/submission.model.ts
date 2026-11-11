@@ -148,7 +148,6 @@ export const SubmissionWorkflowRevision = z.object({
   nodeDefinitionManifest: StoredJson,
   capabilityManifest: StoredJson,
   validationSummary: StoredJson,
-  testSummary: StoredJson,
   createdAt: zDate(),
 });
 

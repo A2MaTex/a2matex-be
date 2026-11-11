@@ -310,11 +310,6 @@
             "message": "The percentage Tap and absolute-pixel Swipe may require calibration for the installed OKX version and device orientation."
           }
         ]
-      },
-      "testSummary": {
-        "status": "NOT_RUN",
-        "failedRuns": 0,
-        "successfulRuns": 0
       }
     }
   },

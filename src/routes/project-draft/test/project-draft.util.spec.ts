@@ -8,7 +8,6 @@ function draft(overrides: Record<string, unknown> = {}) {
     inputSchema: {},
     runtimeIr: null,
     validationSummary: {},
-    testSummary: {},
     ...overrides,
   };
 }

@@ -366,7 +366,6 @@ model ProjectDraft {
   inputSchema       Json
   runtimeIr         Json?
   validationSummary Json      @default("{}")
-  testSummary       Json      @default("{}")
   contentHash       String    @db.VarChar(64)
   savedAt           DateTime  @default(now()) @db.Timestamptz(6)
   savedById         String    @db.Uuid
@@ -389,7 +388,6 @@ model WorkflowRevision {
   nodeDefinitionManifest                  Json
   capabilityManifest                      Json
   validationSummary                       Json
-  testSummary                             Json        @default("{}")
   contentHash                             String      @db.VarChar(64)
   createdAt                               DateTime    @default(now()) @db.Timestamptz(6)
   updatedAt                               DateTime?   @db.Timestamptz(6)

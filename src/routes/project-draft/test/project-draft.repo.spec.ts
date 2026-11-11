@@ -32,7 +32,6 @@ describe('ProjectDraftRepo persistence', () => {
         inputSchema: {},
         runtimeIr: null,
         validationSummary: {},
-        testSummary: {},
       },
       contentHash: 'a'.repeat(64),
       savedById: 'user-id',
@@ -74,5 +73,29 @@ describe('ProjectDraftRepo persistence', () => {
     });
 
     expect(getClient).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects invalid JSON shapes loaded from storage', async () => {
+    findFirst.mockResolvedValue({
+      status: 'ACTIVE',
+      ProjectDraft: {
+        id: '4f1f22ea-d6bd-4dad-9472-03f4f9122ba1',
+        projectId: '1a53bd57-b811-40c8-9235-6157c8aa498e',
+        version: 1,
+        editorGraph: [],
+        inputSchema: {},
+        runtimeIr: null,
+        validationSummary: {},
+        contentHash: 'a'.repeat(64),
+        savedAt: new Date(),
+      },
+    });
+
+    await expect(
+      repo.getAccessibleProject({
+        projectId: 'project-id',
+        access: { unrestricted: true },
+      }),
+    ).rejects.toThrow();
   });
 });

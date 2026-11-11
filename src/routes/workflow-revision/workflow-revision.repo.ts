@@ -52,7 +52,6 @@ export class WorkflowRevisionRepo {
         "inputSchema",
         "runtimeIr",
         "validationSummary",
-        "testSummary",
         "contentHash"
       FROM "ProjectDraft"
       WHERE "projectId" = ${projectId}::uuid
@@ -126,7 +125,6 @@ export class WorkflowRevisionRepo {
         nodeDefinitionManifest: snapshot.nodeDefinitionManifest,
         capabilityManifest: snapshot.capabilityManifest,
         validationSummary: snapshot.validationSummary,
-        testSummary: snapshot.testSummary,
         contentHash: snapshot.contentHash,
         createdById,
       },

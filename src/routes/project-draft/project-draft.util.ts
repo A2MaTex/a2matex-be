@@ -8,7 +8,6 @@ type ProjectDraftHashContent = {
   inputSchema: unknown;
   runtimeIr: unknown;
   validationSummary: unknown;
-  testSummary: unknown;
 };
 
 function canonicalizeJson(value: unknown): string {
@@ -33,7 +32,6 @@ export function prepareProjectDraftContent(data: SaveProjectDraftInputType) {
     inputSchema: data.inputSchema,
     runtimeIr: data.runtimeIr,
     validationSummary: data.validationSummary,
-    testSummary: data.testSummary,
   };
   const canonicalContent = canonicalizeProjectDraftContent(content);
 
@@ -57,6 +55,5 @@ function canonicalizeProjectDraftContent(data: ProjectDraftHashContent): string 
     inputSchema: data.inputSchema,
     runtimeIr: data.runtimeIr,
     validationSummary: data.validationSummary,
-    testSummary: data.testSummary,
   });
 }

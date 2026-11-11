@@ -26,7 +26,6 @@ function input(expectedVersion = 0) {
     inputSchema: {},
     runtimeIr: null,
     validationSummary: {},
-    testSummary: {},
   };
 }
 
@@ -39,7 +38,6 @@ function storedDraft(contentHash: string, version = 1) {
     inputSchema: {},
     runtimeIr: null,
     validationSummary: {},
-    testSummary: {},
     contentHash,
     savedAt: SAVED_AT,
   };

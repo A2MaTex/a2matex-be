@@ -21,7 +21,6 @@ function draft(overrides: Partial<LockedWorkflowRevisionDraft> = {}): LockedWork
     inputSchema: {},
     runtimeIr: {},
     validationSummary: {},
-    testSummary: {},
     contentHash: 'a'.repeat(64),
     ...overrides,
   };
