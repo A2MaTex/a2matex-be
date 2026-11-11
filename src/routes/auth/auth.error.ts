@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { withRequestLogMessage } from '../../shared/infrastructure/logging/request-log-context.service.js';
 
 // OTP related errors
 export const InvalidOTPException = new UnprocessableEntityException([
@@ -27,19 +28,15 @@ export const FailedToSendOTPException = new UnprocessableEntityException([
 ]);
 
 // Email related errors
-export const EmailAlreadyExistsException = new UnprocessableEntityException([
-  {
-    message: 'Error.EmailAlreadyExists',
-    path: 'email',
-  },
-]);
+export const EmailAlreadyExistsException = withRequestLogMessage(
+  new UnprocessableEntityException([{ message: 'Error.EmailAlreadyExists', path: 'email' }]),
+  'email already exists',
+);
 
-export const UsernameAlreadyExistsException = new UnprocessableEntityException([
-  {
-    message: 'Error.UsernameAlreadyExists',
-    path: 'username',
-  },
-]);
+export const UsernameAlreadyExistsException = withRequestLogMessage(
+  new UnprocessableEntityException([{ message: 'Error.UsernameAlreadyExists', path: 'username' }]),
+  'username already exists',
+);
 
 export const EmailNotFoundException = new UnprocessableEntityException([
   {

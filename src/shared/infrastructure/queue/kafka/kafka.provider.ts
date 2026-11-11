@@ -68,7 +68,8 @@ export class KafkaProvider implements MessageProvider, OnModuleDestroy {
       });
     } catch (error) {
       this.logger.error(
-        `Failed to publish Kafka message topic=${topic} messageId=${input.message.id} traceId=${input.message.traceId ?? ''}: ${this.formatError(error)}`,
+        `Failed to publish Kafka message topic=${topic} messageId=${input.message.id} traceId=${input.message.traceId ?? ''}`,
+        error,
       );
       throw error;
     }

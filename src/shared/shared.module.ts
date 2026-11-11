@@ -21,7 +21,12 @@ import { ProjectAccessPolicy } from './services/project-access.policy.ts';
 import { QueueModule } from './infrastructure/queue/queue.ts';
 import { UploadSessionRepository } from './repositories/upload-session.repo.ts';
 
+import { ContextLoggerService } from './infrastructure/logging/context-logger.service.js';
+import { RequestLogContextService } from './infrastructure/logging/request-log-context.service.js';
+
 const sharedServices = [
+  ContextLoggerService,
+  RequestLogContextService,
   PrismaService,
   TransactionContext,
   TransactionService,

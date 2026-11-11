@@ -416,7 +416,8 @@ export class SubmissionService {
     } catch (error) {
       this.logger.error(
         `Submission scan publication failed submissionId=${submissionId} ` +
-          `scanAttempt=${scanAttempt}: ${error instanceof Error ? error.message : 'unknown'}`,
+          `scanAttempt=${scanAttempt}`,
+        error,
       );
       throw SubmissionScanPublishFailedException;
     }

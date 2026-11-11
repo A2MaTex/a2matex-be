@@ -13,9 +13,9 @@ export class EmailService {
     this.resend = new Resend(envConfig.RESEND_API_KEY);
   }
   async sendOTP(payload: { email: string; code: string; subject: string }) {
-    if (envConfig.NODE_ENV !== 'production') {
-      console.log(`OTP Email: ${payload.email}, Code: ${payload.code}`);
-    }
+    // if (envConfig.NODE_ENV !== 'production') {
+    //   console.log(`OTP Email: ${payload.email}, Code: ${payload.code}`);
+    // }
     return this.resend.emails.send({
       from: envConfig.EMAIL_FROM,
       to: [payload.email],
