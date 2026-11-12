@@ -131,9 +131,8 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
       ...EMPTY_OBJECT_SCHEMA,
       properties: {
         name: { type: 'string', pattern: '^[A-Za-z_][A-Za-z0-9_]{0,99}$' },
-        timeoutMs: { type: 'integer', minimum: 1, maximum: MAX_NODE_TIMEOUT_MS },
       },
-      required: ['name', 'timeoutMs'],
+      required: ['name'],
     },
     inputSchema: EMPTY_OBJECT_SCHEMA,
     outputSchema: EMPTY_OBJECT_SCHEMA,

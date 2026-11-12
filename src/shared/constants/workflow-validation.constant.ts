@@ -8,6 +8,10 @@ export const EDITOR_GRAPH_MAX_NODES = 500;
 export const EDITOR_GRAPH_MAX_EDGES = 1_000;
 export const EDITOR_GRAPH_MAX_DIAGNOSTICS = 100;
 export const EDITOR_GRAPH_MAX_CONTENT_BYTES = 1_048_576;
+export const WORKFLOW_NODE_DEFAULT_MAX_ATTEMPTS = 1;
+export const WORKFLOW_NODE_MAX_ATTEMPTS = 3;
+export const WORKFLOW_NODE_DEFAULT_RETRY_DELAY_MS = 0;
+export const WORKFLOW_NODE_MAX_RETRY_DELAY_MS = 60_000;
 
 export const WorkflowValidationStatus = {
   INVALID: 'INVALID',
@@ -44,7 +48,10 @@ export const WorkflowValidationDiagnosticCode = {
   NODE_ERROR_POLICY_INVALID: 'NODE_ERROR_POLICY_INVALID',
   NODE_BINDINGS_INVALID: 'NODE_BINDINGS_INVALID',
   NODE_VALUE_BINDING_INVALID: 'NODE_VALUE_BINDING_INVALID',
+  NODE_PORT_EDGE_COUNT_INVALID: 'NODE_PORT_EDGE_COUNT_INVALID',
   SWITCH_PORT_EDGE_COUNT_INVALID: 'SWITCH_PORT_EDGE_COUNT_INVALID',
+  WORKFLOW_INPUT_SCHEMA_INVALID: 'WORKFLOW_INPUT_SCHEMA_INVALID',
+  RUNTIME_IR_PAYLOAD_TOO_LARGE: 'RUNTIME_IR_PAYLOAD_TOO_LARGE',
   GRAPH_NODE_LIMIT_EXCEEDED: 'GRAPH_NODE_LIMIT_EXCEEDED',
   GRAPH_EDGE_LIMIT_EXCEEDED: 'GRAPH_EDGE_LIMIT_EXCEEDED',
 } as const;
@@ -74,7 +81,10 @@ export const WORKFLOW_VALIDATION_DIAGNOSTIC_MESSAGES: Record<
   NODE_ERROR_POLICY_INVALID: 'Node error policy is not supported by its definition',
   NODE_BINDINGS_INVALID: 'Node bindings do not match the selected targeting mode',
   NODE_VALUE_BINDING_INVALID: 'Node input binding is invalid or its source is unavailable',
+  NODE_PORT_EDGE_COUNT_INVALID: 'Node port must have exactly one outgoing edge',
   SWITCH_PORT_EDGE_COUNT_INVALID: 'Switch port must have exactly one outgoing edge',
+  WORKFLOW_INPUT_SCHEMA_INVALID: 'Workflow input schema does not match the required contract',
+  RUNTIME_IR_PAYLOAD_TOO_LARGE: 'Compiled Runtime IR exceeds the maximum content size',
   GRAPH_NODE_LIMIT_EXCEEDED: 'Graph exceeds the maximum node count',
   GRAPH_EDGE_LIMIT_EXCEEDED: 'Graph exceeds the maximum edge count',
 };

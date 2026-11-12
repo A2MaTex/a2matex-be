@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import { SWITCH_TYPE, switchRules } from './switch.validator.ts';
 import {
   WorkflowBindingKind,
@@ -9,27 +8,15 @@ import type {
   WorkflowNodeDefinitionType,
   WorkflowValidationDiagnosticType,
 } from '../workflow-validation.model.ts';
+import { EditorGraphBinding } from '../workflow-validation.model.ts';
+import { isNodeFieldValueValid } from './node-config.validator.ts';
 
-const name = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,99}$/);
-const identifier = z.string().min(1).max(100);
-const binding = z.discriminatedUnion('kind', [
-  z.strictObject({
-    kind: z.literal(WorkflowBindingKind.LITERAL),
-    value: z.union([z.string(), z.number().int(), z.boolean()]),
-  }),
-  z.strictObject({ kind: z.literal(WorkflowBindingKind.WORKFLOW_INPUT), inputName: name }),
-  z.strictObject({
-    kind: z.literal(WorkflowBindingKind.NODE_OUTPUT),
-    nodeId: identifier,
-    field: name,
-  }),
-  z.strictObject({ kind: z.literal(WorkflowBindingKind.FLOW_VARIABLE), name }),
-  z.strictObject({ kind: z.literal(WorkflowBindingKind.GLOBAL_VARIABLE), name }),
-]);
+type InputSchema = NonNullable<WorkflowNodeDefinitionType['inputSchema']>;
 
 export function validateNodeBindings(
   graph: EditorGraphType,
   definitions: Map<string, WorkflowNodeDefinitionType>,
+  workflowInputSchema?: InputSchema,
 ): WorkflowValidationDiagnosticType[] {
   const diagnostics: WorkflowValidationDiagnosticType[] = [];
   const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
@@ -83,6 +70,11 @@ export function validateNodeBindings(
       });
     };
     if (isSet && !Object.hasOwn(node.bindings, 'value')) report('value');
+    if (!isSet && !isWait && !isSwitch) {
+      for (const field of definition.inputSchema?.required ?? []) {
+        if (!Object.hasOwn(node.bindings, field)) report(field);
+      }
+    }
     if (isSwitch)
       for (const field of switchFields) {
         if (!Object.hasOwn(node.bindings, field)) report(field);
@@ -92,16 +84,7 @@ export function validateNodeBindings(
         report(field);
         continue;
       }
-      const kind = raw && typeof raw === 'object' && 'kind' in raw ? raw.kind : undefined;
-      if (
-        !isSet &&
-        !isSwitch &&
-        kind !== WorkflowBindingKind.NODE_OUTPUT &&
-        kind !== WorkflowBindingKind.FLOW_VARIABLE &&
-        kind !== WorkflowBindingKind.GLOBAL_VARIABLE
-      )
-        continue;
-      const parsed = binding.safeParse(raw);
+      const parsed = EditorGraphBinding.safeParse(raw);
       const input = Object.hasOwn(definition.inputSchema?.properties ?? {}, field)
         ? definition.inputSchema?.properties[field]
         : undefined;
@@ -112,11 +95,33 @@ export function validateNodeBindings(
         report(field);
         continue;
       }
-      if (parsed.data.kind === WorkflowBindingKind.LITERAL && isSwitch) {
-        types.set(
-          field,
-          typeof parsed.data.value === 'number' ? 'integer' : typeof parsed.data.value,
-        );
+      if (parsed.data.kind === WorkflowBindingKind.LITERAL) {
+        if (!isSet && !isSwitch && input && !isNodeFieldValueValid(parsed.data.value, input)) {
+          report(field);
+        }
+        if (isSwitch) {
+          types.set(
+            field,
+            typeof parsed.data.value === 'number' ? 'integer' : typeof parsed.data.value,
+          );
+        }
+        continue;
+      }
+      if (parsed.data.kind === WorkflowBindingKind.WORKFLOW_INPUT) {
+        if (!workflowInputSchema) continue;
+        const workflowInput = workflowInputSchema.properties[parsed.data.inputName];
+        const requiredInput = workflowInputSchema.required.includes(parsed.data.inputName);
+        const requiredDestination = definition.inputSchema?.required.includes(field) ?? false;
+        if (
+          !workflowInput ||
+          (!isSet && !isSwitch && input?.type !== workflowInput.type) ||
+          (requiredDestination && !requiredInput)
+        ) {
+          report(field);
+        } else if (isSwitch) {
+          types.set(field, workflowInput.type);
+        }
+        continue;
       }
       if (parsed.data.kind !== WorkflowBindingKind.NODE_OUTPUT) continue;
       const { nodeId, field: outputField } = parsed.data;
