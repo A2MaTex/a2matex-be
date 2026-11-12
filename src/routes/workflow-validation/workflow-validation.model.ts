@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   NODE_TYPE_MAX_LENGTH,
   NODE_TYPE_PATTERN,
+  MAX_NODE_TIMEOUT_MS,
   NodeErrorPolicy,
 } from '../node-catalog/node-catalog.constant.ts';
 import {
@@ -13,6 +14,9 @@ import {
   EDITOR_GRAPH_IDENTIFIER_MAX_LENGTH,
   WorkflowValidationDiagnosticCode,
   WorkflowValidationStatus,
+  WorkflowBindingKind,
+  WORKFLOW_NODE_MAX_ATTEMPTS,
+  WORKFLOW_NODE_MAX_RETRY_DELAY_MS,
 } from '../../shared/constants/workflow-validation.constant.ts';
 
 // Node IDs are Studio-local identifiers, not database UUIDs, so they only need stable bounded text.
@@ -20,6 +24,39 @@ const EditorGraphIdentifier = z.string().trim().min(1).max(EDITOR_GRAPH_IDENTIFI
 
 // z.json() excludes functions, undefined, NaN, and other values that cannot cross JSON transport.
 const EditorGraphJsonObject = z.record(z.string(), z.json());
+const WorkflowFieldName = z.string().regex(/^[a-z][a-zA-Z0-9]{0,99}$/);
+const WorkflowVariableName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,99}$/);
+
+export const EditorGraphBinding = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal(WorkflowBindingKind.LITERAL),
+    value: z.union([z.string(), z.number().int().safe(), z.boolean()]),
+  }),
+  z.strictObject({
+    kind: z.literal(WorkflowBindingKind.WORKFLOW_INPUT),
+    inputName: WorkflowFieldName,
+  }),
+  z.strictObject({
+    kind: z.literal(WorkflowBindingKind.NODE_OUTPUT),
+    nodeId: EditorGraphIdentifier,
+    field: WorkflowFieldName,
+  }),
+  z.strictObject({
+    kind: z.literal(WorkflowBindingKind.FLOW_VARIABLE),
+    name: WorkflowVariableName,
+  }),
+  z.strictObject({
+    kind: z.literal(WorkflowBindingKind.GLOBAL_VARIABLE),
+    name: WorkflowVariableName,
+  }),
+]);
+
+export const EditorGraphRetryPolicy = z
+  .object({
+    maxAttempts: z.number().int().min(1).max(WORKFLOW_NODE_MAX_ATTEMPTS).optional(),
+    delayMs: z.number().int().min(0).max(WORKFLOW_NODE_MAX_RETRY_DELAY_MS).optional(),
+  })
+  .strict();
 
 // A node keeps static config separate from bindings. Only explicit Android targeting modes
 // validate literal bindings here; other bindings remain opaque.
@@ -29,6 +66,8 @@ export const EditorGraphNode = z
     type: z.string().trim().min(1).max(NODE_TYPE_MAX_LENGTH).regex(NODE_TYPE_PATTERN),
     config: EditorGraphJsonObject,
     bindings: EditorGraphJsonObject,
+    timeoutMs: z.number().int().min(1).max(MAX_NODE_TIMEOUT_MS).optional(),
+    retryPolicy: EditorGraphRetryPolicy.optional(),
     errorPolicy: z.enum([NodeErrorPolicy.STOP, NodeErrorPolicy.ERROR_BRANCH]),
     editor: z
       .object({
@@ -115,6 +154,7 @@ export const WorkflowValidationOutput = z
   .strict();
 
 export type EditorGraphType = z.infer<typeof EditorGraph>;
+export type EditorGraphBindingType = z.infer<typeof EditorGraphBinding>;
 export type ValidateEditorGraphInputType = z.infer<typeof ValidateEditorGraphInput>;
 export type WorkflowNodeDefinitionType = z.infer<typeof WorkflowNodeDefinition>;
 export type WorkflowValidationDiagnosticType = z.infer<typeof WorkflowValidationDiagnostic>;

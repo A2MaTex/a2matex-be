@@ -79,7 +79,6 @@ export class WorkflowRevisionService {
       inputSchema: requireJsonObject(draft.inputSchema),
       runtimeIr: requireJsonObject(draft.runtimeIr),
       validationSummary: requireJsonObject(draft.validationSummary),
-      testSummary: requireJsonObject(draft.testSummary),
     };
     const recomputedDraftHash = calculateProjectDraftContentHash(draftContent);
     if (recomputedDraftHash !== draft.contentHash) {

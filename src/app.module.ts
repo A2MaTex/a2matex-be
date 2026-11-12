@@ -17,6 +17,7 @@ import { ProjectDraftModule } from './routes/project-draft/project-draft.module.
 import { SubmissionModule } from './routes/submission/submission.module.ts';
 import { ProductModule } from './routes/product/product.module.ts';
 import { WorkflowValidationModule } from './routes/workflow-validation/workflow-validation.module.ts';
+import { WorkflowCompilerModule } from './routes/workflow-compiler/workflow-compiler.module.ts';
 import { UserModule } from './routes/user/user.module.ts';
 import { CatchEverythingFilter } from './shared/filters/catch-everything.filter.js';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter.js';
@@ -45,6 +46,7 @@ import { ConfigModule } from '@nestjs/config';
     ProductModule,
     SubmissionModule,
     WorkflowValidationModule,
+    WorkflowCompilerModule,
     UserModule,
     SharedModule,
     ConfigModule.forRoot({

@@ -53,7 +53,6 @@ describe('ProjectDraftController routes', () => {
         inputSchema: {},
         runtimeIr: null,
         validationSummary: {},
-        testSummary: {},
       })
       .expect(422);
     expect(save).not.toHaveBeenCalled();
@@ -68,7 +67,6 @@ describe('ProjectDraftController routes', () => {
         inputSchema: {},
         runtimeIr: null,
         validationSummary: {},
-        testSummary: {},
       })
       .expect(422);
     expect(save).not.toHaveBeenCalled();
@@ -81,12 +79,26 @@ describe('ProjectDraftController routes', () => {
       inputSchema: {},
       runtimeIr: null,
       validationSummary: {},
-      testSummary: {},
     };
 
     await request(app.getHttpServer()).put(`/projects/${PROJECT_ID}/draft`).send(body).expect(200);
     expect(save).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: PROJECT_ID, data: body }),
     );
+  });
+
+  it('rejects the removed test summary field', async () => {
+    await request(app.getHttpServer())
+      .put(`/projects/${PROJECT_ID}/draft`)
+      .send({
+        expectedVersion: 0,
+        editorGraph: {},
+        inputSchema: {},
+        runtimeIr: null,
+        validationSummary: {},
+        testSummary: {},
+      })
+      .expect(422);
+    expect(save).not.toHaveBeenCalled();
   });
 });

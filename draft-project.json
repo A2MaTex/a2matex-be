@@ -8,6 +8,8 @@
       "savedAt": "2026-10-14T10:37:16.860Z",
       "projectId": "32e50b1c-57fb-4e7e-b812-ed2b385027ac",
       "editorGraph": {
+        "entryNodeId": "4f488856-1c95-40de-a97a-e29222ef9a4d",
+        "schemaVersion": 1,
         "edges": [
           {
             "id": "e730208e-20da-47a2-a0e0-1d71888f67d2",
@@ -290,9 +292,7 @@
             "bindings": {},
             "errorPolicy": "STOP"
           }
-        ],
-        "entryNodeId": "4f488856-1c95-40de-a97a-e29222ef9a4d",
-        "schemaVersion": 1
+        ]
       },
       "inputSchema": {
         "type": "object",
@@ -310,11 +310,6 @@
             "message": "The percentage Tap and absolute-pixel Swipe may require calibration for the installed OKX version and device orientation."
           }
         ]
-      },
-      "testSummary": {
-        "status": "NOT_RUN",
-        "failedRuns": 0,
-        "successfulRuns": 0
       }
     }
   },

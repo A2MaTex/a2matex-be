@@ -298,6 +298,7 @@ export function validateEditorGraphTopology(
 export function validateEditorGraphCatalog(
   graph: EditorGraphType,
   definitions: WorkflowNodeDefinitionType[],
+  workflowInputSchema?: NonNullable<WorkflowNodeDefinitionType['inputSchema']>,
 ): WorkflowValidationDiagnosticType[] {
   const errors: WorkflowValidationDiagnosticType[] = [];
 
@@ -360,8 +361,46 @@ export function validateEditorGraphCatalog(
     }
   });
 
+  // Catalog pass 3 - ordinary executable nodes use one success transition. Error transitions are
+  // present exactly when the selected policy delegates failure to an error branch. Switch owns its
+  // dynamic rule/default cardinality in the dedicated validator below.
+  const outgoingPortCounts = new Map<string, Map<string, number>>();
+  graph.edges.forEach(({ sourceNodeId, sourcePort }) => {
+    const portCounts = outgoingPortCounts.get(sourceNodeId) ?? new Map<string, number>();
+    portCounts.set(sourcePort, (portCounts.get(sourcePort) ?? 0) + 1);
+    outgoingPortCounts.set(sourceNodeId, portCounts);
+  });
+  graph.nodes.forEach((node, index) => {
+    if (!definitionByType.has(node.type) || node.type === 'flow.end' || node.type === SWITCH_TYPE) {
+      return;
+    }
+
+    const portCounts = outgoingPortCounts.get(node.id);
+    const reportPort = (port: string) => {
+      errors.push(
+        diagnostic(
+          WorkflowValidationDiagnosticCode.NODE_PORT_EDGE_COUNT_INVALID,
+          ['nodes', index, 'ports', port],
+          { nodeId: node.id },
+        ),
+      );
+    };
+
+    if (portCounts?.get(NodeOutputPort.SUCCESS) !== 1) {
+      reportPort(NodeOutputPort.SUCCESS);
+    }
+
+    const errorEdgeCount = portCounts?.get(NodeOutputPort.ERROR) ?? 0;
+    if (
+      (node.errorPolicy === NodeErrorPolicy.ERROR_BRANCH && errorEdgeCount !== 1) ||
+      (node.errorPolicy === NodeErrorPolicy.STOP && errorEdgeCount !== 0)
+    ) {
+      reportPort(NodeOutputPort.ERROR);
+    }
+  });
+
   return errors.concat(
     validateSwitches(graph, definitionByType.has(SWITCH_TYPE)).diagnostics,
-    validateNodeBindings(graph, definitionByType),
+    validateNodeBindings(graph, definitionByType, workflowInputSchema),
   );
 }

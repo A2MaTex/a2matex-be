@@ -61,7 +61,6 @@ describe('WorkflowRevisionRepo', () => {
       nodeDefinitionManifest: {},
       capabilityManifest: {},
       validationSummary: {},
-      testSummary: {},
       contentHash: 'c'.repeat(64),
     };
 
