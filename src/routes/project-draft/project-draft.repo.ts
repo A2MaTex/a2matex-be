@@ -6,10 +6,7 @@ import {
   buildProjectAccessWhere,
   type ProjectAccess,
 } from '../../shared/models/project-access.model.ts';
-import {
-  ProjectDraftOutput,
-  type SaveProjectDraftInputType,
-} from './project-draft.model.ts';
+import { ProjectDraftOutput, type SaveProjectDraftInputType } from './project-draft.model.ts';
 
 const PROJECT_DRAFT_SELECT = {
   id: true,
@@ -112,7 +109,6 @@ export class ProjectDraftRepo {
       where: {
         projectId,
         version: expectedVersion,
-        contentHash: { not: contentHash },
         deletedAt: null,
         Project: {
           is: buildProjectAccessWhere(access, ProjectStatus.ACTIVE),

@@ -43,7 +43,6 @@ describe('ProjectDraftRepo persistence', () => {
         where: expect.objectContaining({
           projectId: 'project-id',
           version: 4,
-          contentHash: { not: 'a'.repeat(64) },
           Project: {
             is: {
               deletedAt: null,
