@@ -27,7 +27,6 @@ export type LockedWorkflowRevisionDraft = {
   inputSchema: Prisma.JsonValue;
   runtimeIr: Prisma.JsonValue | null;
   validationSummary: Prisma.JsonValue;
-  testSummary: Prisma.JsonValue;
   contentHash: string;
 };
 
@@ -44,7 +43,6 @@ export type WorkflowRevisionNodeDefinition = {
   outputSchema: Prisma.JsonValue;
   outputPorts: Prisma.JsonValue;
   editorHints: Prisma.JsonValue;
-  supportedErrorPolicies: Prisma.JsonValue;
   contentHash: string;
   NodeDefinitionCapability: Array<{
     Capability: { code: string };
@@ -58,6 +56,5 @@ export type WorkflowRevisionSnapshot = {
   nodeDefinitionManifest: Prisma.JsonObject;
   capabilityManifest: Prisma.JsonObject;
   validationSummary: Prisma.JsonObject;
-  testSummary: Prisma.JsonObject;
   contentHash: string;
 };

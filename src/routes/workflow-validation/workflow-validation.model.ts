@@ -2,13 +2,21 @@ import { z } from 'zod';
 import {
   NODE_TYPE_MAX_LENGTH,
   NODE_TYPE_PATTERN,
+  MAX_NODE_TIMEOUT_MS,
   NodeErrorPolicy,
 } from '../node-catalog/node-catalog.constant.ts';
-import { NodeDefinitionContract, NodeObjectSchema } from '../node-catalog/node-definition.model.ts';
+import {
+  NodeDefinitionContract,
+  NodeObjectSchema,
+  NodeTargetingContract,
+} from '../node-catalog/node-definition.model.ts';
 import {
   EDITOR_GRAPH_IDENTIFIER_MAX_LENGTH,
   WorkflowValidationDiagnosticCode,
   WorkflowValidationStatus,
+  WorkflowBindingKind,
+  WORKFLOW_NODE_MAX_ATTEMPTS,
+  WORKFLOW_NODE_MAX_RETRY_DELAY_MS,
 } from '../../shared/constants/workflow-validation.constant.ts';
 
 // Node IDs are Studio-local identifiers, not database UUIDs, so they only need stable bounded text.
@@ -16,20 +24,57 @@ const EditorGraphIdentifier = z.string().trim().min(1).max(EDITOR_GRAPH_IDENTIFI
 
 // z.json() excludes functions, undefined, NaN, and other values that cannot cross JSON transport.
 const EditorGraphJsonObject = z.record(z.string(), z.json());
+const WorkflowFieldName = z.string().regex(/^[a-z][a-zA-Z0-9]{0,99}$/);
+const WorkflowVariableName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,99}$/);
 
-// A node keeps static config separate from bindings. Phase 4 validates config only; bindings remain
-// opaque until the binding/type phase can resolve workflow inputs and previous-node outputs.
+export const EditorGraphBinding = z.discriminatedUnion('kind', [
+  z.strictObject({
+    kind: z.literal(WorkflowBindingKind.LITERAL),
+    value: z.union([z.string(), z.number().int().safe(), z.boolean()]),
+  }),
+  z.strictObject({
+    kind: z.literal(WorkflowBindingKind.WORKFLOW_INPUT),
+    inputName: WorkflowFieldName,
+  }),
+  z.strictObject({
+    kind: z.literal(WorkflowBindingKind.NODE_OUTPUT),
+    nodeId: EditorGraphIdentifier,
+    field: WorkflowFieldName,
+  }),
+  z.strictObject({
+    kind: z.literal(WorkflowBindingKind.FLOW_VARIABLE),
+    name: WorkflowVariableName,
+  }),
+  z.strictObject({
+    kind: z.literal(WorkflowBindingKind.GLOBAL_VARIABLE),
+    name: WorkflowVariableName,
+  }),
+]);
+
+export const EditorGraphRetryPolicy = z
+  .object({
+    maxAttempts: z.number().int().min(1).max(WORKFLOW_NODE_MAX_ATTEMPTS).optional(),
+    delayMs: z.number().int().min(0).max(WORKFLOW_NODE_MAX_RETRY_DELAY_MS).optional(),
+  })
+  .strict();
+
+// A node keeps static config separate from bindings. Only explicit Android targeting modes
+// validate literal bindings here; other bindings remain opaque.
 export const EditorGraphNode = z
   .object({
     id: EditorGraphIdentifier,
     type: z.string().trim().min(1).max(NODE_TYPE_MAX_LENGTH).regex(NODE_TYPE_PATTERN),
     config: EditorGraphJsonObject,
     bindings: EditorGraphJsonObject,
+    timeoutMs: z.number().int().min(1).max(MAX_NODE_TIMEOUT_MS).optional(),
+    retryPolicy: EditorGraphRetryPolicy.optional(),
     errorPolicy: z.enum([NodeErrorPolicy.STOP, NodeErrorPolicy.ERROR_BRANCH]),
     editor: z
       .object({
         x: z.number().finite(),
         y: z.number().finite(),
+        label: z.string().min(1).nullable().optional(),
+        description: z.string().min(1).nullable().optional(),
       })
       .strict(),
   })
@@ -65,14 +110,21 @@ export const ValidateEditorGraphInput = z
 
 /**
  * The small part of a Node Definition needed by the validation engine.
- * Keeping this projection explicit prevents Runtime metadata, capabilities, and output schemas from
- * leaking into or accidentally becoming dependencies of Phase 4 validation.
+ * Include field schemas for typed authoring bindings.
  */
 export const WorkflowNodeDefinition = z
   .object({
     type: NodeDefinitionContract.shape.type,
     configSchema: NodeObjectSchema,
+    inputSchema: NodeObjectSchema.optional(),
+    outputSchema: NodeObjectSchema.optional(),
     outputPorts: NodeDefinitionContract.shape.outputPorts,
+    editorHints: z
+      .object({
+        targeting: NodeTargetingContract.optional(),
+      })
+      .passthrough()
+      .optional(),
   })
   .strict();
 
@@ -102,6 +154,7 @@ export const WorkflowValidationOutput = z
   .strict();
 
 export type EditorGraphType = z.infer<typeof EditorGraph>;
+export type EditorGraphBindingType = z.infer<typeof EditorGraphBinding>;
 export type ValidateEditorGraphInputType = z.infer<typeof ValidateEditorGraphInput>;
 export type WorkflowNodeDefinitionType = z.infer<typeof WorkflowNodeDefinition>;
 export type WorkflowValidationDiagnosticType = z.infer<typeof WorkflowValidationDiagnostic>;

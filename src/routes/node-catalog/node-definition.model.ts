@@ -5,7 +5,6 @@ import {
   NODE_CAPABILITY_CODE_PATTERN,
   NODE_FIELD_NAME_MAX_LENGTH,
   NODE_FIELD_NAME_PATTERN,
-  NODE_ICON_MAX_LENGTH,
   NODE_NAME_MAX_LENGTH,
   NODE_RUNTIME_HANDLER_MAX_LENGTH,
   NODE_RUNTIME_HANDLER_PATTERN,
@@ -13,80 +12,67 @@ import {
   NODE_TYPE_MAX_LENGTH,
   NODE_TYPE_PATTERN,
   NodeCategory,
-  NodeErrorPolicy,
   NodeOutputPort,
-  NodeOutputPortKind,
   STRICT_SEMANTIC_VERSION_PATTERN,
 } from './node-catalog.constant.ts';
 
 const NodeFieldSchema = z.record(z.string(), z.json());
+const TARGET_BINDING_FIELD_NAME_PATTERN = /^[a-z][a-zA-Z0-9_]*$/;
 
-export const NodeObjectSchema = z
-  .object({
-    type: z.literal('object'),
-    properties: z.record(z.string(), NodeFieldSchema),
-    required: z.array(z.string().min(1).max(NODE_FIELD_NAME_MAX_LENGTH)),
-    additionalProperties: z.literal(false),
-  })
-  .strict()
-  .superRefine(({ properties, required }, ctx) => {
-    Object.keys(properties).forEach((field) => {
-      if (field.length > NODE_FIELD_NAME_MAX_LENGTH || !NODE_FIELD_NAME_PATTERN.test(field)) {
-        ctx.addIssue({
-          code: 'custom',
-          message: `Property '${field}' must use a supported field name`,
-          path: ['properties', field],
-        });
-      }
-    });
-
-    const requiredFields = new Set<string>();
-
-    required.forEach((field, index) => {
-      if (requiredFields.has(field)) {
-        ctx.addIssue({
-          code: 'custom',
-          message: `Required field '${field}' must be unique`,
-          path: ['required', index],
-        });
-      }
-      requiredFields.add(field);
-
-      if (!(field in properties)) {
-        ctx.addIssue({
-          code: 'custom',
-          message: `Required field '${field}' must exist in properties`,
-          path: ['required', index],
-        });
-      }
-    });
-  });
-
-const NodeOutputPortContract = z
-  .object({
-    key: z.enum([
-      NodeOutputPort.SUCCESS,
-      NodeOutputPort.ERROR,
-      NodeOutputPort.TRUE,
-      NodeOutputPort.FALSE,
-      NodeOutputPort.BODY,
-      NodeOutputPort.COMPLETED,
-    ]),
-    kind: z.enum([NodeOutputPortKind.CONTROL, NodeOutputPortKind.ERROR]),
-    label: z.string().trim().min(1).max(NODE_NAME_MAX_LENGTH),
-  })
-  .strict()
-  .superRefine(({ key, kind }, ctx) => {
-    const expectedKind =
-      key === NodeOutputPort.ERROR ? NodeOutputPortKind.ERROR : NodeOutputPortKind.CONTROL;
-    if (kind !== expectedKind) {
-      ctx.addIssue({
-        code: 'custom',
-        message: `Port '${key}' must use kind '${expectedKind}'`,
-        path: ['kind'],
+function objectSchema(fieldNamePattern: RegExp) {
+  return z
+    .object({
+      type: z.literal('object'),
+      properties: z.record(z.string(), NodeFieldSchema),
+      required: z.array(z.string().min(1).max(NODE_FIELD_NAME_MAX_LENGTH)),
+      additionalProperties: z.literal(false),
+    })
+    .strict()
+    .superRefine(({ properties, required }, ctx) => {
+      Object.keys(properties).forEach((field) => {
+        if (field.length > NODE_FIELD_NAME_MAX_LENGTH || !fieldNamePattern.test(field)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `Property '${field}' must use a supported field name`,
+            path: ['properties', field],
+          });
+        }
       });
-    }
-  });
+
+      const requiredFields = new Set<string>();
+
+      required.forEach((field, index) => {
+        if (requiredFields.has(field)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `Required field '${field}' must be unique`,
+            path: ['required', index],
+          });
+        }
+        requiredFields.add(field);
+
+        if (!(field in properties)) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `Required field '${field}' must exist in properties`,
+            path: ['required', index],
+          });
+        }
+      });
+    });
+}
+
+export const NodeObjectSchema = objectSchema(NODE_FIELD_NAME_PATTERN);
+const TargetBindingObjectSchema = objectSchema(TARGET_BINDING_FIELD_NAME_PATTERN);
+
+const NodeOutputPortContract = z.enum([
+  NodeOutputPort.SUCCESS,
+  NodeOutputPort.ERROR,
+  NodeOutputPort.TRUE,
+  NodeOutputPort.FALSE,
+  NodeOutputPort.BODY,
+  NodeOutputPort.COMPLETED,
+]);
 
 const NodeOutputPortsContract = z
   .object({
@@ -95,30 +81,49 @@ const NodeOutputPortsContract = z
   .strict()
   .superRefine(({ ports }, ctx) => {
     const portKeys = new Set<string>();
-    ports.forEach(({ key }, index) => {
-      if (portKeys.has(key)) {
+    ports.forEach((port, index) => {
+      if (portKeys.has(port)) {
         ctx.addIssue({
           code: 'custom',
-          message: `Output port '${key}' must be unique`,
-          path: ['ports', index, 'key'],
+          message: `Output port '${port}' must be unique`,
+          path: ['ports', index],
         });
       }
-      portKeys.add(key);
+      portKeys.add(port);
+    });
+  });
+
+const TargetMode = z.enum(['ABSOLUTE_PIXELS', 'SCREEN_PERCENT', 'SELECTOR_ID']);
+
+const TargetModeDefinition = z
+  .object({
+    mode: TargetMode,
+    bindingSchema: TargetBindingObjectSchema,
+  })
+  .strict();
+
+export const NodeTargetingContract = z
+  .object({
+    modes: z.array(TargetModeDefinition).min(1),
+  })
+  .strict()
+  .superRefine(({ modes }, ctx) => {
+    const values = new Set<string>();
+    modes.forEach(({ mode }, index) => {
+      if (values.has(mode)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `Targeting mode '${mode}' must be unique`,
+          path: ['modes', index, 'mode'],
+        });
+      }
+      values.add(mode);
     });
   });
 
 const NodeEditorHintsContract = z
   .object({
-    icon: z.string().trim().min(1).max(NODE_ICON_MAX_LENGTH),
-    fieldOrder: z.array(
-      z.string().min(1).max(NODE_FIELD_NAME_MAX_LENGTH).regex(NODE_FIELD_NAME_PATTERN),
-    ),
-  })
-  .strict();
-
-const NodeErrorPoliciesContract = z
-  .object({
-    supported: z.array(z.enum([NodeErrorPolicy.STOP, NodeErrorPolicy.ERROR_BRANCH])),
+    targeting: NodeTargetingContract.optional(),
   })
   .strict();
 
@@ -144,38 +149,12 @@ export const NodeDefinitionContract = z
     outputSchema: NodeObjectSchema,
     outputPorts: NodeOutputPortsContract,
     editorHints: NodeEditorHintsContract,
-    supportedErrorPolicies: NodeErrorPoliciesContract,
     capabilities: z.array(
       z.string().min(1).max(NODE_CAPABILITY_CODE_MAX_LENGTH).regex(NODE_CAPABILITY_CODE_PATTERN),
     ),
   })
   .strict()
   .superRefine((definition, ctx) => {
-    const availableFields = new Set([
-      ...Object.keys(definition.configSchema.properties),
-      ...Object.keys(definition.inputSchema.properties),
-    ]);
-    const orderedFields = new Set<string>();
-
-    definition.editorHints.fieldOrder.forEach((field, index) => {
-      if (orderedFields.has(field)) {
-        ctx.addIssue({
-          code: 'custom',
-          message: `Editor field '${field}' must be unique`,
-          path: ['editorHints', 'fieldOrder', index],
-        });
-      }
-      orderedFields.add(field);
-
-      if (!availableFields.has(field)) {
-        ctx.addIssue({
-          code: 'custom',
-          message: `Editor field '${field}' must exist in configSchema or inputSchema`,
-          path: ['editorHints', 'fieldOrder', index],
-        });
-      }
-    });
-
     const capabilities = new Set<string>();
     definition.capabilities.forEach((capability, index) => {
       if (capabilities.has(capability)) {
@@ -187,30 +166,6 @@ export const NodeDefinitionContract = z
       }
       capabilities.add(capability);
     });
-
-    const errorPolicies = new Set<string>();
-    definition.supportedErrorPolicies.supported.forEach((policy, index) => {
-      if (errorPolicies.has(policy)) {
-        ctx.addIssue({
-          code: 'custom',
-          message: `Error policy '${policy}' must be unique`,
-          path: ['supportedErrorPolicies', 'supported', index],
-        });
-      }
-      errorPolicies.add(policy);
-    });
-
-    const hasErrorPort = definition.outputPorts.ports.some(
-      ({ key }) => key === NodeOutputPort.ERROR,
-    );
-    const supportsErrorBranch = errorPolicies.has(NodeErrorPolicy.ERROR_BRANCH);
-    if (hasErrorPort !== supportsErrorBranch) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'ERROR_BRANCH support and the error output port must be declared together',
-        path: ['supportedErrorPolicies', 'supported'],
-      });
-    }
   });
 
 export const NodeDefinitionCatalogContract = z

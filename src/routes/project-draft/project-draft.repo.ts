@@ -6,7 +6,7 @@ import {
   buildProjectAccessWhere,
   type ProjectAccess,
 } from '../../shared/models/project-access.model.ts';
-import type { ProjectDraftOutputType, SaveProjectDraftInputType } from './project-draft.model.ts';
+import { ProjectDraftOutput, type SaveProjectDraftInputType } from './project-draft.model.ts';
 
 const PROJECT_DRAFT_SELECT = {
   id: true,
@@ -16,7 +16,6 @@ const PROJECT_DRAFT_SELECT = {
   inputSchema: true,
   runtimeIr: true,
   validationSummary: true,
-  testSummary: true,
   contentHash: true,
   savedAt: true,
 } satisfies Prisma.ProjectDraftSelect;
@@ -31,7 +30,7 @@ const PROJECT_DRAFT_SYNC_SELECT = {
 type DraftContent = Omit<SaveProjectDraftInputType, 'expectedVersion'>;
 type PrismaDraftContent = Pick<
   Prisma.ProjectDraftUncheckedCreateInput,
-  'editorGraph' | 'inputSchema' | 'runtimeIr' | 'validationSummary' | 'testSummary'
+  'editorGraph' | 'inputSchema' | 'runtimeIr' | 'validationSummary'
 >;
 
 @Injectable()
@@ -61,10 +60,9 @@ export class ProjectDraftRepo {
       return null;
     }
 
-    // Database JSON checks guarantee these selected values are objects (or null for runtimeIr).
     return {
       status: project.status,
-      ProjectDraft: project.ProjectDraft as ProjectDraftOutputType | null,
+      ProjectDraft: project.ProjectDraft ? ProjectDraftOutput.parse(project.ProjectDraft) : null,
     };
   }
 
@@ -111,7 +109,6 @@ export class ProjectDraftRepo {
       where: {
         projectId,
         version: expectedVersion,
-        contentHash: { not: contentHash },
         deletedAt: null,
         Project: {
           is: buildProjectAccessWhere(access, ProjectStatus.ACTIVE),
@@ -135,7 +132,6 @@ export class ProjectDraftRepo {
       inputSchema: content.inputSchema,
       runtimeIr: content.runtimeIr === null ? Prisma.DbNull : content.runtimeIr,
       validationSummary: content.validationSummary,
-      testSummary: content.testSummary,
     };
   }
 }

@@ -8,7 +8,6 @@ function draft(overrides: Record<string, unknown> = {}) {
     inputSchema: {},
     runtimeIr: null,
     validationSummary: {},
-    testSummary: {},
     ...overrides,
   };
 }
@@ -31,6 +30,20 @@ describe('Project Draft canonical content', () => {
     const second = prepareProjectDraftContent(draft({ editorGraph: { nodes: [2, 1] } }));
 
     expect(first.contentHash).not.toBe(second.contentHash);
+  });
+
+  it('excludes derived Runtime IR and validation results from the source hash', () => {
+    const first = prepareProjectDraftContent(
+      draft({ runtimeIr: { nodes: [] }, validationSummary: { status: 'VALID' } }),
+    );
+    const second = prepareProjectDraftContent(
+      draft({
+        runtimeIr: { nodes: [{ id: 'changed' }] },
+        validationSummary: { status: 'INVALID' },
+      }),
+    );
+
+    expect(first.contentHash).toBe(second.contentHash);
   });
 
   it('rejects canonical content larger than 1 MiB', () => {

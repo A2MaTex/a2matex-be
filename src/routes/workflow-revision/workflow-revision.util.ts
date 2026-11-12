@@ -66,7 +66,6 @@ export type WorkflowRevisionHashContent = {
   nodeDefinitionManifest: Prisma.JsonObject;
   capabilityManifest: Prisma.JsonObject;
   validationSummary: Prisma.JsonObject;
-  testSummary: Prisma.JsonObject;
 };
 
 // Canonical JSON sorts keys, so the envelope hashes the same whether it is built here
@@ -92,7 +91,6 @@ export function prepareWorkflowRevisionSnapshot({
   const runtimeIr = requireJsonObject(draft.runtimeIr);
   const inputSchema = requireJsonObject(draft.inputSchema);
   const validationSummary = requireJsonObject(draft.validationSummary);
-  const testSummary = requireJsonObject(draft.testSummary);
 
   const frozenDefinitions = definitions
     .map((definition) => ({
@@ -108,7 +106,6 @@ export function prepareWorkflowRevisionSnapshot({
       outputSchema: requireJsonObject(definition.outputSchema),
       outputPorts: requireJsonObject(definition.outputPorts),
       editorHints: requireJsonObject(definition.editorHints),
-      supportedErrorPolicies: requireJsonObject(definition.supportedErrorPolicies),
       capabilityCodes: [
         ...new Set(definition.NodeDefinitionCapability.map(({ Capability }) => Capability.code)),
       ].sort(),
@@ -134,7 +131,6 @@ export function prepareWorkflowRevisionSnapshot({
     nodeDefinitionManifest,
     capabilityManifest,
     validationSummary,
-    testSummary,
   });
 
   if (
@@ -150,7 +146,6 @@ export function prepareWorkflowRevisionSnapshot({
     nodeDefinitionManifest,
     capabilityManifest,
     validationSummary,
-    testSummary,
     contentHash: sha256Hex(hashEnvelope),
   };
 }

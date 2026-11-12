@@ -7,6 +7,7 @@ import {
   Inject,
 } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
+import { RequestLogContextService } from '../infrastructure/logging/request-log-context.service.js';
 import { isUniqueConstraintPrismaError } from '../utils/prisma.ts';
 
 type ExceptionResponse = {
@@ -22,7 +23,10 @@ type SafeExceptionDetails = Record<string, string | number | boolean | null>;
  * known Prisma unique constraint errors to 409 so clients receive an HTTP response.
  */
 export class CatchEverythingFilter implements ExceptionFilter {
-  constructor(@Inject(HttpAdapterHost) private readonly httpAdapterHost: HttpAdapterHost) {}
+  constructor(
+    @Inject(HttpAdapterHost) private readonly httpAdapterHost: HttpAdapterHost,
+    @Inject(RequestLogContextService) private readonly requestLogs: RequestLogContextService,
+  ) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     // In certain situations `httpAdapter` might not be available in the
@@ -41,6 +45,8 @@ export class CatchEverythingFilter implements ExceptionFilter {
       httpStatus = HttpStatus.CONFLICT;
       normalizedResponse = { message: 'Record already exist' };
     }
+    this.requestLogs.recordFailure(exception, httpStatus);
+
     const responseBody = {
       statusCode: httpStatus,
       ...normalizedResponse,

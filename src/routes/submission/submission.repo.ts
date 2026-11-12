@@ -162,7 +162,6 @@ const DETAIL_SELECT = {
       nodeDefinitionManifest: true,
       capabilityManifest: true,
       validationSummary: true,
-      testSummary: true,
       createdAt: true,
     },
   },
@@ -203,7 +202,6 @@ const SCAN_TARGET_SELECT = {
       nodeDefinitionManifest: true,
       capabilityManifest: true,
       validationSummary: true,
-      testSummary: true,
     },
   },
 } satisfies Prisma.SubmissionSelect;

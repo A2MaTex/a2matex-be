@@ -99,7 +99,6 @@ export class SubmissionScannerService {
         nodeDefinitionManifest: requireJsonObject(revision.nodeDefinitionManifest),
         capabilityManifest: requireJsonObject(revision.capabilityManifest),
         validationSummary: requireJsonObject(revision.validationSummary),
-        testSummary: requireJsonObject(revision.testSummary),
       });
     } catch {
       return [

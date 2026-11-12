@@ -29,7 +29,10 @@ describe('WorkflowValidationRepo', () => {
       select: {
         type: true,
         configSchema: true,
+        inputSchema: true,
+        outputSchema: true,
         outputPorts: true,
+        editorHints: true,
       },
     });
   });

@@ -803,3 +803,18 @@ Bản ghi DNS `db.a2matex.com` của spec 003 (nếu đã tạo) không còn dù
 | `remaining connection slots are reserved` | `db-g1-small` giới hạn khoảng 50 kết nối; nhiều dev mở GUI cùng lúc | hạ `CONNECTION LIMIT` của role dev, hoặc nâng tier |
 | Auth Proxy báo 403 hoặc `permission denied` | tài khoản Google chưa có `roles/cloudsql.client`, hoặc chưa `gcloud auth login` | xem A10.1 |
 | Dev bị `password authentication failed` qua proxy | role chưa tạo hoặc sai mật khẩu | tạo lại role trong Cloud SQL Studio theo A10.1 |
+
+### Staging verification for API request logs
+
+On the VM, run `docker inspect --format '{{.LogPath}}' a2matex-app` and use
+the result as the receiver path in `deploy/google-cloud-ops-agent.yaml`.
+The Docker log path changes when Compose recreates the container. Refresh
+the receiver path after recreation while using this staging configuration.
+Merge the receiver, processors, and pipeline into the VM's Ops Agent
+configuration and restart `google-cloud-ops-agent`.
+
+Send a successful and a failing API request. Copy each `X-Trace-Id` and
+search Logs Explorer with `jsonPayload.traceId="<id>"`. Verify one record
+per ID and check the severity and error name for an unexpected failure.
+Check that the API still responds when the agent is stopped, then restart
+the agent. Use `docker logs a2matex-app` for the local record.

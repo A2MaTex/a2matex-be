@@ -23,12 +23,10 @@ import {
   SUBMISSION_SCAN_MAX_FINDINGS,
   SUBMISSION_SCAN_RESULT_MAX_BYTES,
   SUBMISSION_SCANNER_VERSION_MAX_LENGTH,
-  SUBMISSION_SELF_REVIEW_CODES,
   SUBMISSION_SNAPSHOT_SCHEMA_VERSION,
   SUBMISSION_TEST_INSTRUCTIONS_MAX_LENGTH,
   SubmissionFindingSeverity,
   SubmissionScanStatus,
-  SubmissionSelfReviewCode,
   SubmissionStatus,
 } from '../shared/constants/submission.constant.ts';
 import { STRICT_SEMANTIC_VERSION_PATTERN } from '../routes/node-catalog/node-catalog.constant.ts';
@@ -82,34 +80,6 @@ export const ReleaseRequestSnapshot = z
   })
   .strict();
 
-export const SubmissionSelfReview = z
-  .object({
-    confirmed: z.literal(true),
-    items: z
-      .array(
-        z
-          .object({
-            code: z.enum([
-              SubmissionSelfReviewCode.PRODUCT_PRESENTATION_MATCHES_BEHAVIOR,
-              SubmissionSelfReviewCode.WORKFLOW_TESTED,
-              SubmissionSelfReviewCode.NO_RAW_CREDENTIALS,
-              SubmissionSelfReviewCode.NO_ASSET_REFERENCES,
-              SubmissionSelfReviewCode.RELEASE_INFORMATION_ACCURATE,
-            ]),
-            checked: z.literal(true),
-          })
-          .strict(),
-      )
-      .length(SUBMISSION_SELF_REVIEW_CODES.length)
-      // Self-review is Publisher evidence, so every code must be present exactly once.
-      .refine(
-        (items) =>
-          new Set(items.map(({ code }) => code)).size === SUBMISSION_SELF_REVIEW_CODES.length,
-        { message: 'Error.SubmissionSelfReviewIncomplete' },
-      ),
-  })
-  .strict();
-
 export const SubmissionReviewContextSnapshot = z
   .object({
     schemaVersion: SnapshotSchemaVersion,
@@ -121,7 +91,6 @@ export const SubmissionReviewContextSnapshot = z
       .refine((items) => new Set(items).size === items.length, {
         message: 'Error.SubmissionKnownLimitationsDuplicated',
       }),
-    selfReview: SubmissionSelfReview,
   })
   .strict();
 

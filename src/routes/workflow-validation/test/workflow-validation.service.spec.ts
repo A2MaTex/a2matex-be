@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { EditorGraphType } from '../workflow-validation.model.ts';
+import type { EditorGraphType, WorkflowNodeDefinitionType } from '../workflow-validation.model.ts';
 import { EditorGraph } from '../workflow-validation.model.ts';
 import { WorkflowValidationRepo } from '../workflow-validation.repo.ts';
 import { WorkflowValidationService } from '../workflow-validation.service.ts';
@@ -23,17 +23,11 @@ function graph(): EditorGraphType {
   return EditorGraph.parse((value as { editorGraph: unknown }).editorGraph);
 }
 
-function storedDefinition(type: string, ports: string[]) {
+function storedDefinition(type: string, ports: WorkflowNodeDefinitionType['outputPorts']['ports']) {
   return {
     type,
     configSchema: EMPTY_SCHEMA,
-    outputPorts: {
-      ports: ports.map((key) => ({
-        key,
-        kind: key === 'error' ? 'ERROR' : 'CONTROL',
-        label: key,
-      })),
-    },
+    outputPorts: { ports },
   };
 }
 

@@ -18,6 +18,7 @@ model User {
   createdAt                                           DateTime              @default(now()) @db.Timestamptz(6)
   updatedAt                                           DateTime?             @db.Timestamptz(6)
   deletedAt                                           DateTime?             @db.Timestamptz(6)
+  auditHistory                                        Json                  @default("[]")
   device                                              Device[]
   createdPermissions                                  Permission[]          @relation("PermissionCreatedBy")
   deletedPermissions                                  Permission[]          @relation("PermissionDeletedBy")
@@ -40,6 +41,9 @@ model User {
   createdRoles                                        Role[]                @relation("RoleCreatedBy")
   deletedRoles                                        Role[]                @relation("RoleDeletedBy")
   updatedRoles                                        Role[]                @relation("RoleUpdatedBy")
+  uploadSessionsCreatedBy                             StaticUploadSession[] @relation("UploadSessionCreatedBy")
+  uploadSessionsDeletedBy                             StaticUploadSession[] @relation("UploadSessionDeletedBy")
+  uploadSessionsUpdatedBy                             StaticUploadSession[] @relation("UploadSessionUpdatedBy")
   Submission_Submission_createdByIdToUser             Submission[]          @relation("Submission_createdByIdToUser")
   Submission_Submission_deletedByIdToUser             Submission[]          @relation("Submission_deletedByIdToUser")
   Submission_Submission_updatedByIdToUser             Submission[]          @relation("Submission_updatedByIdToUser")
@@ -49,9 +53,6 @@ model User {
   WorkflowRevision_WorkflowRevision_createdByIdToUser WorkflowRevision[]    @relation("WorkflowRevision_createdByIdToUser")
   WorkflowRevision_WorkflowRevision_deletedByIdToUser WorkflowRevision[]    @relation("WorkflowRevision_deletedByIdToUser")
   WorkflowRevision_WorkflowRevision_updatedByIdToUser WorkflowRevision[]    @relation("WorkflowRevision_updatedByIdToUser")
-  uploadSessionsCreatedBy                             StaticUploadSession[] @relation("UploadSessionCreatedBy")
-  uploadSessionsUpdatedBy                             StaticUploadSession[] @relation("UploadSessionUpdatedBy")
-  uploadSessionsDeletedBy                             StaticUploadSession[] @relation("UploadSessionDeletedBy")
 }
 
 model Profile {
@@ -308,7 +309,6 @@ model NodeDefinition {
   outputSchema             Json
   outputPorts              Json
   editorHints              Json
-  supportedErrorPolicies   Json
   contentHash              String                     @db.VarChar(64)
   createdAt                DateTime                   @default(now()) @db.Timestamptz(6)
   updatedAt                DateTime?                  @db.Timestamptz(6)
@@ -366,7 +366,6 @@ model ProjectDraft {
   inputSchema       Json
   runtimeIr         Json?
   validationSummary Json      @default("{}")
-  testSummary       Json      @default("{}")
   contentHash       String    @db.VarChar(64)
   savedAt           DateTime  @default(now()) @db.Timestamptz(6)
   savedById         String    @db.Uuid
@@ -389,7 +388,6 @@ model WorkflowRevision {
   nodeDefinitionManifest                  Json
   capabilityManifest                      Json
   validationSummary                       Json
-  testSummary                             Json        @default("{}")
   contentHash                             String      @db.VarChar(64)
   createdAt                               DateTime    @default(now()) @db.Timestamptz(6)
   updatedAt                               DateTime?   @db.Timestamptz(6)
@@ -397,11 +395,11 @@ model WorkflowRevision {
   createdById                             String      @db.Uuid
   updatedById                             String?     @db.Uuid
   deletedById                             String?     @db.Uuid
+  Submission                              Submission?
   User_WorkflowRevision_createdByIdToUser User        @relation("WorkflowRevision_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_WorkflowRevision_deletedByIdToUser User?       @relation("WorkflowRevision_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   Project                                 Project     @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_WorkflowRevision_updatedByIdToUser User?       @relation("WorkflowRevision_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  Submission                              Submission?
 
   @@unique([projectId, sourceDraftVersion], map: "WorkflowRevision_project_draftVersion_key")
 }
@@ -452,21 +450,18 @@ model Product {
   deletedById                      String?          @db.Uuid
   User_Product_createdByIdToUser   User             @relation("Product_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_Product_deletedByIdToUser   User?            @relation("Product_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  Project                          Project          @relation(fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Project                          Project          @relation(fields: [projectId, publisherAccountId], references: [id, publisherAccountId], onDelete: NoAction, onUpdate: NoAction)
   PublisherAccount                 PublisherAccount @relation(fields: [publisherAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_Product_suspendedByIdToUser User?            @relation("Product_suspendedByIdToUser", fields: [suspendedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_Product_updatedByIdToUser   User?            @relation("Product_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   ProductMedia                     ProductMedia[]
   Submission                       Submission[]
 
+  @@unique([projectId, publisherAccountId])
   @@index([publisherAccountId, status], where: raw("(\"deletedAt\" IS NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// Partial unique indexes ProductMedia_single_icon_idx and ProductMedia_single_cover_idx
-/// live only in the migration SQL. `prisma db pull` collapses the COVER one into a
-/// field-level @unique on productId and drops the ICON one, which turns this into a
-/// one-to-one relation and breaks GALLERY. After any db pull, re-apply this by hand.
 model ProductMedia {
   id        String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   productId String           @db.Uuid
@@ -481,6 +476,7 @@ model ProductMedia {
   Static    Static           @relation(fields: [staticId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([productId, staticId], map: "ProductMedia_product_static_idx", where: raw("(\"deletedAt\" IS NULL)"))
+  @@unique([productId, type], map: "ProductMedia_active_icon_cover_idx", where: raw("((\"deletedAt\" IS NULL) AND (type = ANY (ARRAY['ICON'::\"ProductMediaType\", 'COVER'::\"ProductMediaType\"])))"))
 }
 
 /// Hand-written to match prisma/migrations/20261103093000_add_submission. Spec:
@@ -521,28 +517,24 @@ model Submission {
 
 model StaticUploadSession {
   id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  fileHash     String         @map("file_hash")
+  fileHash     String         @unique(map: "idx_unique_uploading_session", where: raw("(status = 'UPLOADING'::\"SessionStatus\")")) @map("file_hash")
   uploadId     String         @map("upload_id")
   fileKey      String         @map("file_key")
-  originalName String         @map("original_name")
-  contentType  String         @map("content_type")
-  size         BigInt         @map("size")
   status       SessionStatus?
   expiresAt    DateTime?      @map("expires_at") @db.Timestamp(6)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime?      @map("updated_at") @db.Timestamp(6)
+  deletedAt    DateTime?      @map("deleted_at") @db.Timestamp(6)
+  createdById  String?        @map("created_by") @db.Uuid
+  updatedById  String?        @map("updated_by") @db.Uuid
+  deletedById  String?        @map("deleted_by") @db.Uuid
+  contentType  String         @map("content_type")
+  originalName String         @map("original_name")
+  size         BigInt
+  createdBy    User?          @relation("UploadSessionCreatedBy", fields: [createdById], references: [id])
+  deletedBy    User?          @relation("UploadSessionDeletedBy", fields: [deletedById], references: [id])
+  updatedBy    User?          @relation("UploadSessionUpdatedBy", fields: [updatedById], references: [id])
 
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt DateTime? @map("updated_at") @db.Timestamp(6)
-  deletedAt DateTime? @map("deleted_at") @db.Timestamp(6)
-
-  createdById String? @map("created_by") @db.Uuid
-  updatedById String? @map("updated_by") @db.Uuid
-  deletedById String? @map("deleted_by") @db.Uuid
-
-  createdBy User? @relation("UploadSessionCreatedBy", fields: [createdById], references: [id])
-  updatedBy User? @relation("UploadSessionUpdatedBy", fields: [updatedById], references: [id])
-  deletedBy User? @relation("UploadSessionDeletedBy", fields: [deletedById], references: [id])
-
-  @@unique([fileHash], map: "idx_unique_uploading_session", where: raw("(status = 'UPLOADING'::\"SessionStatus\")"))
   @@index([fileHash], map: "idx_StaticUploadSession_file_hash", where: raw("(deleted_at IS NULL)"))
 }
 
