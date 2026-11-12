@@ -19,13 +19,14 @@ const DRAFT_ID = '33333333-3333-4333-8333-333333333333';
 const SAVED_AT = new Date('2026-10-13T12:00:00.000Z');
 const ACCESS = { unrestricted: false as const, publisherAccountId: 'publisher-id' };
 
-function input(expectedVersion = 0) {
+function input(expectedVersion = 0, overrides: Record<string, unknown> = {}) {
   return {
     expectedVersion,
     editorGraph: { nodes: [] },
     inputSchema: {},
     runtimeIr: null,
     validationSummary: {},
+    ...overrides,
   };
 }
 
@@ -111,9 +112,10 @@ describe('ProjectDraftService', () => {
 
   it('returns an identical retry without updating save metadata', async () => {
     const contentHash = prepareProjectDraftContent(input()).contentHash;
-    getAccessibleProject
-      .mockResolvedValueOnce({ status: 'ACTIVE', ProjectDraft: storedDraft(contentHash) })
-      .mockResolvedValueOnce({ status: 'ACTIVE', ProjectDraft: storedDraft(contentHash) });
+    getAccessibleProject.mockResolvedValue({
+      status: 'ACTIVE',
+      ProjectDraft: storedDraft(contentHash),
+    });
 
     await expect(
       service.save({
@@ -143,6 +145,27 @@ describe('ProjectDraftService', () => {
     expect(updateChanged).toHaveBeenCalledWith(
       expect.objectContaining({ expectedVersion: 1, access: ACCESS }),
     );
+  });
+
+  it('persists a derived-only change even when the source hash is unchanged', async () => {
+    const data = input(1, { runtimeIr: { nodes: [] } });
+    const contentHash = prepareProjectDraftContent(data).contentHash;
+    const updated = { id: DRAFT_ID, version: 2, contentHash, savedAt: SAVED_AT };
+    getAccessibleProject.mockResolvedValue({
+      status: 'ACTIVE',
+      ProjectDraft: storedDraft(contentHash),
+    });
+    updateChanged.mockResolvedValue([updated]);
+
+    await expect(
+      service.save({
+        projectId: PROJECT_ID,
+        data,
+        userId: USER_ID,
+        scopes: [PermissionScope.OWN],
+      }),
+    ).resolves.toEqual(updated);
+    expect(updateChanged).toHaveBeenCalledOnce();
   });
 
   it('returns current metadata for an idempotent retry after a zero-row update', async () => {
