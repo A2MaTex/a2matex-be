@@ -6,7 +6,6 @@ import {
 import { sha256Hex } from '../node-catalog/node-catalog.util.ts';
 import {
   FEEDBACK_REQUIRED_DECISIONS,
-  SUBMISSION_REVIEW_FORBIDDEN_PATTERNS,
   SubmissionReviewDecision,
 } from './submission-review.constant.ts';
 
@@ -21,21 +20,11 @@ export const ReviewSubmissionInput = z
   })
   .strict()
   .superRefine((value, ctx) => {
-    if (!value.feedback) {
-      if (FEEDBACK_REQUIRED_DECISIONS.includes(value.decision)) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['feedback'],
-          message: 'Error.SubmissionReviewFeedbackRequired',
-        });
-      }
-      return;
-    }
-    if (containsForbiddenContent(value.feedback)) {
+    if (!value.feedback && FEEDBACK_REQUIRED_DECISIONS.includes(value.decision)) {
       ctx.addIssue({
         code: 'custom',
         path: ['feedback'],
-        message: 'Error.InvalidSubmissionReviewFeedback',
+        message: 'Error.SubmissionReviewFeedbackRequired',
       });
     }
   });
@@ -62,17 +51,6 @@ export function storedFeedbackHash(value: unknown): string | null {
   }
   const parsed = SubmissionReviewFeedback.safeParse(value);
   return parsed.success ? canonicalFeedbackHash(parsed.data) : sha256Hex({ unparseable: value });
-}
-
-// Per field, never joined: `\s` would match the separator and span two innocuous fields.
-function containsForbiddenContent(feedback: SubmissionReviewFeedbackType): boolean {
-  const fields = [
-    feedback.summary,
-    ...(feedback.items ?? []).flatMap((item) => [item.message, item.nodeId ?? '']),
-  ];
-  return fields.some((field) =>
-    SUBMISSION_REVIEW_FORBIDDEN_PATTERNS.some((pattern) => pattern.test(field)),
-  );
 }
 
 export type ReviewSubmissionInputType = z.infer<typeof ReviewSubmissionInput>;

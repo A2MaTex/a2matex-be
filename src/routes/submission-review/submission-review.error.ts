@@ -5,7 +5,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 
-// The two 422 cases live as schema issue messages, not as exceptions.
+// The 422 case lives as a schema issue message, not as an exception.
 
 export const SubmissionNotReadyForReviewException = new ConflictException(
   'Error.SubmissionNotReadyForReview',

@@ -33,13 +33,6 @@ export const SUBMISSION_REVIEW_TX_MAX_WAIT_MS = 5_000;
 export const PRODUCT_RELEASE_BUILD_MESSAGE_TYPE = 'product-release.build.requested.v1';
 export const PRODUCT_RELEASE_BUILD_MESSAGE_ID_PREFIX = 'product-release-build';
 
-export const SUBMISSION_REVIEW_FORBIDDEN_PATTERNS = [
-  /bearer\s+[\w.~+/-]{8,}/i,
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
-  /\beyJ[\w-]{8,}\.[\w-]{8,}\./,
-  /[?&](?:x-amz-signature|x-amz-credential|signature|sig|token)=/i,
-] as const;
-
 export const SUBMISSION_REVIEW_EMAIL_TIMEOUT_MS = 5_000;
 
 export const SUBMISSION_REVIEW_EMAIL_COPY: Record<

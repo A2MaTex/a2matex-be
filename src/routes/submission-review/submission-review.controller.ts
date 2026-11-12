@@ -5,6 +5,7 @@ import { ActivePermissionScopes } from '../../shared/decorators/active-permissio
 import type { ActivePermissionScope } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import { ActiveUser } from '../../shared/decorators/active-user.decorator.ts';
 import { MessageResDTO } from '../../shared/dtos/response.dto.ts';
+import CustomZodValidationPipe from '../../shared/pipes/custom-zod-validation.pipe.ts';
 import { SubmissionIdParamDTO } from '../submission/submission.dto.ts';
 import { ReviewSubmissionInputDTO } from './submission-review.dto.ts';
 import { SubmissionReviewService } from './submission-review.service.ts';
@@ -22,8 +23,8 @@ export class SubmissionReviewController {
   @Put(':submissionId/review')
   @ZodResponse({ type: MessageResDTO })
   review(
-    @Param() params: SubmissionIdParamDTO,
-    @Body() body: ReviewSubmissionInputDTO,
+    @Param(new CustomZodValidationPipe(SubmissionIdParamDTO)) params: SubmissionIdParamDTO,
+    @Body(new CustomZodValidationPipe(ReviewSubmissionInputDTO)) body: ReviewSubmissionInputDTO,
     @ActiveUser('userId') userId: string,
     @ActivePermissionScopes() scopes: ActivePermissionScope[],
   ) {
