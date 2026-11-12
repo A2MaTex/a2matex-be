@@ -25,12 +25,16 @@
     "test:cov": "vitest run --coverage",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
+    "test:seeds": "vitest run --config ./vitest.config.e2e.ts test/seed-sql.e2e-spec.ts",
+    "test:roles": "vitest run --config ./vitest.config.e2e.ts test/role-access.e2e-spec.ts",
     "compose-up": "docker compose --env-file .env -f tools/docker-compose.yaml up -d",
     "prisma:generate": "prisma generate --config prisma7.config.ts",
     "prisma:migrate:create": "prisma migrate dev --create-only --config prisma7.config.ts",
     "prisma:migrate:deploy": "prisma migrate deploy --config prisma7.config.ts",
     "seed:roles": "tsx src/seed/create-role.ts",
     "seed:permissions": "tsx src/seed/create-permissions.ts",
+    "seed:sql": "tsx src/seed/run-sql-seeds.ts",
+    "seed:clear-cache": "tsx src/seed/clear-cache.ts",
     "seed:node-catalog": "tsx src/seed/sync-node-catalog.ts"
   },
   "dependencies": {
