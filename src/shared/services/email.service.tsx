@@ -5,6 +5,7 @@ import * as React from 'react';
 import OTPEmail from '../notification-templates/otp.email.tsx';
 import UserBannedEmail from '../notification-templates/user-banned.email.tsx';
 import UserUnbannedEmail from '../notification-templates/user-unbanned.email.tsx';
+import SubmissionReviewEmail from '../notification-templates/submission-review.email.tsx';
 
 @Injectable()
 export class EmailService {
@@ -61,6 +62,28 @@ export class EmailService {
           status={payload.status}
           reason={payload.reason}
           changedAt={payload.changedAt}
+        />
+      ),
+    });
+  }
+
+  sendSubmissionReviewResult(payload: {
+    email: string;
+    subject: string;
+    productName: string;
+    submissionNumber: number;
+    nextStep: string;
+  }) {
+    return this.resend.emails.send({
+      from: envConfig.EMAIL_FROM,
+      to: [payload.email],
+      subject: payload.subject,
+      react: (
+        <SubmissionReviewEmail
+          title={payload.subject}
+          productName={payload.productName}
+          submissionNumber={payload.submissionNumber}
+          nextStep={payload.nextStep}
         />
       ),
     });
