@@ -19,6 +19,7 @@ import {
   QUEUE_PROVIDER,
   type MessageProvider,
 } from '../../shared/infrastructure/queue/queue.interface.ts';
+import { RequestLogContextService } from '../../shared/infrastructure/logging/request-log-context.service.ts';
 import { TransactionService } from '../../shared/services/transaction.service.ts';
 import type { Prisma } from '../../generated/prisma/client.ts';
 import { getPagination } from '../../shared/utils/pagination.ts';
@@ -80,6 +81,7 @@ export class SubmissionService {
     @Inject(WorkflowRevisionService)
     private readonly workflowRevisionService: WorkflowRevisionService,
     @Inject(QUEUE_PROVIDER) private readonly queue: MessageProvider,
+    @Inject(RequestLogContextService) private readonly requestLogContext: RequestLogContextService,
     @Inject(TransactionService) readonly transactionService: TransactionService,
   ) {}
 
@@ -403,6 +405,7 @@ export class SubmissionService {
     scanAttempt: number;
     occurredAt: Date;
   }): Promise<void> {
+    const traceId = this.requestLogContext.current?.traceId;
     try {
       await this.queue.publish({
         topic: KAFKA_TOPICS.SUBMISSION_SCAN_REQUESTED,
@@ -411,6 +414,9 @@ export class SubmissionService {
           id: `${SUBMISSION_SCAN_MESSAGE_ID_PREFIX}:${submissionId}:${scanAttempt}`,
           type: SUBMISSION_SCAN_MESSAGE_TYPE,
           occurredAt: occurredAt.toISOString(),
+          // Carries the originating request's trace so a consumer failure can be traced
+          // back to the submit that queued it. Absent when no HTTP request is in scope.
+          ...(traceId ? { traceId } : {}),
           payload: { submissionId, scanAttempt },
         },
       });

@@ -3,9 +3,12 @@ import type { SaveProjectDraftInputType } from './project-draft.model.ts';
 import { ProjectDraftPayloadTooLargeException } from './project-draft.error.ts';
 import { PROJECT_DRAFT_MAX_CONTENT_BYTES } from '../../shared/constants/project.constant.ts';
 
-type ProjectDraftHashContent = {
+export type ProjectDraftSourceHashContent = {
   editorGraph: unknown;
   inputSchema: unknown;
+};
+
+type ProjectDraftHashContent = ProjectDraftSourceHashContent & {
   runtimeIr: unknown;
   validationSummary: unknown;
 };
@@ -45,8 +48,14 @@ export function prepareProjectDraftContent(data: SaveProjectDraftInputType) {
   };
 }
 
-export function calculateProjectDraftContentHash(data: ProjectDraftHashContent): string {
+// The stored draft hash covers publisher-authored source only. Submission recomputes it
+// from the two frozen source fields, so it must not need the authoring caches.
+export function calculateProjectDraftSourceHash(data: ProjectDraftSourceHashContent): string {
   return createHash('sha256').update(canonicalizeProjectDraftSource(data)).digest('hex');
+}
+
+export function calculateProjectDraftContentHash(data: ProjectDraftHashContent): string {
+  return calculateProjectDraftSourceHash(data);
 }
 
 export function isProjectDraftContentEqual(
@@ -67,7 +76,7 @@ function canonicalizeProjectDraftStoredContent(data: ProjectDraftHashContent): s
   });
 }
 
-function canonicalizeProjectDraftSource(data: ProjectDraftHashContent): string {
+function canonicalizeProjectDraftSource(data: ProjectDraftSourceHashContent): string {
   return canonicalizeJson({
     editorGraph: data.editorGraph,
     inputSchema: data.inputSchema,

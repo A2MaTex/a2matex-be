@@ -383,12 +383,12 @@ model WorkflowRevision {
   sourceDraftVersion                      Int
   sourceDraftContentHash                  String      @db.VarChar(64)
   editorGraph                             Json
-  runtimeIr                               Json
+  runtimeIr                               Json?
   inputSchema                             Json
   nodeDefinitionManifest                  Json
   capabilityManifest                      Json
   validationSummary                       Json
-  contentHash                             String      @db.VarChar(64)
+  contentHash                             String?     @db.VarChar(64)
   createdAt                               DateTime    @default(now()) @db.Timestamptz(6)
   updatedAt                               DateTime?   @db.Timestamptz(6)
   deletedAt                               DateTime?   @db.Timestamptz(6)

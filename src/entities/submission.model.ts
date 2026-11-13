@@ -45,6 +45,40 @@ const SemanticVersion = z
   .max(SUBMISSION_RELEASE_VERSION_MAX_LENGTH)
   .regex(STRICT_SEMANTIC_VERSION_PATTERN, { message: 'Error.SubmissionVersionInvalid' });
 
+type SnapshotMedia = { id: string; type: string; sortOrder: number };
+
+function countOfType(media: SnapshotMedia[], type: string): number {
+  return media.filter((item) => item.type === type).length;
+}
+
+// Compared rather than re-sorted: order is content. `type` ranks by enum declaration order.
+const MEDIA_TYPE_RANK: Record<string, number> = {
+  [ProductMediaType.ICON]: 0,
+  [ProductMediaType.COVER]: 1,
+  [ProductMediaType.GALLERY]: 2,
+};
+
+function isDeterministicallyOrdered(media: SnapshotMedia[]): boolean {
+  for (let at = 1; at < media.length; at += 1) {
+    const previous = media[at - 1] as SnapshotMedia;
+    const current = media[at] as SnapshotMedia;
+    const rank = (MEDIA_TYPE_RANK[previous.type] ?? 0) - (MEDIA_TYPE_RANK[current.type] ?? 0);
+    if (rank > 0) {
+      return false;
+    }
+    if (rank < 0) {
+      continue;
+    }
+    if (previous.sortOrder > current.sortOrder) {
+      return false;
+    }
+    if (previous.sortOrder === current.sortOrder && previous.id >= current.id) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export const ProductSubmissionSnapshot = z
   .object({
     schemaVersion: SnapshotSchemaVersion,
@@ -56,17 +90,27 @@ export const ProductSubmissionSnapshot = z
     shortDescription: z.string().min(1),
     description: z.string().min(1),
     usageInstructions: z.string().nullable(),
-    media: z.array(
-      z
-        .object({
-          id: z.uuid(),
-          staticId: z.uuid(),
-          type: z.enum([ProductMediaType.ICON, ProductMediaType.COVER, ProductMediaType.GALLERY]),
-          sortOrder: z.number().int().nonnegative(),
-          altText: z.string().max(PRODUCT_MEDIA_ALT_TEXT_MAX_LENGTH).nullable(),
-        })
-        .strict(),
-    ),
+    media: z
+      .array(
+        z
+          .object({
+            id: z.uuid(),
+            staticId: z.uuid(),
+            type: z.enum([ProductMediaType.ICON, ProductMediaType.COVER, ProductMediaType.GALLERY]),
+            sortOrder: z.number().int().nonnegative(),
+            altText: z.string().max(PRODUCT_MEDIA_ALT_TEXT_MAX_LENGTH).nullable(),
+          })
+          .strict(),
+      )
+      // Enforced here so re-reading the frozen snapshot proves them without touching mutable
+      // ProductMedia: one ICON, one COVER, and the Product order of type, sortOrder, id.
+      .refine((media) => countOfType(media, ProductMediaType.ICON) <= 1, {
+        message: 'Error.ProductMediaIconCardinality',
+      })
+      .refine((media) => countOfType(media, ProductMediaType.COVER) <= 1, {
+        message: 'Error.ProductMediaCoverCardinality',
+      })
+      .refine(isDeterministicallyOrdered, { message: 'Error.ProductMediaOrderInvalid' }),
   })
   .strict();
 

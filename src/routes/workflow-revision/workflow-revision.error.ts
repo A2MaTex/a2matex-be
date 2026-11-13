@@ -9,14 +9,6 @@ export function workflowRevisionDraftVersionConflictException(
   });
 }
 
-export const WorkflowRevisionRuntimeIrRequiredException = new ConflictException(
-  'Error.WorkflowRevisionRuntimeIrRequired',
-);
-
-export const WorkflowRevisionNodeDefinitionUnavailableException = new ConflictException(
-  'Error.WorkflowRevisionNodeDefinitionUnavailable',
-);
-
 export const WorkflowRevisionSourceIntegrityFailedException = new ConflictException(
   'Error.WorkflowRevisionSourceIntegrityFailed',
 );

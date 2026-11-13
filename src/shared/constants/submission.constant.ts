@@ -53,6 +53,8 @@ export const SUBMISSION_FINDING_CODE_MAX_LENGTH = 100;
 export const SUBMISSION_FINDING_MESSAGE_MAX_LENGTH = 1_000;
 export const SUBMISSION_FINDING_NODE_ID_MAX_LENGTH = EDITOR_GRAPH_IDENTIFIER_MAX_LENGTH;
 export const SUBMISSION_FINDING_DETAILS_MAX_BYTES = 2_048;
+export const SUBMISSION_SCAN_MAX_CREDENTIAL_FINDINGS = 10;
+export const SUBMISSION_SCAN_MAX_REPORTED_NODE_TYPES = 10;
 export const SUBMISSION_SCAN_RESULT_MAX_BYTES = 65_536;
 
 // The create transaction holds the Product lock while WorkflowRevision canonicalises
@@ -62,15 +64,24 @@ export const SUBMISSION_CREATE_TX_TIMEOUT_MS = 15_000;
 export const SUBMISSION_CREATE_TX_MAX_WAIT_MS = 5_000;
 
 // Bump when the rule set changes. Recorded on every completed scan so an Admin can
-// tell which rules produced a stored result: 0.1.x covers rule groups 1, 2 and 6 only.
-export const SUBMISSION_SCANNER_VERSION = '0.1.0';
+// tell which rules produced a stored result. 0.3.x covers every rule group except the
+// connector/capability policy rule, which SubmissionScannerService explains is out of scope.
+export const SUBMISSION_SCANNER_VERSION = '0.3.0';
 
 // Stable machine-readable codes. Admin UIs branch on these, not on the messages.
 export const SubmissionFindingCode = {
+  // These two are no longer emitted; kept so a scanResult an earlier scanner stored reads.
   REVISION_CONTENT_HASH_MISMATCH: 'REVISION_CONTENT_HASH_MISMATCH',
   REVISION_IDENTITY_MISMATCH: 'REVISION_IDENTITY_MISMATCH',
   REVISION_CONTENT_INVALID: 'REVISION_CONTENT_INVALID',
+  REVISION_COMPILATION_STATE_INVALID: 'REVISION_COMPILATION_STATE_INVALID',
   EDITOR_GRAPH_INVALID: 'EDITOR_GRAPH_INVALID',
+  NODE_DEFINITION_MISSING: 'NODE_DEFINITION_MISSING',
+  RUNTIME_IR_COMPILATION_FAILED: 'RUNTIME_IR_COMPILATION_FAILED',
+  EMBEDDED_CREDENTIAL: 'EMBEDDED_CREDENTIAL',
+  ASSET_UNSUPPORTED: 'ASSET_UNSUPPORTED',
+  RUNTIME_IR_CAPABILITY_MISMATCH: 'RUNTIME_IR_CAPABILITY_MISMATCH',
+  REVISION_RECOMPILE_MISMATCH: 'REVISION_RECOMPILE_MISMATCH',
   PRODUCT_SNAPSHOT_INVALID: 'PRODUCT_SNAPSHOT_INVALID',
   RELEASE_REQUEST_INVALID: 'RELEASE_REQUEST_INVALID',
   REVIEW_CONTEXT_INVALID: 'REVIEW_CONTEXT_INVALID',

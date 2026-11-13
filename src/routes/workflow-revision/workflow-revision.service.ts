@@ -8,12 +8,10 @@ import {
   ProjectArchivedException,
   ProjectNotFoundException,
 } from '../project/project.error.ts';
-import { calculateProjectDraftContentHash } from '../project-draft/project-draft.util.ts';
+import { calculateProjectDraftSourceHash } from '../project-draft/project-draft.util.ts';
 import {
   WorkflowRevisionAlreadyExistsException,
   workflowRevisionDraftVersionConflictException,
-  WorkflowRevisionNodeDefinitionUnavailableException,
-  WorkflowRevisionRuntimeIrRequiredException,
   WorkflowRevisionSourceIntegrityFailedException,
 } from './workflow-revision.error.ts';
 import type {
@@ -23,7 +21,7 @@ import type {
 import { WorkflowRevisionRepo } from './workflow-revision.repo.ts';
 import {
   extractWorkflowNodeTypes,
-  prepareWorkflowRevisionSnapshot,
+  prepareWorkflowRevisionSourceSnapshot,
   requireAssetFreeWorkflow,
   requireJsonObject,
 } from './workflow-revision.util.ts';
@@ -66,21 +64,13 @@ export class WorkflowRevisionService {
     if (draft.version !== sourceDraftVersion) {
       throw workflowRevisionDraftVersionConflictException(draft.version);
     }
-    if (
-      draft.runtimeIr === null ||
-      Array.isArray(draft.runtimeIr) ||
-      typeof draft.runtimeIr !== 'object'
-    ) {
-      throw WorkflowRevisionRuntimeIrRequiredException;
-    }
-
+    // Draft `runtimeIr` is an authoring cache: never read, and a null or stale value must not
+    // block a submission. The scan compiles the authoritative document from frozen source.
     const draftContent = {
       editorGraph: requireJsonObject(draft.editorGraph),
       inputSchema: requireJsonObject(draft.inputSchema),
-      runtimeIr: requireJsonObject(draft.runtimeIr),
-      validationSummary: requireJsonObject(draft.validationSummary),
     };
-    const recomputedDraftHash = calculateProjectDraftContentHash(draftContent);
+    const recomputedDraftHash = calculateProjectDraftSourceHash(draftContent);
     if (recomputedDraftHash !== draft.contentHash) {
       this.logger.error(
         'Workflow Revision source integrity failed ' +
@@ -93,13 +83,12 @@ export class WorkflowRevisionService {
     }
 
     requireAssetFreeWorkflow(draftContent.editorGraph);
+    // A missing definition does not refuse the freeze: the scan reports it, so a Publisher
+    // does not lose a submit to a catalog change it cannot see.
     const nodeTypes = extractWorkflowNodeTypes(draftContent.editorGraph);
     const definitions = await this.workflowRevisionRepo.getActiveNodeDefinitions(nodeTypes);
-    if (definitions.length !== nodeTypes.length) {
-      throw WorkflowRevisionNodeDefinitionUnavailableException;
-    }
 
-    const snapshot = prepareWorkflowRevisionSnapshot({ draft, definitions });
+    const snapshot = prepareWorkflowRevisionSourceSnapshot({ draft, definitions });
 
     try {
       return await this.workflowRevisionRepo.create({
