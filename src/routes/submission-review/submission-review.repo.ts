@@ -22,6 +22,9 @@ export type SubmissionReviewTarget = {
   status: SubmissionStatusType;
   scanStatus: SubmissionScanStatusType;
   hasScanResult: boolean;
+  // Product Release packages the stored Runtime IR and never compiles, so approval is the
+  // last point that can still refuse a revision the scan left pending.
+  hasFinalizedRevision: boolean;
   reviewedAt: Date | null;
   reviewFeedback: unknown;
 };
@@ -73,16 +76,18 @@ export class SubmissionReviewRepo {
   async lockSubmissionForReview(submissionId: string): Promise<SubmissionReviewTarget | null> {
     const rows = await this.prisma.$queryRaw<SubmissionReviewTarget[]>`
       SELECT
-        id,
-        status,
-        "scanStatus",
-        ("scanResult" IS NOT NULL) AS "hasScanResult",
-        "reviewedAt",
-        "reviewFeedback"
-      FROM "Submission"
-      WHERE id = ${submissionId}::uuid
-        AND "deletedAt" IS NULL
-      FOR UPDATE
+        s.id,
+        s.status,
+        s."scanStatus",
+        (s."scanResult" IS NOT NULL) AS "hasScanResult",
+        (wr."runtimeIr" IS NOT NULL AND wr."contentHash" IS NOT NULL) AS "hasFinalizedRevision",
+        s."reviewedAt",
+        s."reviewFeedback"
+      FROM "Submission" s
+      JOIN "WorkflowRevision" wr ON wr.id = s."workflowRevisionId"
+      WHERE s.id = ${submissionId}::uuid
+        AND s."deletedAt" IS NULL
+      FOR UPDATE OF s
     `;
     return rows[0] ?? null;
   }

@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import type { Prisma } from '../../../generated/prisma/client.ts';
 import {
   ProductSubmissionSnapshot,
   ReleaseRequestSnapshot,
@@ -8,21 +9,36 @@ import {
 } from '../../../entities/submission.model.ts';
 import {
   SUBMISSION_SCAN_MAX_FINDINGS,
+  SUBMISSION_SCAN_MAX_REPORTED_NODE_TYPES,
   SUBMISSION_SNAPSHOT_SCHEMA_VERSION,
   SubmissionFindingCode,
   SubmissionFindingSeverity,
 } from '../../../shared/constants/submission.constant.ts';
+import { EDITOR_GRAPH_MAX_CONTENT_BYTES } from '../../../shared/constants/workflow-validation.constant.ts';
+import { NodeDefinitionCatalogContract } from '../../node-catalog/node-definition.model.ts';
 import {
   calculateWorkflowRevisionContentHash,
+  finalizeWorkflowRevisionContentHash,
   requireJsonObject,
 } from '../../workflow-revision/workflow-revision.util.ts';
-import { WorkflowValidationService } from '../../workflow-validation/workflow-validation.service.ts';
-import { EditorGraphPayloadTooLargeException } from '../../workflow-validation/workflow-validation.error.ts';
+import { WorkflowRevisionPayloadTooLargeException } from '../../workflow-revision/workflow-revision.error.ts';
+import type { WorkflowRevisionSourceSnapshot } from '../../workflow-revision/workflow-revision.model.ts';
+import { WorkflowCompilerService } from '../../workflow-compiler/workflow-compiler.service.ts';
+import type { NodeDefinitionType } from '../../node-catalog/node-definition.model.ts';
+import {
+  buildEmbeddedCredentialFindings,
+  findUnsupportedAssets,
+} from './scanner/submission-policy.validator.ts';
 import type { ScanTarget } from '../submission.repo.ts';
 
 type Finding = SubmissionScanFindingType;
 
-type EditorGraphOutcome = { findings: Finding[]; truncated: boolean };
+// `compilation` is present only when every rule passed; the caller writes it with the scan
+// outcome or writes neither.
+export type SubmissionScanOutcome = {
+  result: SubmissionScanResultType;
+  compilation: { runtimeIr: Prisma.InputJsonValue; contentHash: string } | null;
+};
 
 type ValidationDiagnostic = {
   code: string;
@@ -31,9 +47,26 @@ type ValidationDiagnostic = {
   path: (string | number)[];
 };
 
+type SourceOutcome = {
+  findings: Finding[];
+  source: WorkflowRevisionSourceSnapshot | null;
+  // Set when an earlier attempt already finalized; recompilation must converge on it.
+  finalizedContentHash: string | null;
+};
+
+type CompileOutcome = {
+  findings: Finding[];
+  truncated: boolean;
+  // Returned rather than held on the service, which is a singleton two deliveries share.
+  compiled: { runtimeIr: Prisma.InputJsonValue; contentHash: string } | null;
+};
+
+// Runtime IR diagnostics keep their own code so an Admin does not read them as graph errors.
 function toFinding(diagnostic: ValidationDiagnostic, severity: Finding['severity']): Finding {
   return {
-    code: SubmissionFindingCode.EDITOR_GRAPH_INVALID,
+    code: diagnostic.code.startsWith('RUNTIME_IR_')
+      ? SubmissionFindingCode.RUNTIME_IR_COMPILATION_FAILED
+      : SubmissionFindingCode.EDITOR_GRAPH_INVALID,
     severity,
     message: diagnostic.message,
     ...(diagnostic.nodeId ? { nodeId: diagnostic.nodeId } : {}),
@@ -43,81 +76,104 @@ function toFinding(diagnostic: ValidationDiagnostic, severity: Finding['severity
 }
 
 /**
- * In-memory rule pipeline over the frozen Submission and its WorkflowRevision.
+ * Rule groups 1, 2, 3, 4, 6 and the credential rule of 5 of spec section 10.
  *
- * It is NOT fully deterministic, despite what spec section 10 asks for. Rule group 2
- * delegates to WorkflowValidationService, which spec section 10 also mandates reusing,
- * and that service reads the live Node Catalog. Deactivate a node type and the same
- * immutable revision that scanned PASSED will scan FAILED on a later retry. The
- * revision froze `nodeDefinitionManifest` for exactly this reason; rule group 4 is
- * where it starts being read, and resolving this tension belongs with that work.
+ * Compiling against the revision's frozen `nodeDefinitionManifest` rather than the live Node
+ * Catalog is what makes a retry deterministic: deactivating a node type can no longer flip a
+ * passed revision.
  *
- * Rule groups 1, 2 and 6 of spec section 10 are implemented here. Groups 3, 4 and 5 —
- * Runtime IR v1 validation, frozen Node Definition consistency, and the MVP policy
- * restrictions — are NOT, because nothing in this repository can read inside
- * `runtimeIr` yet and the other two depend on that.
+ * Two failure classes must not be confused. A deterministic property of frozen content is a
+ * business finding. A malformed system-owned manifest throws, because the data is corrupt
+ * rather than wrong — hence the manifest is parsed before the compiler is called, so anything
+ * thrown afterwards is content.
  *
- * Section 10 says READY_FOR_REVIEW must not be emitted until the Runtime IR stage
- * exists. This module ships before it does, deliberately, so the end-to-end flow can
- * run. The consequence is real and worth stating plainly: rule 2 proves the Editor
- * Graph is sound, which says nothing about the Runtime IR that actually executes on a
- * customer's device. A malformed one passes this scan.
- *
- * `SUBMISSION_SCANNER_VERSION` stays on 0.1.x until those three land, so a stored
- * result always says which rules produced it.
+ * Group 5's connector/capability policy rule is out of scope, not pending: there are no
+ * connector nodes, and a capability is an Android permission the customer grants at run time
+ * through the package manifest. Nothing is withheld at scan time.
  */
 @Injectable()
 export class SubmissionScannerService {
   constructor(
-    @Inject(WorkflowValidationService)
-    private readonly workflowValidationService: WorkflowValidationService,
+    @Inject(WorkflowCompilerService)
+    private readonly workflowCompilerService: WorkflowCompilerService,
   ) {}
 
-  async scan(target: ScanTarget): Promise<SubmissionScanResultType> {
-    const editorGraph = await this.checkEditorGraph(target);
-    const findings: Finding[] = [
-      ...this.checkRevisionIntegrity(target),
-      ...editorGraph.findings,
-      ...this.checkSnapshotIntegrity(target),
-    ];
+  scan(target: ScanTarget): SubmissionScanOutcome {
+    const frozenSource = this.checkFrozenSourceIntegrity(target);
+    const snapshots = this.checkSnapshotIntegrity(target);
 
-    // The graph engine caps its own diagnostics, so a truncation there must survive
-    // into the summary even when the scan itself stays under its cap.
-    return buildScanResult(findings, editorGraph.truncated);
+    // Nothing readable to compile, so the pipeline stops rather than guessing.
+    if (!frozenSource.source) {
+      return {
+        result: buildScanResult([...frozenSource.findings, ...snapshots], false),
+        compilation: null,
+      };
+    }
+
+    const compiled = this.compileFrozenSource({
+      source: frozenSource.source,
+      finalizedContentHash: frozenSource.finalizedContentHash,
+    });
+    // Reads the frozen graph, so a workflow that failed to compile is still checked.
+    const policy = [
+      ...buildEmbeddedCredentialFindings(frozenSource.source.editorGraph),
+      ...findUnsupportedAssets(frozenSource.source.editorGraph),
+    ];
+    const result = buildScanResult(
+      [...frozenSource.findings, ...compiled.findings, ...policy, ...snapshots],
+      compiled.truncated,
+    );
+
+    // A revision must never carry an authoritative Runtime IR while its own scan failed.
+    const finalizable = result.summary.errors === 0 && frozenSource.finalizedContentHash === null;
+
+    return { result, compilation: finalizable ? compiled.compiled : null };
   }
 
-  // Rule group 1: the snapshot must be exactly what was frozen.
-  private checkRevisionIntegrity(target: ScanTarget): Finding[] {
+  // Rule group 1.
+  private checkFrozenSourceIntegrity(target: ScanTarget): SourceOutcome {
     const revision = target.WorkflowRevision;
+    const findings: Finding[] = [];
 
-    let recomputed: string;
+    // Written in one statement, so a split state means a write outside the application.
+    const hasRuntimeIr = revision.runtimeIr !== null;
+    const hasContentHash = revision.contentHash !== null;
+    if (hasRuntimeIr !== hasContentHash) {
+      findings.push(
+        error(
+          SubmissionFindingCode.REVISION_COMPILATION_STATE_INVALID,
+          'The frozen revision has only one of its two compiled fields',
+        ),
+      );
+    }
+
+    let source: WorkflowRevisionSourceSnapshot | null = null;
     try {
-      recomputed = calculateWorkflowRevisionContentHash({
+      source = {
         editorGraph: requireJsonObject(revision.editorGraph),
-        runtimeIr: requireJsonObject(revision.runtimeIr),
         inputSchema: requireJsonObject(revision.inputSchema),
         nodeDefinitionManifest: requireJsonObject(revision.nodeDefinitionManifest),
         capabilityManifest: requireJsonObject(revision.capabilityManifest),
         validationSummary: requireJsonObject(revision.validationSummary),
-      });
+      };
     } catch {
-      return [
+      findings.push(
         error(
           SubmissionFindingCode.REVISION_CONTENT_INVALID,
           'A frozen revision document is not a JSON object',
         ),
-      ];
+      );
     }
 
-    const findings: Finding[] = [];
-    if (recomputed !== revision.contentHash) {
+    if (!isSha256Hex(revision.sourceDraftContentHash)) {
       findings.push(
         error(
-          SubmissionFindingCode.REVISION_CONTENT_HASH_MISMATCH,
-          'The frozen workflow no longer matches the hash recorded when it was frozen',
+          SubmissionFindingCode.REVISION_CONTENT_INVALID,
+          'The recorded source draft hash is not a SHA-256 digest',
         ),
       );
     }
+
     // The snapshot names its own Project; it must be the one the revision was cut from.
     const snapshotProjectId = readString(target.productSnapshot, 'projectId');
     if (snapshotProjectId !== revision.projectId) {
@@ -137,44 +193,162 @@ export class SubmissionScannerService {
         ),
       );
     }
-    return findings;
+
+    if (source && hasRuntimeIr && hasContentHash) {
+      const stored = calculateWorkflowRevisionContentHash({
+        ...source,
+        runtimeIr: revision.runtimeIr as Prisma.JsonObject,
+      });
+      // Only a write outside the application reaches here: an operator problem, not a
+      // Publisher one, so it must not land as a FAILED scan they get judged on.
+      if (stored !== revision.contentHash) {
+        throw new Error('Finalized Workflow Revision does not match its recorded hash');
+      }
+    }
+
+    return {
+      findings,
+      source,
+      finalizedContentHash: hasRuntimeIr && hasContentHash ? revision.contentHash : null,
+    };
   }
 
-  // Rule group 2: reuse the engine Studio already validates against. Severity comes
-  // from which list a diagnostic landed in, so a warning never fails a Submission.
-  private async checkEditorGraph(target: ScanTarget): Promise<EditorGraphOutcome> {
-    let result: Awaited<ReturnType<WorkflowValidationService['validate']>>;
+  // Rule groups 2, 3 and 4.
+  private compileFrozenSource({
+    source,
+    finalizedContentHash,
+  }: {
+    source: WorkflowRevisionSourceSnapshot;
+    finalizedContentHash: string | null;
+  }): CompileOutcome {
+    // `WorkflowValidationService.validate` gates on this before parsing and the compiler does
+    // not, so without this the 1 MiB graph limit would leave this path entirely.
+    if (exceedsEditorGraphLimit(source.editorGraph)) {
+      return {
+        truncated: false,
+        compiled: null,
+        findings: [
+          error(
+            SubmissionFindingCode.EDITOR_GRAPH_INVALID,
+            'The frozen Editor Graph exceeds the size the validation engine accepts',
+          ),
+        ],
+      };
+    }
+
+    // Loosely first: creation freezes whatever the catalog offered, so a node type with no
+    // definition is content to report, and the strict parse below rejects an empty list.
+    const entries = readFrozenDefinitionEntries(source.nodeDefinitionManifest);
+    const missing = missingNodeTypes(source.editorGraph, entries);
+    if (missing.length > 0) {
+      return {
+        truncated: false,
+        compiled: null,
+        findings: [
+          {
+            code: SubmissionFindingCode.NODE_DEFINITION_MISSING,
+            severity: SubmissionFindingSeverity.ERROR,
+            message: 'The frozen workflow uses a node type the Node Catalog did not offer',
+            details: {
+              nodeTypes: missing.slice(0, SUBMISSION_SCAN_MAX_REPORTED_NODE_TYPES),
+              count: missing.length,
+            },
+          },
+        ],
+      };
+    }
+    if (entries.length === 0) {
+      return {
+        truncated: false,
+        compiled: null,
+        findings: [
+          error(
+            SubmissionFindingCode.NODE_DEFINITION_MISSING,
+            'The frozen workflow contains no usable node',
+          ),
+        ],
+      };
+    }
+
+    const definitions = toCompilerDefinitions(entries);
+
+    let compiled: ReturnType<WorkflowCompilerService['compileWorkflow']>;
     try {
-      result = await this.workflowValidationService.validate(target.WorkflowRevision.editorGraph);
+      compiled = this.workflowCompilerService.compileWorkflow(
+        source.editorGraph,
+        source.inputSchema,
+        definitions,
+      );
+    } catch {
+      // The manifest already parsed, so this is publisher content and retrying cannot help.
+      return {
+        truncated: false,
+        compiled: null,
+        findings: [
+          error(
+            SubmissionFindingCode.RUNTIME_IR_COMPILATION_FAILED,
+            'The frozen workflow could not be compiled into a valid Runtime IR document',
+          ),
+        ],
+      };
+    }
+
+    const findings = [
+      ...compiled.validation.errors.map((item) => toFinding(item, SubmissionFindingSeverity.ERROR)),
+      ...compiled.validation.warnings.map((item) =>
+        toFinding(item, SubmissionFindingSeverity.WARNING),
+      ),
+    ];
+    if (!compiled.success) {
+      return { findings, truncated: compiled.validation.truncated, compiled: null };
+    }
+
+    // Review and Product Release read this manifest as evidence, so it must match the
+    // compiled document exactly.
+    const frozenCapabilities = readStringArray(source.capabilityManifest, 'capabilities');
+    if (!isSameOrderedList(frozenCapabilities, compiled.runtimeIr.requiredCapabilities)) {
+      findings.push(
+        error(
+          SubmissionFindingCode.RUNTIME_IR_CAPABILITY_MISMATCH,
+          'The compiled required capabilities do not match the frozen capability manifest',
+        ),
+      );
+      return { findings, truncated: compiled.validation.truncated, compiled: null };
+    }
+
+    let contentHash: string;
+    try {
+      contentHash = finalizeWorkflowRevisionContentHash({
+        source,
+        runtimeIr: compiled.runtimeIr as unknown as Prisma.JsonObject,
+      });
     } catch (thrown) {
-      // A graph over the engine's size limit is a deterministic property of the frozen
-      // content: retrying it five times and dead-lettering helps nobody, so it becomes
-      // a finding. Anything else thrown here is infrastructure — an unparseable
-      // catalog row, say — and must stay a technical failure the queue can retry.
-      if (thrown === EditorGraphPayloadTooLargeException) {
-        return {
-          truncated: false,
-          findings: [
-            error(
-              SubmissionFindingCode.EDITOR_GRAPH_INVALID,
-              'The frozen Editor Graph exceeds the size the validation engine accepts',
-            ),
-          ],
-        };
+      if (thrown === WorkflowRevisionPayloadTooLargeException) {
+        findings.push(
+          error(
+            SubmissionFindingCode.RUNTIME_IR_COMPILATION_FAILED,
+            'The compiled revision exceeds the size a Workflow Revision may store',
+          ),
+        );
+        return { findings, truncated: compiled.validation.truncated, compiled: null };
       }
       throw thrown;
     }
 
+    // Unreachable through the application: a passed scan leaves the Submission outside every
+    // retryable status. Same category as the hash check above.
+    if (finalizedContentHash !== null && finalizedContentHash !== contentHash) {
+      throw new Error('Finalized Workflow Revision does not match its recompiled source');
+    }
+
     return {
-      truncated: result.truncated,
-      findings: [
-        ...result.errors.map((item) => toFinding(item, SubmissionFindingSeverity.ERROR)),
-        ...result.warnings.map((item) => toFinding(item, SubmissionFindingSeverity.WARNING)),
-      ],
+      findings,
+      truncated: compiled.validation.truncated,
+      compiled: { runtimeIr: compiled.runtimeIr as Prisma.InputJsonValue, contentHash },
     };
   }
 
-  // Rule group 6: the Publisher-authored snapshots must still satisfy their contract.
+  // Rule group 6.
   private checkSnapshotIntegrity(target: ScanTarget): Finding[] {
     return [
       checkSnapshot(
@@ -197,6 +371,55 @@ export class SubmissionScannerService {
       ),
     ].filter((finding): finding is Finding => finding !== null);
   }
+}
+
+// System-owned, so an unreadable shape is corrupt data and throws. What it contains is the
+// caller's business rule, not this function's.
+function exceedsEditorGraphLimit(editorGraph: Prisma.JsonObject): boolean {
+  return (
+    Buffer.byteLength(JSON.stringify(editorGraph) ?? '', 'utf8') > EDITOR_GRAPH_MAX_CONTENT_BYTES
+  );
+}
+
+function readFrozenDefinitionEntries(manifest: Prisma.JsonObject): Prisma.JsonObject[] {
+  if (!Array.isArray(manifest.definitions)) {
+    throw new Error('Frozen node definition manifest does not contain a definition array');
+  }
+  return manifest.definitions.map((definition) => {
+    if (definition === null || Array.isArray(definition) || typeof definition !== 'object') {
+      throw new Error('Frozen node definition entry is not an object');
+    }
+    return definition;
+  });
+}
+
+// Frozen entries carry two fields the strict compiler contract rejects: the catalog
+// fingerprint, and the capability list under its storage name.
+function toCompilerDefinitions(entries: Prisma.JsonObject[]): NodeDefinitionType[] {
+  return NodeDefinitionCatalogContract.parse(
+    entries.map(({ capabilityCodes, contentHash: _contentHash, ...rest }) => ({
+      ...rest,
+      capabilities: capabilityCodes,
+    })),
+  );
+}
+
+function missingNodeTypes(editorGraph: Prisma.JsonObject, entries: Prisma.JsonObject[]): string[] {
+  const available = new Set(
+    entries.map(({ type }) => type).filter((type): type is string => typeof type === 'string'),
+  );
+  const nodes = Array.isArray(editorGraph.nodes) ? editorGraph.nodes : [];
+  const missing = new Set<string>();
+
+  for (const node of nodes) {
+    if (node === null || Array.isArray(node) || typeof node !== 'object') {
+      continue;
+    }
+    if (typeof node.type === 'string' && !available.has(node.type)) {
+      missing.add(node.type);
+    }
+  }
+  return [...missing];
 }
 
 function checkSnapshot(
@@ -231,10 +454,9 @@ function buildScanResult(all: Finding[], upstreamTruncated: boolean): Submission
   return {
     schemaVersion: SUBMISSION_SNAPSHOT_SCHEMA_VERSION,
     summary: {
-      // Three rule groups run today; the count is what was evaluated, not what the
-      // finished scanner will evaluate.
-      totalRules: 3,
-      passed: errors === 0 ? 3 : 0,
+      // What was evaluated, not what the finished scanner will evaluate.
+      totalRules: 6,
+      passed: errors === 0 ? 6 : 0,
       warnings: counted(SubmissionFindingSeverity.WARNING),
       errors,
       truncated,
@@ -245,6 +467,21 @@ function buildScanResult(all: Finding[], upstreamTruncated: boolean): Submission
 
 function error(code: string, message: string): Finding {
   return { code, severity: SubmissionFindingSeverity.ERROR, message };
+}
+
+function isSha256Hex(value: string | null): boolean {
+  return value !== null && /^[0-9a-f]{64}$/.test(value);
+}
+
+function isSameOrderedList(left: string[] | null, right: string[]): boolean {
+  return (
+    left !== null && left.length === right.length && left.every((item, at) => item === right[at])
+  );
+}
+
+function readStringArray(value: unknown, key: string): string[] | null {
+  const read = readKey(value, key);
+  return Array.isArray(read) && read.every((item) => typeof item === 'string') ? read : null;
 }
 
 function readString(value: unknown, key: string): string | null {

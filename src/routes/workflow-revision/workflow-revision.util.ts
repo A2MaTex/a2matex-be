@@ -14,7 +14,7 @@ import {
 import type {
   LockedWorkflowRevisionDraft,
   WorkflowRevisionNodeDefinition,
-  WorkflowRevisionSnapshot,
+  WorkflowRevisionSourceSnapshot,
 } from './workflow-revision.model.ts';
 
 export function requireJsonObject(value: Prisma.JsonValue | null): Prisma.JsonObject {
@@ -24,24 +24,22 @@ export function requireJsonObject(value: Prisma.JsonValue | null): Prisma.JsonOb
   return value;
 }
 
+// Tolerant on purpose: a malformed or unavailable node type is a scan finding rather than a
+// refused freeze. What is skipped here stays in the frozen graph, so the scan still sees it.
 export function extractWorkflowNodeTypes(editorGraph: Prisma.JsonObject): string[] {
-  const nodes = editorGraph.nodes;
-  if (!Array.isArray(nodes)) {
-    throw WorkflowRevisionSourceIntegrityFailedException;
-  }
-
+  const nodes = Array.isArray(editorGraph.nodes) ? editorGraph.nodes : [];
   const nodeTypes = new Set<string>();
+
   for (const node of nodes) {
     if (
-      node === null ||
-      Array.isArray(node) ||
-      typeof node !== 'object' ||
-      typeof node.type !== 'string' ||
-      node.type.length === 0
+      node !== null &&
+      !Array.isArray(node) &&
+      typeof node === 'object' &&
+      typeof node.type === 'string' &&
+      node.type.length > 0
     ) {
-      throw WorkflowRevisionSourceIntegrityFailedException;
+      nodeTypes.add(node.type);
     }
-    nodeTypes.add(node.type);
   }
 
   return [...nodeTypes].sort();
@@ -68,27 +66,39 @@ export type WorkflowRevisionHashContent = {
   validationSummary: Prisma.JsonObject;
 };
 
-// Canonical JSON sorts keys, so the envelope hashes the same whether it is built here
-// at freeze time or rebuilt from the stored columns when a scan re-verifies it.
+// Canonical JSON sorts keys, so the envelope hashes the same whether it is built when the
+// scan finalizes the revision or rebuilt from the stored columns to re-verify one.
 function buildHashEnvelope(content: WorkflowRevisionHashContent) {
   return { hashVersion: WORKFLOW_REVISION_HASH_VERSION, ...content, assets: [] };
 }
 
-// The scan recomputes this from what was stored and compares it with the recorded
-// hash: the one check that proves an immutable snapshot was not altered after freeze.
 export function calculateWorkflowRevisionContentHash(content: WorkflowRevisionHashContent): string {
   return sha256Hex(buildHashEnvelope(content));
 }
 
-export function prepareWorkflowRevisionSnapshot({
+// The 2 MiB ceiling applies to the finalized document; the source freeze bounds the request.
+export function finalizeWorkflowRevisionContentHash({
+  source,
+  runtimeIr,
+}: {
+  source: WorkflowRevisionSourceSnapshot;
+  runtimeIr: Prisma.JsonObject;
+}): string {
+  const envelope = buildHashEnvelope({ ...source, runtimeIr });
+  if (Buffer.byteLength(canonicalJson(envelope), 'utf8') > WORKFLOW_REVISION_MAX_CONTENT_BYTES) {
+    throw WorkflowRevisionPayloadTooLargeException;
+  }
+  return sha256Hex(envelope);
+}
+
+export function prepareWorkflowRevisionSourceSnapshot({
   draft,
   definitions,
 }: {
   draft: LockedWorkflowRevisionDraft;
   definitions: WorkflowRevisionNodeDefinition[];
-}): WorkflowRevisionSnapshot {
+}): WorkflowRevisionSourceSnapshot {
   const editorGraph = requireJsonObject(draft.editorGraph);
-  const runtimeIr = requireJsonObject(draft.runtimeIr);
   const inputSchema = requireJsonObject(draft.inputSchema);
   const validationSummary = requireJsonObject(draft.validationSummary);
 
@@ -115,37 +125,57 @@ export function prepareWorkflowRevisionSnapshot({
 
   const capabilityManifest = {
     schemaVersion: WORKFLOW_REVISION_CAPABILITY_MANIFEST_VERSION,
-    capabilities: [
-      ...new Set(frozenDefinitions.flatMap((definition) => definition.capabilityCodes)),
-    ].sort(),
+    capabilities: deriveRequiredCapabilities(editorGraph, frozenDefinitions),
   };
   const nodeDefinitionManifest = {
     schemaVersion: WORKFLOW_REVISION_NODE_MANIFEST_VERSION,
     definitions: frozenDefinitions,
   };
 
-  const hashEnvelope = buildHashEnvelope({
+  const source: WorkflowRevisionSourceSnapshot = {
     editorGraph,
-    runtimeIr,
     inputSchema,
     nodeDefinitionManifest,
     capabilityManifest,
     validationSummary,
-  });
-
-  if (
-    Buffer.byteLength(canonicalJson(hashEnvelope), 'utf8') > WORKFLOW_REVISION_MAX_CONTENT_BYTES
-  ) {
+  };
+  if (Buffer.byteLength(canonicalJson(source), 'utf8') > WORKFLOW_REVISION_MAX_CONTENT_BYTES) {
     throw WorkflowRevisionPayloadTooLargeException;
   }
+  return source;
+}
 
-  return {
-    editorGraph,
-    runtimeIr,
-    inputSchema,
-    nodeDefinitionManifest,
-    capabilityManifest,
-    validationSummary,
-    contentHash: sha256Hex(hashEnvelope),
-  };
+// Must reproduce the order the compiler builds `runtimeIr.requiredCapabilities` in, because
+// the scan compares the two.
+function deriveRequiredCapabilities(
+  editorGraph: Prisma.JsonObject,
+  definitions: { type: string; capabilityCodes: string[] }[],
+): string[] {
+  const codesByType = new Map(
+    definitions.map(({ type, capabilityCodes }) => [type, capabilityCodes]),
+  );
+  const nodes = Array.isArray(editorGraph.nodes) ? editorGraph.nodes : [];
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+
+  for (const node of nodes) {
+    const type =
+      node !== null &&
+      !Array.isArray(node) &&
+      typeof node === 'object' &&
+      typeof node.type === 'string'
+        ? node.type
+        : null;
+    if (type === null) {
+      continue;
+    }
+    for (const code of codesByType.get(type) ?? []) {
+      if (seen.has(code)) {
+        continue;
+      }
+      seen.add(code);
+      ordered.push(code);
+    }
+  }
+  return ordered;
 }
