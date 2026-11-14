@@ -334,24 +334,25 @@ model NodeDefinitionCapability {
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model Project {
-  id                             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  publisherAccountId             String             @db.Uuid
-  name                           String             @db.VarChar(255)
-  description                    String?
-  status                         ProjectStatus      @default(ACTIVE)
-  createdAt                      DateTime           @default(now()) @db.Timestamptz(6)
-  updatedAt                      DateTime?          @db.Timestamptz(6)
-  deletedAt                      DateTime?          @db.Timestamptz(6)
-  createdById                    String             @db.Uuid
-  updatedById                    String?            @db.Uuid
-  deletedById                    String?            @db.Uuid
-  Product                        Product?
-  User_Project_createdByIdToUser User               @relation("Project_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  User_Project_deletedByIdToUser User?              @relation("Project_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  PublisherAccount               PublisherAccount   @relation(fields: [publisherAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  User_Project_updatedByIdToUser User?              @relation("Project_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  ProjectDraft                   ProjectDraft?
-  WorkflowRevision               WorkflowRevision[]
+  id                                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  publisherAccountId                 String             @db.Uuid
+  name                               String             @db.VarChar(255)
+  description                        String?
+  status                             ProjectStatus      @default(ACTIVE)
+  createdAt                          DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt                          DateTime?          @db.Timestamptz(6)
+  deletedAt                          DateTime?          @db.Timestamptz(6)
+  createdById                        String             @db.Uuid
+  updatedById                        String?            @db.Uuid
+  deletedById                        String?            @db.Uuid
+  Product_Product_projectIdToProject Product?           @relation("Product_projectIdToProject")
+  Product                            Product?
+  User_Project_createdByIdToUser     User               @relation("Project_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User_Project_deletedByIdToUser     User?              @relation("Project_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  PublisherAccount                   PublisherAccount   @relation(fields: [publisherAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User_Project_updatedByIdToUser     User?              @relation("Project_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ProjectDraft                       ProjectDraft?
+  WorkflowRevision                   WorkflowRevision[]
 
   @@unique([id, publisherAccountId])
   @@index([publisherAccountId, status], where: raw("(\"deletedAt\" IS NULL)"))
@@ -429,33 +430,36 @@ model StaticImageVariant {
 /// composite key stays in the migration SQL. `prisma db pull` regenerates the
 /// invalid composite form; re-apply this by hand after any introspection.
 model Product {
-  id                               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  publisherAccountId               String           @db.Uuid
-  projectId                        String           @unique @db.Uuid
-  status                           ProductStatus    @default(DRAFT)
-  currentReleaseId                 String?          @db.Uuid
-  name                             String?          @db.VarChar(255)
-  slug                             String?          @db.VarChar(255)
-  shortDescription                 String?          @db.VarChar(500)
-  description                      String?
-  usageInstructions                String?
-  statusReason                     String?
-  suspendedAt                      DateTime?        @db.Timestamptz(6)
-  suspendedById                    String?          @db.Uuid
-  createdAt                        DateTime         @default(now()) @db.Timestamptz(6)
-  updatedAt                        DateTime?        @db.Timestamptz(6)
-  deletedAt                        DateTime?        @db.Timestamptz(6)
-  createdById                      String           @db.Uuid
-  updatedById                      String?          @db.Uuid
-  deletedById                      String?          @db.Uuid
-  User_Product_createdByIdToUser   User             @relation("Product_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  User_Product_deletedByIdToUser   User?            @relation("Product_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  Project                          Project          @relation(fields: [projectId, publisherAccountId], references: [id, publisherAccountId], onDelete: NoAction, onUpdate: NoAction)
-  PublisherAccount                 PublisherAccount @relation(fields: [publisherAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  User_Product_suspendedByIdToUser User?            @relation("Product_suspendedByIdToUser", fields: [suspendedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  User_Product_updatedByIdToUser   User?            @relation("Product_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  ProductMedia                     ProductMedia[]
-  Submission                       Submission[]
+  id                                 String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  publisherAccountId                 String           @db.Uuid
+  projectId                          String           @unique @db.Uuid
+  status                             ProductStatus    @default(DRAFT)
+  currentReleaseId                   String?          @db.Uuid
+  name                               String?          @db.VarChar(255)
+  slug                               String?          @db.VarChar(255)
+  shortDescription                   String?          @db.VarChar(500)
+  description                        String?
+  usageInstructions                  String?
+  statusReason                       String?
+  suspendedAt                        DateTime?        @db.Timestamptz(6)
+  suspendedById                      String?          @db.Uuid
+  createdAt                          DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt                          DateTime?        @db.Timestamptz(6)
+  deletedAt                          DateTime?        @db.Timestamptz(6)
+  createdById                        String           @db.Uuid
+  updatedById                        String?          @db.Uuid
+  deletedById                        String?          @db.Uuid
+  User_Product_createdByIdToUser     User             @relation("Product_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  currentRelease                     ProductRelease?  @relation("CurrentProductRelease", fields: [currentReleaseId], references: [id])
+  User_Product_deletedByIdToUser     User?            @relation("Product_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Project_Product_projectIdToProject Project          @relation("Product_projectIdToProject", fields: [projectId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Project                            Project          @relation(fields: [projectId, publisherAccountId], references: [id, publisherAccountId], onDelete: NoAction, onUpdate: NoAction)
+  PublisherAccount                   PublisherAccount @relation(fields: [publisherAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User_Product_suspendedByIdToUser   User?            @relation("Product_suspendedByIdToUser", fields: [suspendedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User_Product_updatedByIdToUser     User?            @relation("Product_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ProductMedia                       ProductMedia[]
+  releases                           ProductRelease[] @relation("ProductReleases")
+  Submission                         Submission[]
 
   @@unique([projectId, publisherAccountId])
   @@index([publisherAccountId, status], where: raw("(\"deletedAt\" IS NULL)"))
@@ -504,6 +508,7 @@ model Submission {
   createdById                       String               @db.Uuid
   updatedById                       String?              @db.Uuid
   deletedById                       String?              @db.Uuid
+  productRelease                    ProductRelease?
   User_Submission_createdByIdToUser User                 @relation("Submission_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_Submission_deletedByIdToUser User?                @relation("Submission_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   Product                           Product              @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -536,6 +541,41 @@ model StaticUploadSession {
   updatedBy    User?          @relation("UploadSessionUpdatedBy", fields: [updatedById], references: [id])
 
   @@index([fileHash], map: "idx_StaticUploadSession_file_hash", where: raw("(deleted_at IS NULL)"))
+}
+
+model ProductRelease {
+  id                 String               @id @default(uuid()) @db.Uuid
+  productId          String               @db.Uuid
+  submissionId       String               @unique @db.Uuid
+  version            String               @db.VarChar(100)
+  status             ProductReleaseStatus @default(BUILDING)
+  packageStaticId    String?              @db.Uuid
+  packageHash        String?              @db.VarChar(64)
+  wrappedKey         Bytes?
+  nonce              Bytes?
+  contentKeyNonce    Bytes?
+  algorithm          String?              @db.VarChar(32)
+  buildFailureCode   String?              @db.VarChar(100)
+  publishedAt        DateTime?            @db.Timestamptz(6)
+  disabledAt         DateTime?            @db.Timestamptz(6)
+  disabledReason     String?
+  createdAt          DateTime             @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime?            @db.Timestamptz(6)
+  createdById        String               @db.Uuid
+  updatedById        String?              @db.Uuid
+  currentForProducts Product[]            @relation("CurrentProductRelease")
+  product            Product              @relation("ProductReleases", fields: [productId], references: [id])
+  submission         Submission           @relation(fields: [submissionId], references: [id])
+
+  @@unique([productId, version])
+  @@index([productId, publishedAt(sort: Desc), id(sort: Desc)])
+}
+
+enum ProductReleaseStatus {
+  BUILDING
+  PUBLISHED
+  BUILD_FAILED
+  DISABLED
 }
 
 enum SessionStatus {

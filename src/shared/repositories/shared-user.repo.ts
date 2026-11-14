@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { PermissionType } from '../../entities/permission.model.ts';
 import { RoleType } from '../../entities/role.schema.ts';
 import { UserType } from '../../entities/user.model.ts';
+import { RoleName } from '../constants/role.constant.ts';
 import { PrismaService } from '../services/prisma.service.ts';
 
 type UserIncludeRolePermissionsType = UserType & {
@@ -25,6 +26,26 @@ export class SharedUserRepository {
         deletedAt: null,
       },
     });
+  }
+
+  async findOneAdmin(): Promise<string | null> {
+    const user = await this.prisma.user.findFirst({
+      where: {
+        deletedAt: null,
+        userRoles: {
+          some: {
+            deletedAt: null,
+            role: {
+              name: { in: [RoleName.Admin] },
+              deletedAt: null,
+            },
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    return user?.id ?? null;
   }
 
   findUniqueIncludeRolePermissions(
