@@ -20,6 +20,9 @@ import { ProjectAccessRepo } from './repositories/project-access.repo.ts';
 import { ProjectAccessPolicy } from './services/project-access.policy.ts';
 import { QueueModule } from './infrastructure/queue/queue.ts';
 import { UploadSessionRepository } from './repositories/upload-session.repo.ts';
+import { KeyService } from './services/key.service.ts';
+import { ProductReleaseRepository } from './repositories/product-release.repo.ts';
+import { SubmissionRepository } from './repositories/submission.repo.ts';
 
 import { ContextLoggerService } from './infrastructure/logging/context-logger.service.js';
 import { RequestLogContextService } from './infrastructure/logging/request-log-context.service.js';
@@ -40,6 +43,9 @@ const sharedServices = [
   ProjectAccessRepo,
   ProjectAccessPolicy,
   UploadSessionRepository,
+  KeyService,
+  ProductReleaseRepository,
+  SubmissionRepository,
 ];
 
 const objectStorageProvider = {

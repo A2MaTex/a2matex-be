@@ -86,6 +86,12 @@ export const SUBMISSION_SCAN_CONSUMER_GROUP_ID = 'submission-scan-v1';
 export const SUBMISSION_SCAN_MAX_ATTEMPTS = 5;
 export const SUBMISSION_SCAN_RETRY_DELAY_MS = 5_000;
 
+export const PRODUCT_RELEASE_BUILD_MESSAGE_TYPE = 'product-release.build.requested.v1';
+export const PRODUCT_RELEASE_BUILD_MESSAGE_ID_PREFIX = 'product-release';
+export const PRODUCT_RELEASE_BUILD_CONSUMER_GROUP_ID = 'product-release-build-v1';
+export const PRODUCT_RELEASE_BUILD_MAX_ATTEMPTS = 3;
+export const PRODUCT_RELEASE_BUILD_RETRY_DELAY_MS = 5_000;
+
 // Review feedback is Publisher-facing text an Admin writes by hand. Message and node id
 // reuse the scan finding bounds: the two sides of one Submission must not drift, and a
 // node id longer than the Editor Graph allows cannot name a real node.

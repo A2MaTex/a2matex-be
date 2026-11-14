@@ -55,6 +55,29 @@ export class StaticRepository {
     });
   }
 
+  // Update reserved metadata before a package is (re)uploaded. Used by Product Release
+  // when a rebuilt unpublished package differs in size, content type, or file name.
+  async updateMetadata(
+    id: string,
+    patch: { size?: bigint; contentType?: string; originalFileName?: string },
+  ): Promise<void> {
+    const data: Record<string, unknown> = {};
+    if (patch.size !== undefined) {
+      data.size = patch.size;
+    }
+    if (patch.contentType !== undefined) {
+      data.contentType = patch.contentType;
+    }
+    if (patch.originalFileName !== undefined) {
+      data.originalFileName = patch.originalFileName;
+    }
+    if (Object.keys(data).length === 0) {
+      return;
+    }
+    data.updatedAt = new Date();
+    await this.prisma.static.update({ where: { id }, data });
+  }
+
   async createImage({
     staticRecord,
     variants,
