@@ -72,6 +72,21 @@ export type UploadStaticFileOutput = {
   id: string;
 };
 
+export type ReserveStaticFileInput = {
+  originalFileName: string;
+  contentType: string;
+  size: number;
+  prefix?: string;
+};
+
+export type ReservedStaticFile = {
+  id: string;
+  objectKey: string;
+  originalFileName: string;
+  contentType: string;
+  size: bigint;
+};
+
 export type UploadStaticImageInput = {
   filePath: string;
   originalFileName: string;
@@ -158,6 +173,108 @@ export class StaticService {
     }
 
     return createdStatic;
+  }
+
+  // Create the Static metadata row (UUID-sharded object key) WITHOUT uploading. Used by
+  // Product Release to reserve a private object before any R2 I/O so a build retry reuses
+  // the same key instead of allocating a new Static record. Joins the caller's
+  // transaction when one is active.
+  async reserveFile(input: ReserveStaticFileInput): Promise<ReservedStaticFile> {
+    this.validateFileMetadata(input);
+    const id = randomUUID();
+    const objectKey = buildStaticObjectKey(id, input.prefix);
+    const created = await this.staticRepository.create({
+      id,
+      objectKey,
+      originalFileName: path.basename(input.originalFileName.trim()),
+      contentType: input.contentType.trim(),
+      size: BigInt(input.size),
+    });
+    return { ...created, objectKey };
+  }
+
+  // Load a reserved Static record so a retry can reuse its object key instead of
+  // allocating a new one.
+  async getReservedFile(id: string): Promise<ReservedStaticFile | null> {
+    const record = await this.staticRepository.findById(id);
+    if (!record) {
+      return null;
+    }
+    return {
+      id: record.id,
+      objectKey: record.objectKey,
+      originalFileName: record.originalFileName,
+      contentType: record.contentType,
+      size: record.size,
+    };
+  }
+
+  // Keep reserved metadata in sync with the package being uploaded when a rebuilt
+  // unpublished package differs in size, content type, or file name.
+  async updateReservedFileMetadata(
+    id: string,
+    patch: { size?: bigint; contentType?: string; originalFileName?: string },
+  ): Promise<void> {
+    await this.staticRepository.updateMetadata(id, patch);
+  }
+
+  // Upload bytes to a previously reserved object key. A failure does NOT delete the
+  // reserved Static row: a retry overwrites the same object and reuses the reservation.
+  async uploadReservedFile(input: {
+    objectKey: string;
+    body: Readable | Uint8Array;
+    contentType: string;
+    size: number;
+  }): Promise<void> {
+    const contentType = input.contentType.trim();
+    if (contentType.length === 0) {
+      throw new Error('Content type is required');
+    }
+    if (!Number.isSafeInteger(input.size) || input.size < 0) {
+      throw new Error('File size must be a non-negative safe integer');
+    }
+    await this.storageProvider.uploadFile({
+      objectKey: input.objectKey,
+      contentType,
+      body: input.body,
+      size: input.size,
+    });
+  }
+
+  // Step 8: verify the object that was just uploaded matches the package the builder
+  // produced. Runs outside the publication transaction; a mismatch is a retryable build
+  // failure because the retry overwrites the same reserved object key.
+  async verifyUploadedObject(
+    objectKey: string,
+    expected: { size: number; contentType: string },
+  ): Promise<void> {
+    const metadata = (await this.storageProvider.getMetadata(objectKey)) as {
+      ContentLength?: number;
+      ContentType?: string;
+    } | undefined;
+    const actualSize = Number(metadata?.ContentLength);
+    const actualContentType = metadata?.ContentType;
+    if (actualSize !== expected.size || actualContentType !== expected.contentType) {
+      throw new Error(
+        `Uploaded object verification failed objectKey=${objectKey} ` +
+          `expectedSize=${expected.size} actualSize=${actualSize} ` +
+          `expectedContentType=${expected.contentType} actualContentType=${actualContentType}`,
+      );
+    }
+  }
+
+  // Hard-delete a reserved Static metadata row. Used only when a build fails permanently
+  // and the reservation is no longer needed; the caller drops the ProductRelease pointer
+  // first so the FK to Static is gone before this runs.
+  async removeReservedFile(id: string): Promise<void> {
+    await this.staticRepository.hardDelete(id);
+  }
+
+  // Delete the private object backing a reservation. Best effort: a leftover private
+  // object is never served without an entitlement check and is overwritten by a future
+  // build under a new key.
+  async deleteReservedObject(objectKey: string): Promise<void> {
+    await this.storageProvider.deleteFile(objectKey);
   }
 
   async uploadImage(input: UploadStaticImageInput): Promise<UploadStaticFileOutput> {

@@ -63,6 +63,47 @@ export class ProductRepo {
     return this.prismaService.getClient();
   }
 
+  updateCurrentRelease({ id, currentReleaseId }: { id: string; currentReleaseId: string }) {
+    return this.prisma.product.update({
+      where: { id },
+      data: {
+        currentReleaseId,
+        status: ProductStatus.ACTIVE
+      },
+    });
+  }
+
+  // Step 9.9-11: point the Product at its new current release and activate it (DRAFT ->
+  // ACTIVE on the first current release; stays ACTIVE on an update). Conditional on a
+  // non-deleted DRAFT/ACTIVE Product so a concurrent suspension/archive can never be
+  // silently overwritten. Runs inside the caller's publication transaction, which holds
+  // the Product lock, so the predicate matches. Audits with the approving admin.
+  applyPublication({
+    id,
+    currentReleaseId,
+    actorId,
+    now,
+  }: {
+    id: string;
+    currentReleaseId: string;
+    actorId: string;
+    now: Date;
+  }): Promise<{ count: number }> {
+    return this.prisma.product.updateMany({
+      where: {
+        id,
+        deletedAt: null,
+        status: { in: [ProductStatus.DRAFT, ProductStatus.ACTIVE] },
+      },
+      data: {
+        currentReleaseId,
+        status: ProductStatus.ACTIVE,
+        updatedById: actorId,
+        updatedAt: now,
+      },
+    });
+  }
+
   findOwnedActiveProject({
     projectId,
     publisherAccountId,

@@ -29,6 +29,7 @@ import { TransformInterceptor } from './shared/interceptors/transform.intercepto
 import CustomZodValidationPipe from './shared/pipes/custom-zod-validation.pipe.js';
 import { SharedModule } from './shared/shared.module.js';
 import { ConfigModule } from '@nestjs/config';
+import { ProductReleaseModule } from './routes/product-release/product-release.module.ts';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { ConfigModule } from '@nestjs/config';
     WorkflowCompilerModule,
     UserModule,
     SharedModule,
+    ProductReleaseModule,
     ConfigModule.forRoot({
       isGlobal: true,
     }),
