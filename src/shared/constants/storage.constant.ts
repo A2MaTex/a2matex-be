@@ -67,3 +67,5 @@ export const UploadSessionStatus = {
   COMPLETED: 'COMPLETED',
   ABORTED: 'ABORTED',
 } as const;
+
+export const PRODUCT_RELEASE_STATIC_PREFIX = "products"
