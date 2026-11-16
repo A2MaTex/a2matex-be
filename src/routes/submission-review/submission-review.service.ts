@@ -142,7 +142,7 @@ export class SubmissionReviewService {
           );
           throw SubmissionReviewStateInvalidException;
         }
-        await this.publishAfterCommit({ identity, occurredAt: target.reviewedAt });
+        await this.publishAfterCommit({ identity, occurredAt: target.reviewedAt, userId });
       }
       return;
     }
@@ -173,7 +173,7 @@ export class SubmissionReviewService {
     );
 
     if (approving) {
-      await this.publishAfterCommit({ identity, occurredAt: reviewedAt });
+      await this.publishAfterCommit({ identity, occurredAt: reviewedAt, userId });
     }
   }
 
@@ -233,15 +233,18 @@ export class SubmissionReviewService {
   private publishAfterCommit({
     identity,
     occurredAt,
+    userId,
   }: {
     identity: SubmissionReviewIdentity;
     occurredAt: Date;
+    userId: string;
   }): Promise<void> {
     return this.transactionService.afterCommit(() =>
       this.publishBuildRequest({
         submissionId: identity.id,
         productId: identity.productId,
         occurredAt,
+        reviewedById: userId,
       }),
     );
   }
@@ -251,21 +254,23 @@ export class SubmissionReviewService {
     submissionId,
     productId,
     occurredAt,
+    reviewedById,
   }: {
     submissionId: string;
     productId: string;
     occurredAt: Date;
+    reviewedById: string;
   }): Promise<void> {
     const messageId = `${PRODUCT_RELEASE_BUILD_MESSAGE_ID_PREFIX}:${submissionId}`;
     try {
       await this.queue.publish({
         topic: KAFKA_TOPICS.PRODUCT_RELEASE_BUILD_REQUESTED,
-        key: productId,
+        key: submissionId,
         message: {
           id: messageId,
           type: PRODUCT_RELEASE_BUILD_MESSAGE_TYPE,
           occurredAt: occurredAt.toISOString(),
-          payload: { submissionId },
+          payload: { submissionId, createdById: reviewedById },
         },
       });
     } catch (error) {

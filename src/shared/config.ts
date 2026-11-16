@@ -91,6 +91,7 @@ const configSchema = z
     FILE_DOWNLOAD_URL_TTL: z.coerce.number().int().positive().default(900),
     CRON_MULTIPART_CLEAN_TIME: z.string().default('0 0 0 * * *'),
     UPLOAD_SESSION_TTL: z.coerce.number().int().positive().default(1),
+    MASTER_KEY: z.string().optional().transform(emptyToUndefined),
   })
   .superRefine((cfg, ctx) => {
     const hasAccessKey = cfg.OBJECT_STORAGE_ACCESS_KEY_ID !== undefined;
