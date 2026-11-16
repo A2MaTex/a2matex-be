@@ -10,7 +10,8 @@ import type {
 } from '../workflow-revision.model.ts';
 import {
   extractWorkflowNodeTypes,
-  prepareWorkflowRevisionSnapshot,
+  finalizeWorkflowRevisionContentHash,
+  prepareWorkflowRevisionSourceSnapshot,
   requireAssetFreeWorkflow,
 } from '../workflow-revision.util.ts';
 
@@ -19,7 +20,6 @@ function draft(overrides: Partial<LockedWorkflowRevisionDraft> = {}): LockedWork
     version: 3,
     editorGraph: { nodes: [] },
     inputSchema: {},
-    runtimeIr: {},
     validationSummary: {},
     contentHash: 'a'.repeat(64),
     ...overrides,
@@ -44,7 +44,6 @@ function definition(
     outputSchema: {},
     outputPorts: {},
     editorHints: {},
-    supportedErrorPolicies: {},
     contentHash: 'b'.repeat(64),
     NodeDefinitionCapability: capabilityCodes.map((code) => ({ Capability: { code } })),
     ...overrides,
@@ -60,10 +59,12 @@ describe('Workflow Revision utilities', () => {
     ).toEqual(['android.tap', 'utility.delay']);
   });
 
-  it('rejects malformed graph nodes without exposing graph content', () => {
-    expect(() => extractWorkflowNodeTypes({ nodes: [{ id: 'missing-type' }] })).toThrow(
-      WorkflowRevisionSourceIntegrityFailedException,
-    );
+  it('skips malformed graph nodes and a non-array node list', () => {
+    expect(
+      extractWorkflowNodeTypes({ nodes: [{ id: 'missing-type' }, { type: 'android.tap' }] }),
+    ).toEqual(['android.tap']);
+    expect(extractWorkflowNodeTypes({ nodes: 'not-an-array' })).toEqual([]);
+    expect(extractWorkflowNodeTypes({})).toEqual([]);
   });
 
   it('rejects asset-bearing workflows and accepts an empty asset list', () => {
@@ -73,9 +74,26 @@ describe('Workflow Revision utilities', () => {
     ).toThrow(WorkflowRevisionAssetUnsupportedException);
   });
 
-  it('freezes definitions and capabilities in deterministic order', () => {
-    const snapshot = prepareWorkflowRevisionSnapshot({
+  it('freezes a source snapshot without the two compiled fields', () => {
+    const snapshot = prepareWorkflowRevisionSourceSnapshot({
       draft: draft(),
+      definitions: [definition('utility.delay', [])],
+    });
+
+    expect(Object.keys(snapshot).sort()).toEqual([
+      'capabilityManifest',
+      'editorGraph',
+      'inputSchema',
+      'nodeDefinitionManifest',
+      'validationSummary',
+    ]);
+  });
+
+  it('sorts frozen definitions by type and their own capability codes', () => {
+    const snapshot = prepareWorkflowRevisionSourceSnapshot({
+      draft: draft({
+        editorGraph: { nodes: [{ type: 'utility.delay' }, { type: 'android.tap' }] },
+      }),
       definitions: [
         definition('utility.delay', ['screen.capture', 'android.control']),
         definition('android.tap', ['android.control', 'android.control']),
@@ -85,55 +103,49 @@ describe('Workflow Revision utilities', () => {
     expect(snapshot.nodeDefinitionManifest).toMatchObject({
       schemaVersion: 1,
       definitions: [
-        {
-          type: 'android.tap',
-          capabilityCodes: ['android.control'],
-          contentHash: 'b'.repeat(64),
-        },
-        {
-          type: 'utility.delay',
-          capabilityCodes: ['android.control', 'screen.capture'],
-          contentHash: 'b'.repeat(64),
-        },
+        { type: 'android.tap', capabilityCodes: ['android.control'] },
+        { type: 'utility.delay', capabilityCodes: ['android.control', 'screen.capture'] },
       ],
     });
+  });
+
+  // The compiler derives requiredCapabilities the same way and the scan compares the two.
+  it('derives the capability union in graph order, not lexicographic order', () => {
+    const snapshot = prepareWorkflowRevisionSourceSnapshot({
+      draft: draft({
+        editorGraph: { nodes: [{ type: 'utility.delay' }, { type: 'android.tap' }] },
+      }),
+      definitions: [
+        definition('utility.delay', ['screen.capture']),
+        definition('android.tap', ['android.control']),
+      ],
+    });
+
     expect(snapshot.capabilityManifest).toEqual({
       schemaVersion: 1,
-      capabilities: ['android.control', 'screen.capture'],
+      capabilities: ['screen.capture', 'android.control'],
     });
   });
 
-  it('produces the same hash for recursively reordered object keys', () => {
-    const left = prepareWorkflowRevisionSnapshot({
-      draft: draft({ runtimeIr: { z: 1, nested: { b: 2, a: 1 } } }),
-      definitions: [definition('utility.delay', [])],
-    });
-    const right = prepareWorkflowRevisionSnapshot({
-      draft: draft({ runtimeIr: { nested: { a: 1, b: 2 }, z: 1 } }),
-      definitions: [definition('utility.delay', [])],
+  it('ignores a graph node whose type has no frozen definition', () => {
+    const snapshot = prepareWorkflowRevisionSourceSnapshot({
+      draft: draft({
+        editorGraph: { nodes: [{ type: 'android.tap' }, { type: 'utility.unknown' }] },
+      }),
+      definitions: [definition('android.tap', ['android.control'])],
     });
 
-    expect(left.contentHash).toBe(right.contentHash);
+    expect(snapshot.capabilityManifest).toEqual({
+      schemaVersion: 1,
+      capabilities: ['android.control'],
+    });
   });
 
-  it('changes the hash when included technical content changes', () => {
-    const original = prepareWorkflowRevisionSnapshot({
-      draft: draft(),
-      definitions: [definition('utility.delay', [])],
-    });
-    const changed = prepareWorkflowRevisionSnapshot({
-      draft: draft({ runtimeIr: { instruction: 'WAIT' } }),
-      definitions: [definition('utility.delay', [])],
-    });
-
-    expect(original.contentHash).not.toBe(changed.contentHash);
-  });
-
-  it('enforces the revision canonical-content limit', () => {
+  it('enforces the source canonical-content limit', () => {
     const oversizedDescription = 'x'.repeat(2_100_000);
 
     expect(() =>
-      prepareWorkflowRevisionSnapshot({
+      prepareWorkflowRevisionSourceSnapshot({
         draft: draft(),
         definitions: [
           definition('utility.delay', [], { description: oversizedDescription as string }),
@@ -144,10 +156,51 @@ describe('Workflow Revision utilities', () => {
 
   it('requires every frozen JSON contract to be an object', () => {
     expect(() =>
-      prepareWorkflowRevisionSnapshot({
+      prepareWorkflowRevisionSourceSnapshot({
         draft: draft({ inputSchema: [] as Prisma.JsonArray }),
         definitions: [],
       }),
     ).toThrow(WorkflowRevisionSourceIntegrityFailedException);
+  });
+
+  describe('finalized content hash', () => {
+    const source = () =>
+      prepareWorkflowRevisionSourceSnapshot({
+        draft: draft(),
+        definitions: [definition('utility.delay', [])],
+      });
+
+    it('produces the same hash for recursively reordered object keys', () => {
+      expect(
+        finalizeWorkflowRevisionContentHash({
+          source: source(),
+          runtimeIr: { z: 1, nested: { b: 2, a: 1 } },
+        }),
+      ).toBe(
+        finalizeWorkflowRevisionContentHash({
+          source: source(),
+          runtimeIr: { nested: { a: 1, b: 2 }, z: 1 } as Prisma.JsonObject,
+        }),
+      );
+    });
+
+    it('changes when the compiled Runtime IR changes', () => {
+      expect(finalizeWorkflowRevisionContentHash({ source: source(), runtimeIr: {} })).not.toBe(
+        finalizeWorkflowRevisionContentHash({
+          source: source(),
+          runtimeIr: { instruction: 'WAIT' },
+        }),
+      );
+    });
+
+    // The source alone fits; only the compiled document pushes the pair over the ceiling.
+    it('enforces the limit on the finalized document', () => {
+      expect(() =>
+        finalizeWorkflowRevisionContentHash({
+          source: source(),
+          runtimeIr: { padding: 'x'.repeat(2_100_000) },
+        }),
+      ).toThrow(WorkflowRevisionPayloadTooLargeException);
+    });
   });
 });
