@@ -512,6 +512,70 @@ ssh -i ~/.ssh/a2matex-dbtunnel dbtunnel@<IP VPS> id                       # ph�
 kill %1
 ```
 
+### A11. Thu log API lên Cloud Logging
+
+App ghi mỗi request thành một dòng JSON ra stdout, kèm `traceId` trả về client qua header
+`X-Trace-Id`. Ops Agent trên máy đọc file log của container rồi đẩy lên Cloud Logging, nhờ vậy
+dán trace ID vào Logs Explorer là ra đúng bản ghi, không cần dựng lại lỗi ở máy local.
+
+Không phải cấp IAM: service account mặc định của VM đã có scope `logging.write`. Muốn chắc thì
+ghi thử một bản ghi, `200` là đủ quyền, `403` thì cấp `roles/logging.logWriter` cho service
+account của máy:
+
+```bash
+TOKEN=$(curl -s -H "Metadata-Flavor: Google" \
+  http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token \
+  | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://logging.googleapis.com/v2/entries:write \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"logName":"projects/a2matex-prod/logs/probe","resource":{"type":"global"},"entries":[{"severity":"INFO","jsonPayload":{"message":"probe"}}]}'
+```
+
+Cài agent:
+
+```bash
+curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
+sudo bash add-google-cloud-ops-agent-repo.sh --also-install
+rm add-google-cloud-ops-agent-repo.sh
+systemctl is-active google-cloud-ops-agent
+```
+
+Cấu hình thì **không chép tay**. Receiver phải trỏ đường dẫn tuyệt đối tới file log của container,
+mà Compose cấp container ID mới mỗi lần tạo lại, nên cấu hình chép tay sẽ chết ngay sau lần deploy
+kế tiếp và **không báo lỗi gì cả**: agent vẫn `active`, chỉ là không còn bản ghi mới. Vì vậy
+`vps-deploy.sh` tự sinh `/etc/google-cloud-ops-agent/config.yaml` từ
+`deploy/google-cloud-ops-agent.yaml` sau mỗi lần deploy, và chỉ restart agent khi đường dẫn đổi.
+
+Lần đầu, trước khi có một lượt deploy mới, sinh cấu hình một lượt bằng tay:
+
+```bash
+LOG_PATH=$(docker inspect --format '{{.LogPath}}' a2matex-app)
+sed "s|^\( *- \).*CONTAINER_ID.*|\1$LOG_PATH|" /opt/a2matex/deploy/google-cloud-ops-agent.yaml \
+  | sudo tee /etc/google-cloud-ops-agent/config.yaml >/dev/null
+sudo systemctl restart google-cloud-ops-agent
+```
+
+Kiểm bằng một request chạy được và một request hỏng, rồi tra từng `X-Trace-Id` trong Logs Explorer
+của project `a2matex-prod` với `jsonPayload.traceId="<id>"`:
+
+```bash
+curl -is https://api.a2matex.com/api/v1/health        | grep -i x-trace-id
+curl -is https://api.a2matex.com/api/v1/khong-ton-tai | grep -i x-trace-id
+```
+
+Mỗi ID phải ra **đúng một** bản ghi. Bản 404 có `severity` là `ERROR` và trường `error` là tên
+exception. Severity hiện `Default` nghĩa là processor chưa chạy; `jsonPayload` còn nguyên key `log`
+chứa cả chuỗi JSON nghĩa là mới parse được một tầng.
+
+Cuối cùng xác nhận agent chết không kéo theo API. Trong lúc agent dừng, `docker logs a2matex-app`
+vẫn là bản ghi dự phòng tại chỗ:
+
+```bash
+sudo systemctl stop google-cloud-ops-agent
+curl -s -o /dev/null -w '%{http_code}\n' https://api.a2matex.com/api/v1/health   # phải 200
+sudo systemctl start google-cloud-ops-agent
+```
+
 ## B. Vận hành
 
 ### Deploy
@@ -803,18 +867,4 @@ Bản ghi DNS `db.a2matex.com` của spec 003 (nếu đã tạo) không còn dù
 | `remaining connection slots are reserved` | `db-g1-small` giới hạn khoảng 50 kết nối; nhiều dev mở GUI cùng lúc | hạ `CONNECTION LIMIT` của role dev, hoặc nâng tier |
 | Auth Proxy báo 403 hoặc `permission denied` | tài khoản Google chưa có `roles/cloudsql.client`, hoặc chưa `gcloud auth login` | xem A10.1 |
 | Dev bị `password authentication failed` qua proxy | role chưa tạo hoặc sai mật khẩu | tạo lại role trong Cloud SQL Studio theo A10.1 |
-
-### Staging verification for API request logs
-
-On the VM, run `docker inspect --format '{{.LogPath}}' a2matex-app` and use
-the result as the receiver path in `deploy/google-cloud-ops-agent.yaml`.
-The Docker log path changes when Compose recreates the container. Refresh
-the receiver path after recreation while using this staging configuration.
-Merge the receiver, processors, and pipeline into the VM's Ops Agent
-configuration and restart `google-cloud-ops-agent`.
-
-Send a successful and a failing API request. Copy each `X-Trace-Id` and
-search Logs Explorer with `jsonPayload.traceId="<id>"`. Verify one record
-per ID and check the severity and error name for an unexpected failure.
-Check that the API still responds when the agent is stopped, then restart
-the agent. Use `docker logs a2matex-app` for the local record.
+| Logs Explorer không có bản ghi mới dù agent `active` | `include_paths` còn trỏ container ID cũ sau khi container bị tạo lại | deploy lại để `vps-deploy.sh` tự sinh cấu hình, hoặc chạy tay lệnh `sed` ở A11 |
