@@ -143,9 +143,11 @@ export const SubmissionWorkflowRevision = z.object({
   projectId: z.uuid(),
   sourceDraftVersion: z.number().int().positive(),
   sourceDraftContentHash: z.string(),
-  contentHash: z.string(),
+  // Both stay null until a scan compiles the frozen source. A pending or failed Submission
+  // exposes the revision it froze, without an executable document it does not have.
+  contentHash: z.string().nullable(),
   editorGraph: StoredEditorGraph,
-  runtimeIr: StoredJson,
+  runtimeIr: StoredJson.nullable(),
   inputSchema: StoredJson,
   nodeDefinitionManifest: StoredJson,
   capabilityManifest: StoredJson,

@@ -1,7 +1,7 @@
 import { ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client.ts';
 import { TransactionService } from '../../../shared/services/transaction.service.ts';
-import { calculateProjectDraftContentHash } from '../../project-draft/project-draft.util.ts';
+import { calculateProjectDraftSourceHash } from '../../project-draft/project-draft.util.ts';
 import { WorkflowRevisionRepo } from '../workflow-revision.repo.ts';
 import { WorkflowRevisionService } from '../workflow-revision.service.ts';
 
@@ -21,13 +21,12 @@ function draft(overrides: Record<string, unknown> = {}) {
   const content = {
     editorGraph: { nodes: [{ id: 'node-1', type: 'utility.delay' }], assets: [] },
     inputSchema: {},
-    runtimeIr: { instructions: [] },
-    validationSummary: {},
   };
   return {
     version: 4,
     ...content,
-    contentHash: calculateProjectDraftContentHash(content),
+    validationSummary: {},
+    contentHash: calculateProjectDraftSourceHash(content),
     ...overrides,
   };
 }
@@ -46,7 +45,6 @@ function definition() {
     outputSchema: {},
     outputPorts: {},
     editorHints: {},
-    supportedErrorPolicies: {},
     contentHash: 'b'.repeat(64),
     NodeDefinitionCapability: [{ Capability: { code: 'timer.wait' } }],
   };
@@ -160,10 +158,18 @@ describe('WorkflowRevisionService', () => {
     }
   });
 
-  it('requires a non-null object Runtime IR', async () => {
+  // Requiring it would force Studio to upload preview output before every submission.
+  it('accepts a draft whose cached Runtime IR is null and freezes no compiled fields', async () => {
     lockProjectDraft.mockResolvedValue(draft({ runtimeIr: null }));
 
-    await expect(createRevision()).rejects.toThrow('Error.WorkflowRevisionRuntimeIrRequired');
+    await expect(createRevision()).resolves.toEqual(
+      expect.objectContaining({ id: REVISION_ID, sourceDraftVersion: 4 }),
+    );
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        snapshot: expect.not.objectContaining({ runtimeIr: expect.anything() }),
+      }),
+    );
   });
 
   it('rejects asset references before the Asset module exists', async () => {
@@ -175,11 +181,9 @@ describe('WorkflowRevisionService', () => {
     lockProjectDraft.mockResolvedValue(
       draft({
         editorGraph,
-        contentHash: calculateProjectDraftContentHash({
+        contentHash: calculateProjectDraftSourceHash({
           editorGraph,
           inputSchema: assetDraft.inputSchema,
-          runtimeIr: assetDraft.runtimeIr,
-          validationSummary: assetDraft.validationSummary,
         }),
       }),
     );
@@ -196,13 +200,31 @@ describe('WorkflowRevisionService', () => {
     errorLog.mockRestore();
   });
 
-  it('rejects missing or disabled node definitions after one batched lookup', async () => {
+  it('freezes the graph even when a node definition is unavailable', async () => {
     getActiveNodeDefinitions.mockResolvedValue([]);
 
-    await expect(createRevision()).rejects.toThrow(
-      'Error.WorkflowRevisionNodeDefinitionUnavailable',
-    );
+    await expect(createRevision()).resolves.toEqual(expect.objectContaining({ id: REVISION_ID }));
     expect(getActiveNodeDefinitions).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        snapshot: expect.objectContaining({
+          nodeDefinitionManifest: { schemaVersion: 1, definitions: [] },
+        }),
+      }),
+    );
+  });
+
+  it('skips malformed graph nodes instead of refusing the freeze', async () => {
+    const content = {
+      editorGraph: { nodes: [{ id: 'no-type' }, { type: 'utility.delay' }], assets: [] },
+      inputSchema: {},
+    };
+    lockProjectDraft.mockResolvedValue(
+      draft({ ...content, contentHash: calculateProjectDraftSourceHash(content) }),
+    );
+
+    await expect(createRevision()).resolves.toEqual(expect.objectContaining({ id: REVISION_ID }));
+    expect(getActiveNodeDefinitions).toHaveBeenCalledWith(['utility.delay']);
   });
 
   it('translates a duplicate source-version race to a stable conflict', async () => {
