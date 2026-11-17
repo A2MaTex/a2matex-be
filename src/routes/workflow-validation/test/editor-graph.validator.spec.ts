@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ANDROID_NODE_DEFINITIONS } from '../../node-catalog/definitions/android-node-definitions.ts';
 import { BASIC_NODE_DEFINITIONS } from '../../node-catalog/definitions/basic-node-definitions.ts';
+import type { WorkflowCompilerRepo } from '../../workflow-compiler/workflow-compiler.repo.ts';
+import { WorkflowCompilerService } from '../../workflow-compiler/workflow-compiler.service.ts';
 import {
   EDITOR_GRAPH_MAX_DIAGNOSTICS,
   EDITOR_GRAPH_MAX_EDGES,
@@ -65,6 +67,8 @@ describe('binding parity', () => {
 });
 
 describe('targeting parity', () => {
+  const compiler = new WorkflowCompilerService({} as WorkflowCompilerRepo);
+
   it.each(targetingCases)('$name', ({ type, config, bindings, paths }) => {
     const graph = EditorGraph.parse({
       schemaVersion: 1,
@@ -117,6 +121,45 @@ describe('targeting parity', () => {
       warnings: [],
       truncated: false,
     });
+
+    if (type === 'android.screenshot') {
+      const compiled = compiler.compileWorkflow(graph, EMPTY_SCHEMA, BASIC_NODE_DEFINITIONS);
+      expect(compiled.validation).toEqual(buildValidationOutput({ errors }));
+      expect(compiled.success).toBe(paths.length === 0);
+      if (compiled.success) {
+        expect(compiled.runtimeIr.nodes.find(({ id }) => id === 'target')).toMatchObject({
+          config,
+          inputs: Object.fromEntries(
+            Object.entries(bindings).map(([field, binding]) => [
+              field,
+              { source: 'LITERAL', value: (binding as { value: number }).value },
+            ]),
+          ),
+        });
+      }
+    }
+  });
+
+  it('preserves a frozen full-screen Screenshot definition', () => {
+    const source = bindingCases.find(({ name }) => name === 'direct output');
+    const graph = EditorGraph.parse(source?.graph);
+    const capture = graph.nodes.find(({ type }) => type === 'android.screenshot');
+    if (!capture) throw new Error('Missing Screenshot test node');
+    capture.config = {};
+
+    const definitions = BASIC_NODE_DEFINITIONS.map((definition) =>
+      definition.type === 'android.screenshot'
+        ? { ...definition, configSchema: EMPTY_SCHEMA, editorHints: {} }
+        : definition,
+    );
+    const compiled = compiler.compileWorkflow(graph, EMPTY_SCHEMA, definitions);
+    expect(compiled.success).toBe(true);
+    if (compiled.success) {
+      expect(compiled.runtimeIr.nodes.find(({ id }) => id === capture.id)).toMatchObject({
+        config: {},
+        inputs: {},
+      });
+    }
   });
 });
 

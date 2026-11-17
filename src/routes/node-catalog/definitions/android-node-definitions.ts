@@ -41,6 +41,11 @@ const PERCENT_COORDINATE_FIELD = {
   minimum: 0,
   maximum: 100,
 } as const;
+const SCREENSHOT_PIXEL_EDGE_FIELD = {
+  type: 'integer',
+  minimum: 0,
+  maximum: 4096,
+} as const;
 const SELECTOR_ID_FIELD = {
   type: 'string',
   pattern: '^[^\\s:]+:id/[^\\s/]+$',
@@ -119,6 +124,24 @@ const LONG_PRESS_TARGETING: TargetingContract = {
       required: [...definition.bindingSchema.required, 'durationMs'],
     },
   })),
+};
+
+const SCREENSHOT_TARGETING: TargetingContract = {
+  modes: [
+    targetingMode('FULL_SCREEN', {}),
+    targetingMode('ABSOLUTE_PIXELS', {
+      startX: SCREENSHOT_PIXEL_EDGE_FIELD,
+      startY: SCREENSHOT_PIXEL_EDGE_FIELD,
+      endX: SCREENSHOT_PIXEL_EDGE_FIELD,
+      endY: SCREENSHOT_PIXEL_EDGE_FIELD,
+    }),
+    targetingMode('SCREEN_PERCENT', {
+      startXPercent: PERCENT_COORDINATE_FIELD,
+      startYPercent: PERCENT_COORDINATE_FIELD,
+      endXPercent: PERCENT_COORDINATE_FIELD,
+      endYPercent: PERCENT_COORDINATE_FIELD,
+    }),
+  ],
 };
 
 function targetModeConfig(targeting: TargetingContract): NodeDefinitionType['configSchema'] {
@@ -257,12 +280,13 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
   {
     type: 'android.screenshot',
     name: 'Screenshot',
-    description: 'Capture the selected Android device screen as a local execution artifact.',
+    description:
+      'Capture the selected Android device screen or a region as a local execution artifact.',
     category: NodeCategory.ANDROID,
     runtimeHandler: 'android.screenshot',
     minimumRuntimeVersion: '0.1.0',
     defaultTimeoutMs: DEFAULT_ANDROID_NODE_TIMEOUT_MS,
-    configSchema: EMPTY_OBJECT_SCHEMA,
+    configSchema: targetModeConfig(SCREENSHOT_TARGETING),
     inputSchema: EMPTY_OBJECT_SCHEMA,
     outputSchema: {
       type: 'object',
@@ -276,7 +300,10 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
       additionalProperties: false,
     },
     outputPorts: SUCCESS_AND_ERROR_PORTS,
-    editorHints: {},
+    editorHints: {
+      bindingKinds: LITERAL_BINDING_KIND,
+      targeting: SCREENSHOT_TARGETING,
+    },
     capabilities: [NodeCapability.ANDROID_SCREEN_CAPTURE],
   },
   {

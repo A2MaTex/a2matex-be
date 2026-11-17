@@ -102,7 +102,7 @@ const NodeOutputPortsContract = z
     });
   });
 
-const TargetMode = z.enum(['ABSOLUTE_PIXELS', 'SCREEN_PERCENT', 'SELECTOR_ID']);
+const TargetMode = z.enum(['ABSOLUTE_PIXELS', 'SCREEN_PERCENT', 'SELECTOR_ID', 'FULL_SCREEN']);
 
 const TargetModeDefinition = z
   .object({

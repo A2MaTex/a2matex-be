@@ -208,7 +208,7 @@
           {
             "id": "64d209a9-c48a-4e41-9f0e-5e9abbf44127",
             "type": "android.screenshot",
-            "config": {},
+            "config": { "targetMode": "FULL_SCREEN" },
             "editor": {
               "x": 1780,
               "y": 180
@@ -289,7 +289,7 @@
           {
             "id": "98a30963-a2c5-4ae1-b183-d31d71dc603a",
             "type": "android.screenshot",
-            "config": {},
+            "config": { "targetMode": "FULL_SCREEN" },
             "editor": {
               "x": 2740,
               "y": 180

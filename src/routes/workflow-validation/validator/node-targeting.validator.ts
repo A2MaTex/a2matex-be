@@ -82,6 +82,32 @@ function validateTargetBindings(
   return diagnostics;
 }
 
+function validateScreenshotRegion(
+  node: EditorGraphType['nodes'][number],
+  nodeIndex: number,
+  mode: 'ABSOLUTE_PIXELS' | 'SCREEN_PERCENT',
+): WorkflowValidationDiagnosticType[] {
+  const suffix = mode === 'SCREEN_PERCENT' ? 'Percent' : '';
+  const diagnostics: WorkflowValidationDiagnosticType[] = [];
+
+  for (const axis of ['X', 'Y']) {
+    const endField = `end${axis}${suffix}`;
+    const startBinding = node.bindings[`start${axis}${suffix}`];
+    const endBinding = node.bindings[endField];
+    if (
+      isJsonObject(startBinding) &&
+      isJsonObject(endBinding) &&
+      typeof startBinding.value === 'number' &&
+      typeof endBinding.value === 'number' &&
+      startBinding.value >= endBinding.value
+    ) {
+      diagnostics.push(bindingDiagnostic(node, nodeIndex, endField, 'value'));
+    }
+  }
+
+  return diagnostics;
+}
+
 export function validateNodeTargeting(
   node: EditorGraphType['nodes'][number],
   nodeIndex: number,
@@ -98,5 +124,13 @@ export function validateNodeTargeting(
     return errors;
   }
 
-  return errors.concat(validateTargetBindings(node, nodeIndex, mode.bindingSchema, definition));
+  const bindingErrors = validateTargetBindings(node, nodeIndex, mode.bindingSchema, definition);
+  if (
+    bindingErrors.length === 0 &&
+    node.type === 'android.screenshot' &&
+    (mode.mode === 'ABSOLUTE_PIXELS' || mode.mode === 'SCREEN_PERCENT')
+  ) {
+    return errors.concat(validateScreenshotRegion(node, nodeIndex, mode.mode));
+  }
+  return errors.concat(bindingErrors);
 }
