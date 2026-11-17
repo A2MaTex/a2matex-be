@@ -51,13 +51,7 @@ describe('NodeDefinitionContract', () => {
       'FLOW_VARIABLE',
       'GLOBAL_VARIABLE',
     ]);
-    expect(definitions.get('flow.switch')?.editorHints.bindingKinds).toEqual([
-      'LITERAL',
-      'WORKFLOW_INPUT',
-      'NODE_OUTPUT',
-      'FLOW_VARIABLE',
-      'GLOBAL_VARIABLE',
-    ]);
+    expect(definitions.get('flow.switch')?.editorHints.bindingKinds).toBeUndefined();
   });
 
   it('publishes the self-contained Set Variable authoring contract', () => {
@@ -70,13 +64,33 @@ describe('NodeDefinitionContract', () => {
     });
     expect(definition?.configSchema.required).toEqual(['name', 'scope']);
     expect(definition?.inputSchema.properties.value?.bindingKinds).toEqual({
-      LITERAL: { fields: { value: { types: ['string', 'integer', 'boolean'] } } },
+      LITERAL: { fields: { value: { types: ['string', 'number', 'boolean'] } } },
       WORKFLOW_INPUT: { fields: ['inputName'] },
       NODE_OUTPUT: { fields: ['nodeId', 'field'] },
       FLOW_VARIABLE: { fields: ['name'] },
       GLOBAL_VARIABLE: { fields: ['name'] },
     });
     expect(definition?.inputSchema.required).toEqual(['value']);
+    expect(definition?.editorHints).toEqual({});
+  });
+
+  it('publishes the self-contained Switch authoring contract', () => {
+    const definition = BASIC_NODE_DEFINITIONS.find(({ type }) => type === 'flow.switch');
+
+    expect(definition?.configSchema.required).toEqual(['rules']);
+    expect(definition?.inputSchema.required).toEqual(['value']);
+    expect(definition?.inputSchema.properties.value?.bindingKinds).toBeDefined();
+    expect(definition?.inputSchema.dynamicInputs).toEqual({
+      ruleOperand: {
+        bindingKeyFrom: 'config.rules[].id',
+        operandCountFrom: 'config.rules[].operator',
+        bindingKinds: definition?.inputSchema.properties.value?.bindingKinds,
+      },
+    });
+    expect(definition?.outputPorts).toEqual({
+      ports: ['default', 'error'],
+      dynamicPorts: { keysFrom: 'config.rules[].id' },
+    });
     expect(definition?.editorHints).toEqual({});
   });
 

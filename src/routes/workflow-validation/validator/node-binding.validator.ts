@@ -1,4 +1,4 @@
-import { SWITCH_TYPE, switchRules } from './switch.validator.ts';
+import { SWITCH_TYPE, switchOperatorRequiresOperand, switchRules } from './switch.validator.ts';
 import {
   WorkflowBindingKind,
   WORKFLOW_VALIDATION_DIAGNOSTIC_MESSAGES,
@@ -10,17 +10,25 @@ import type {
 } from '../workflow-validation.model.ts';
 import { EditorGraphBinding } from '../workflow-validation.model.ts';
 import { isNodeFieldValueValid } from './node-config.validator.ts';
-import { SetVariableBindingKindsContract } from '../../node-catalog/node-definition.model.ts';
+import {
+  SetVariableBindingKindsContract,
+  SwitchDynamicInputsContract,
+} from '../../node-catalog/node-definition.model.ts';
+import { SwitchOperator } from '../../node-catalog/node-catalog.constant.ts';
 
 type InputSchema = NonNullable<WorkflowNodeDefinitionType['inputSchema']>;
 type WorkflowBindingKindValue = (typeof WorkflowBindingKind)[keyof typeof WorkflowBindingKind];
 
-function setVariableBindingKinds(input: unknown): WorkflowBindingKindValue[] {
+function declaredBindingKinds(input: unknown): WorkflowBindingKindValue[] {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) return [];
   const result = SetVariableBindingKindsContract.safeParse(
     (input as Record<string, unknown>).bindingKinds,
   );
   return result.success ? (Object.keys(result.data) as WorkflowBindingKindValue[]) : [];
+}
+
+function switchValueType(type: unknown): unknown {
+  return type === 'integer' || type === 'number' ? 'number' : type;
 }
 
 export function validateNodeBindings(
@@ -63,9 +71,14 @@ export function validateNodeBindings(
     const isSwitch = node.type === SWITCH_TYPE;
     const rules = isSwitch ? switchRules(node) : undefined;
     if (isSwitch && !rules) return;
+    const switchDynamicInputs = isSwitch
+      ? SwitchDynamicInputsContract.safeParse(definition.inputSchema?.dynamicInputs)
+      : undefined;
     const switchFields = new Set([
       'value',
-      ...[...(rules ?? [])].filter(([, operator]) => operator !== 'IS_EMPTY').map(([id]) => id),
+      ...[...(rules ?? [])]
+        .filter(([, operator]) => switchOperatorRequiresOperand(operator))
+        .map(([id]) => id),
     ]);
     const types = new Map<string, unknown>();
     const reported = new Set<string>();
@@ -99,8 +112,16 @@ export function validateNodeBindings(
         ? definition.inputSchema?.properties[field]
         : undefined;
       const allowedBindingKinds = isSet
-        ? setVariableBindingKinds(input)
-        : definition.editorHints.bindingKinds;
+        ? declaredBindingKinds(input)
+        : isSwitch
+          ? field === 'value'
+            ? declaredBindingKinds(input)
+            : switchDynamicInputs?.success
+              ? (Object.keys(
+                  switchDynamicInputs.data.ruleOperand.bindingKinds,
+                ) as WorkflowBindingKindValue[])
+              : []
+          : definition.editorHints.bindingKinds;
       if (
         !parsed.success ||
         (parsed.success && !allowedBindingKinds?.includes(parsed.data.kind)) ||
@@ -114,10 +135,7 @@ export function validateNodeBindings(
           report(field);
         }
         if (isSwitch) {
-          types.set(
-            field,
-            typeof parsed.data.value === 'number' ? 'integer' : typeof parsed.data.value,
-          );
+          types.set(field, typeof parsed.data.value);
         }
         continue;
       }
@@ -133,7 +151,7 @@ export function validateNodeBindings(
         ) {
           report(field);
         } else if (isSwitch) {
-          types.set(field, workflowInput.type);
+          types.set(field, switchValueType(workflowInput.type));
         }
         continue;
       }
@@ -151,19 +169,29 @@ export function validateNodeBindings(
       ) {
         report(field);
       } else if (isSwitch) {
-        types.set(field, outputType);
+        types.set(field, switchValueType(outputType));
       }
     }
     const left = types.get('value');
     for (const [id, operator] of rules ?? []) {
       const right = types.get(id);
-      if (operator === 'IS_EMPTY') {
+      if (operator === SwitchOperator.IS_EMPTY || operator === SwitchOperator.IS_NOT_EMPTY) {
         if (left && left !== 'string') report('value');
-      } else if (operator === 'EQ' || operator === 'NE') {
+      } else if (operator === SwitchOperator.IS_TRUE || operator === SwitchOperator.IS_FALSE) {
+        if (left && left !== 'boolean') report('value');
+      } else if (operator === SwitchOperator.EQ || operator === SwitchOperator.NE) {
         if (left && right && left !== right) report(id);
+      } else if (
+        operator === SwitchOperator.CONTAINS ||
+        operator === SwitchOperator.NOT_CONTAINS ||
+        operator === SwitchOperator.STARTS_WITH ||
+        operator === SwitchOperator.ENDS_WITH
+      ) {
+        if (left && left !== 'string') report('value');
+        if (right && right !== 'string') report(id);
       } else {
-        if (left && left !== 'integer') report('value');
-        if (right && right !== 'integer') report(id);
+        if (left && left !== 'number') report('value');
+        if (right && right !== 'number') report(id);
       }
     }
   });

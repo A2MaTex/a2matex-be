@@ -3,8 +3,10 @@ import {
   MAX_DELAY_DURATION_MS,
   MAX_LOG_MESSAGE_LENGTH,
   MAX_NODE_TIMEOUT_MS,
+  MAX_SWITCH_RULES,
   NodeCategory,
   NodeOutputPort,
+  SwitchOperator,
 } from '../node-catalog.constant.ts';
 import type { NodeDefinitionType } from '../node-definition.model.ts';
 import { WorkflowBindingKind } from '../../../shared/constants/workflow-validation.constant.ts';
@@ -18,8 +20,37 @@ const EMPTY_OBJECT_SCHEMA: NodeDefinitionType['configSchema'] = {
 
 const SUCCESS_PORT: NodeDefinitionType['outputPorts']['ports'][number] = NodeOutputPort.SUCCESS;
 const ERROR_PORT: NodeDefinitionType['outputPorts']['ports'][number] = NodeOutputPort.ERROR;
+const DEFAULT_PORT: NodeDefinitionType['outputPorts']['ports'][number] = NodeOutputPort.DEFAULT;
 const ALL_BINDING_KINDS: NodeDefinitionType['editorHints']['bindingKinds'] =
   Object.values(WorkflowBindingKind);
+const ALL_BINDING_DEFINITIONS = {
+  [WorkflowBindingKind.LITERAL]: {
+    fields: {
+      value: { types: ['string', 'number', 'boolean'] },
+    },
+  },
+  [WorkflowBindingKind.WORKFLOW_INPUT]: { fields: ['inputName'] },
+  [WorkflowBindingKind.NODE_OUTPUT]: { fields: ['nodeId', 'field'] },
+  [WorkflowBindingKind.FLOW_VARIABLE]: { fields: ['name'] },
+  [WorkflowBindingKind.GLOBAL_VARIABLE]: { fields: ['name'] },
+};
+
+const SWITCH_OPERATOR_OPTIONS = [
+  { value: SwitchOperator.EQ, supportedTypes: ['string', 'number', 'boolean'], operandCount: 1 },
+  { value: SwitchOperator.NE, supportedTypes: ['string', 'number', 'boolean'], operandCount: 1 },
+  { value: SwitchOperator.LT, supportedTypes: ['number'], operandCount: 1 },
+  { value: SwitchOperator.LTE, supportedTypes: ['number'], operandCount: 1 },
+  { value: SwitchOperator.GT, supportedTypes: ['number'], operandCount: 1 },
+  { value: SwitchOperator.GTE, supportedTypes: ['number'], operandCount: 1 },
+  { value: SwitchOperator.CONTAINS, supportedTypes: ['string'], operandCount: 1 },
+  { value: SwitchOperator.NOT_CONTAINS, supportedTypes: ['string'], operandCount: 1 },
+  { value: SwitchOperator.STARTS_WITH, supportedTypes: ['string'], operandCount: 1 },
+  { value: SwitchOperator.ENDS_WITH, supportedTypes: ['string'], operandCount: 1 },
+  { value: SwitchOperator.IS_EMPTY, supportedTypes: ['string'], operandCount: 0 },
+  { value: SwitchOperator.IS_NOT_EMPTY, supportedTypes: ['string'], operandCount: 0 },
+  { value: SwitchOperator.IS_TRUE, supportedTypes: ['boolean'], operandCount: 0 },
+  { value: SwitchOperator.IS_FALSE, supportedTypes: ['boolean'], operandCount: 0 },
+];
 
 export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
   {
@@ -151,11 +182,46 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
     runtimeHandler: 'flow.switch',
     minimumRuntimeVersion: '0.1.0',
     defaultTimeoutMs: DEFAULT_FLOW_NODE_TIMEOUT_MS,
-    configSchema: EMPTY_OBJECT_SCHEMA,
-    inputSchema: EMPTY_OBJECT_SCHEMA,
+    configSchema: {
+      ...EMPTY_OBJECT_SCHEMA,
+      properties: {
+        rules: {
+          type: 'array',
+          minimumItems: 1,
+          maximumItems: MAX_SWITCH_RULES,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', format: 'uuid', readOnly: true },
+              operator: { type: 'string', options: SWITCH_OPERATOR_OPTIONS },
+            },
+            required: ['id', 'operator'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['rules'],
+    },
+    inputSchema: {
+      ...EMPTY_OBJECT_SCHEMA,
+      properties: {
+        value: { bindingKinds: ALL_BINDING_DEFINITIONS },
+      },
+      dynamicInputs: {
+        ruleOperand: {
+          bindingKeyFrom: 'config.rules[].id',
+          operandCountFrom: 'config.rules[].operator',
+          bindingKinds: ALL_BINDING_DEFINITIONS,
+        },
+      },
+      required: ['value'],
+    },
     outputSchema: EMPTY_OBJECT_SCHEMA,
-    outputPorts: { ports: [ERROR_PORT] },
-    editorHints: { bindingKinds: ALL_BINDING_KINDS },
+    outputPorts: {
+      ports: [DEFAULT_PORT, ERROR_PORT],
+      dynamicPorts: { keysFrom: 'config.rules[].id' },
+    },
+    editorHints: {},
     capabilities: [],
   },
   {
@@ -178,17 +244,7 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
       ...EMPTY_OBJECT_SCHEMA,
       properties: {
         value: {
-          bindingKinds: {
-            [WorkflowBindingKind.LITERAL]: {
-              fields: {
-                value: { types: ['string', 'integer', 'boolean'] },
-              },
-            },
-            [WorkflowBindingKind.WORKFLOW_INPUT]: { fields: ['inputName'] },
-            [WorkflowBindingKind.NODE_OUTPUT]: { fields: ['nodeId', 'field'] },
-            [WorkflowBindingKind.FLOW_VARIABLE]: { fields: ['name'] },
-            [WorkflowBindingKind.GLOBAL_VARIABLE]: { fields: ['name'] },
-          },
+          bindingKinds: ALL_BINDING_DEFINITIONS,
         },
       },
       required: ['value'],
