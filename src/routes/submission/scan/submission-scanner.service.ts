@@ -25,10 +25,7 @@ import { WorkflowRevisionPayloadTooLargeException } from '../../workflow-revisio
 import type { WorkflowRevisionSourceSnapshot } from '../../workflow-revision/workflow-revision.model.ts';
 import { WorkflowCompilerService } from '../../workflow-compiler/workflow-compiler.service.ts';
 import type { NodeDefinitionType } from '../../node-catalog/node-definition.model.ts';
-import {
-  buildEmbeddedCredentialFindings,
-  findUnsupportedAssets,
-} from './scanner/submission-policy.validator.ts';
+import { findUnsupportedAssets } from './scanner/submission-policy.validator.ts';
 import type { ScanTarget } from '../submission.repo.ts';
 
 type Finding = SubmissionScanFindingType;
@@ -76,7 +73,7 @@ function toFinding(diagnostic: ValidationDiagnostic, severity: Finding['severity
 }
 
 /**
- * Rule groups 1, 2, 3, 4, 6 and the credential rule of 5 of spec section 10.
+ * Rule groups 1, 2, 3, 4, 6 and the asset rule of 5 of spec section 10.
  *
  * Compiling against the revision's frozen `nodeDefinitionManifest` rather than the live Node
  * Catalog is what makes a retry deterministic: deactivating a node type can no longer flip a
@@ -115,10 +112,7 @@ export class SubmissionScannerService {
       finalizedContentHash: frozenSource.finalizedContentHash,
     });
     // Reads the frozen graph, so a workflow that failed to compile is still checked.
-    const policy = [
-      ...buildEmbeddedCredentialFindings(frozenSource.source.editorGraph),
-      ...findUnsupportedAssets(frozenSource.source.editorGraph),
-    ];
+    const policy = findUnsupportedAssets(frozenSource.source.editorGraph);
     const result = buildScanResult(
       [...frozenSource.findings, ...compiled.findings, ...policy, ...snapshots],
       compiled.truncated,
