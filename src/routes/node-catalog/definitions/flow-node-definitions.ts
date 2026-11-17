@@ -7,6 +7,7 @@ import {
   NodeOutputPort,
 } from '../node-catalog.constant.ts';
 import type { NodeDefinitionType } from '../node-definition.model.ts';
+import { WorkflowBindingKind } from '../../../shared/constants/workflow-validation.constant.ts';
 
 const EMPTY_OBJECT_SCHEMA: NodeDefinitionType['configSchema'] = {
   type: 'object',
@@ -17,6 +18,8 @@ const EMPTY_OBJECT_SCHEMA: NodeDefinitionType['configSchema'] = {
 
 const SUCCESS_PORT: NodeDefinitionType['outputPorts']['ports'][number] = NodeOutputPort.SUCCESS;
 const ERROR_PORT: NodeDefinitionType['outputPorts']['ports'][number] = NodeOutputPort.ERROR;
+const ALL_BINDING_KINDS: NodeDefinitionType['editorHints']['bindingKinds'] =
+  Object.values(WorkflowBindingKind);
 
 export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
   {
@@ -88,7 +91,7 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
     outputPorts: {
       ports: [SUCCESS_PORT, ERROR_PORT],
     },
-    editorHints: {},
+    editorHints: { bindingKinds: ALL_BINDING_KINDS },
     capabilities: [],
   },
   {
@@ -116,7 +119,7 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
     outputPorts: {
       ports: [SUCCESS_PORT, ERROR_PORT],
     },
-    editorHints: {},
+    editorHints: { bindingKinds: ALL_BINDING_KINDS },
     capabilities: [],
   },
   {
@@ -152,7 +155,7 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
     inputSchema: EMPTY_OBJECT_SCHEMA,
     outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: { ports: [ERROR_PORT] },
-    editorHints: {},
+    editorHints: { bindingKinds: ALL_BINDING_KINDS },
     capabilities: [],
   },
   {
@@ -167,11 +170,29 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
       ...EMPTY_OBJECT_SCHEMA,
       properties: {
         name: { type: 'string', pattern: '^[A-Za-z_][A-Za-z0-9_]{0,99}$' },
-        scope: { type: 'string', pattern: '^(FLOW|RUN_GROUP)$' },
+        scope: { type: 'string', enum: ['FLOW', 'RUN_GROUP'], default: 'FLOW' },
       },
-      required: ['name'],
+      required: ['name', 'scope'],
     },
-    inputSchema: EMPTY_OBJECT_SCHEMA,
+    inputSchema: {
+      ...EMPTY_OBJECT_SCHEMA,
+      properties: {
+        value: {
+          bindingKinds: {
+            [WorkflowBindingKind.LITERAL]: {
+              fields: {
+                value: { types: ['string', 'integer', 'boolean'] },
+              },
+            },
+            [WorkflowBindingKind.WORKFLOW_INPUT]: { fields: ['inputName'] },
+            [WorkflowBindingKind.NODE_OUTPUT]: { fields: ['nodeId', 'field'] },
+            [WorkflowBindingKind.FLOW_VARIABLE]: { fields: ['name'] },
+            [WorkflowBindingKind.GLOBAL_VARIABLE]: { fields: ['name'] },
+          },
+        },
+      },
+      required: ['value'],
+    },
     outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: { ports: [SUCCESS_PORT, ERROR_PORT] },
     editorHints: {},

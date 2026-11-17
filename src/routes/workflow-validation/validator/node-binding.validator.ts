@@ -10,8 +10,18 @@ import type {
 } from '../workflow-validation.model.ts';
 import { EditorGraphBinding } from '../workflow-validation.model.ts';
 import { isNodeFieldValueValid } from './node-config.validator.ts';
+import { SetVariableBindingKindsContract } from '../../node-catalog/node-definition.model.ts';
 
 type InputSchema = NonNullable<WorkflowNodeDefinitionType['inputSchema']>;
+type WorkflowBindingKindValue = (typeof WorkflowBindingKind)[keyof typeof WorkflowBindingKind];
+
+function setVariableBindingKinds(input: unknown): WorkflowBindingKindValue[] {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) return [];
+  const result = SetVariableBindingKindsContract.safeParse(
+    (input as Record<string, unknown>).bindingKinds,
+  );
+  return result.success ? (Object.keys(result.data) as WorkflowBindingKindValue[]) : [];
+}
 
 export function validateNodeBindings(
   graph: EditorGraphType,
@@ -88,8 +98,12 @@ export function validateNodeBindings(
       const input = Object.hasOwn(definition.inputSchema?.properties ?? {}, field)
         ? definition.inputSchema?.properties[field]
         : undefined;
+      const allowedBindingKinds = isSet
+        ? setVariableBindingKinds(input)
+        : definition.editorHints.bindingKinds;
       if (
         !parsed.success ||
+        (parsed.success && !allowedBindingKinds?.includes(parsed.data.kind)) ||
         (isSwitch ? !switchFields.has(field) : isSet ? field !== 'value' : !input)
       ) {
         report(field);

@@ -4,7 +4,7 @@
     "draft": {
       "id": "1d4919f8-3cc9-49ad-a943-48c843dd9047",
       "version": 2,
-      "contentHash": "9ee7873a65ead4ff767919801a79853339b7b0aa897deb31b427036a91ec014b",
+      "contentHash": "cefc471603ae3b5ba6b9a2926f17b9d545ebfce4fe2f65c71a33f666c5497a4a",
       "savedAt": "2026-10-14T10:37:16.860Z",
       "projectId": "32e50b1c-57fb-4e7e-b812-ed2b385027ac",
       "editorGraph": {
@@ -57,6 +57,12 @@
             "id": "bfc75efa-6643-49f4-ab42-f594b89a6b3a",
             "sourcePort": "success",
             "sourceNodeId": "64d209a9-c48a-4e41-9f0e-5e9abbf44127",
+            "targetNodeId": "d4301b4e-4e33-4f87-be21-fae8a9c027fe"
+          },
+          {
+            "id": "3a530002-0f9f-4a48-9c7d-b46edecf54e3",
+            "sourcePort": "success",
+            "sourceNodeId": "d4301b4e-4e33-4f87-be21-fae8a9c027fe",
             "targetNodeId": "c2d0801b-e02a-4830-a373-5736a59f86bb"
           },
           {
@@ -75,6 +81,12 @@
             "id": "791bad13-2c38-4f1c-af49-e012e7aeef68",
             "sourcePort": "success",
             "sourceNodeId": "98a30963-a2c5-4ae1-b183-d31d71dc603a",
+            "targetNodeId": "9e771116-8cd3-47b8-8bec-6279c4bdf245"
+          },
+          {
+            "id": "68102b6b-2952-4b8d-aee5-fda7b59b52ec",
+            "sourcePort": "success",
+            "sourceNodeId": "9e771116-8cd3-47b8-8bec-6279c4bdf245",
             "targetNodeId": "c4c49319-aca5-4052-ad09-2bd914d228c4"
           },
           {
@@ -205,13 +217,33 @@
             "errorPolicy": "STOP"
           },
           {
+            "id": "d4301b4e-4e33-4f87-be21-fae8a9c027fe",
+            "type": "flow.set_variable",
+            "config": {
+              "name": "firstScreenshotArtifactId",
+              "scope": "FLOW"
+            },
+            "editor": {
+              "x": 2020,
+              "y": 180
+            },
+            "bindings": {
+              "value": {
+                "kind": "NODE_OUTPUT",
+                "nodeId": "64d209a9-c48a-4e41-9f0e-5e9abbf44127",
+                "field": "artifactId"
+              }
+            },
+            "errorPolicy": "STOP"
+          },
+          {
             "id": "c2d0801b-e02a-4830-a373-5736a59f86bb",
             "type": "android.swipe",
             "config": {
               "targetMode": "ABSOLUTE_PIXELS"
             },
             "editor": {
-              "x": 2020,
+              "x": 2260,
               "y": 180
             },
             "bindings": {
@@ -243,7 +275,7 @@
             "type": "flow.delay",
             "config": {},
             "editor": {
-              "x": 2260,
+              "x": 2500,
               "y": 180
             },
             "bindings": {
@@ -259,10 +291,30 @@
             "type": "android.screenshot",
             "config": {},
             "editor": {
-              "x": 2500,
+              "x": 2740,
               "y": 180
             },
             "bindings": {},
+            "errorPolicy": "STOP"
+          },
+          {
+            "id": "9e771116-8cd3-47b8-8bec-6279c4bdf245",
+            "type": "flow.set_variable",
+            "config": {
+              "name": "latestScreenshotArtifactId",
+              "scope": "RUN_GROUP"
+            },
+            "editor": {
+              "x": 2980,
+              "y": 180
+            },
+            "bindings": {
+              "value": {
+                "kind": "NODE_OUTPUT",
+                "nodeId": "98a30963-a2c5-4ae1-b183-d31d71dc603a",
+                "field": "artifactId"
+              }
+            },
             "errorPolicy": "STOP"
           },
           {
@@ -270,7 +322,7 @@
             "type": "utility.log",
             "config": {},
             "editor": {
-              "x": 2740,
+              "x": 3220,
               "y": 180
             },
             "bindings": {
@@ -286,7 +338,7 @@
             "type": "flow.end",
             "config": {},
             "editor": {
-              "x": 2980,
+              "x": 3460,
               "y": 180
             },
             "bindings": {},

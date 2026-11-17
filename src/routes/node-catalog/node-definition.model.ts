@@ -15,6 +15,7 @@ import {
   NodeOutputPort,
   STRICT_SEMANTIC_VERSION_PATTERN,
 } from './node-catalog.constant.ts';
+import { WorkflowBindingKind } from '../../shared/constants/workflow-validation.constant.ts';
 
 const NodeFieldSchema = z.record(z.string(), z.json());
 const TARGET_BINDING_FIELD_NAME_PATTERN = /^[a-z][a-zA-Z0-9_]*$/;
@@ -102,6 +103,44 @@ const TargetModeDefinition = z
   })
   .strict();
 
+const WorkflowBindingKindContract = z.enum([
+  WorkflowBindingKind.LITERAL,
+  WorkflowBindingKind.WORKFLOW_INPUT,
+  WorkflowBindingKind.NODE_OUTPUT,
+  WorkflowBindingKind.FLOW_VARIABLE,
+  WorkflowBindingKind.GLOBAL_VARIABLE,
+]);
+
+export const SetVariableBindingKindsContract = z
+  .object({
+    [WorkflowBindingKind.LITERAL]: z
+      .object({
+        fields: z
+          .object({
+            value: z
+              .object({
+                types: z.tuple([z.literal('string'), z.literal('integer'), z.literal('boolean')]),
+              })
+              .strict(),
+          })
+          .strict(),
+      })
+      .strict(),
+    [WorkflowBindingKind.WORKFLOW_INPUT]: z
+      .object({ fields: z.tuple([z.literal('inputName')]) })
+      .strict(),
+    [WorkflowBindingKind.NODE_OUTPUT]: z
+      .object({ fields: z.tuple([z.literal('nodeId'), z.literal('field')]) })
+      .strict(),
+    [WorkflowBindingKind.FLOW_VARIABLE]: z
+      .object({ fields: z.tuple([z.literal('name')]) })
+      .strict(),
+    [WorkflowBindingKind.GLOBAL_VARIABLE]: z
+      .object({ fields: z.tuple([z.literal('name')]) })
+      .strict(),
+  })
+  .strict();
+
 export const NodeTargetingContract = z
   .object({
     modes: z.array(TargetModeDefinition).min(1),
@@ -123,6 +162,17 @@ export const NodeTargetingContract = z
 
 const NodeEditorHintsContract = z
   .object({
+    bindingKinds: z
+      .array(WorkflowBindingKindContract)
+      .superRefine((bindingKinds, ctx) => {
+        if (new Set(bindingKinds).size !== bindingKinds.length) {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'Binding kinds must be unique',
+          });
+        }
+      })
+      .optional(),
     targeting: NodeTargetingContract.optional(),
   })
   .strict();
@@ -155,6 +205,19 @@ export const NodeDefinitionContract = z
   })
   .strict()
   .superRefine((definition, ctx) => {
+    if (definition.type === 'flow.set_variable') {
+      const result = SetVariableBindingKindsContract.safeParse(
+        definition.inputSchema.properties.value?.bindingKinds,
+      );
+      if (!result.success) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Set Variable must publish its value binding kinds in inputSchema',
+          path: ['inputSchema', 'properties', 'value', 'bindingKinds'],
+        });
+      }
+    }
+
     const capabilities = new Set<string>();
     definition.capabilities.forEach((capability, index) => {
       if (capabilities.has(capability)) {

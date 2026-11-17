@@ -38,6 +38,7 @@ function validateTargetBindings(
   node: EditorGraphType['nodes'][number],
   nodeIndex: number,
   schema: TargetBindingSchema,
+  definition: WorkflowNodeDefinitionType,
 ): WorkflowValidationDiagnosticType[] {
   const diagnostics: WorkflowValidationDiagnosticType[] = [];
 
@@ -63,7 +64,11 @@ function validateTargetBindings(
       return;
     }
 
-    if (value.kind !== WorkflowBindingKind.LITERAL) {
+    if (
+      typeof value.kind !== 'string' ||
+      !definition.editorHints.bindingKinds?.some((kind) => kind === value.kind) ||
+      value.kind !== WorkflowBindingKind.LITERAL
+    ) {
       diagnostics.push(bindingDiagnostic(node, nodeIndex, field, 'kind'));
     }
     if (!Object.hasOwn(value, 'value') || !isNodeFieldValueValid(value.value, fieldSchema)) {
@@ -93,5 +98,5 @@ export function validateNodeTargeting(
     return errors;
   }
 
-  return errors.concat(validateTargetBindings(node, nodeIndex, mode.bindingSchema));
+  return errors.concat(validateTargetBindings(node, nodeIndex, mode.bindingSchema, definition));
 }

@@ -5,11 +5,7 @@ import {
   MAX_NODE_TIMEOUT_MS,
   NodeErrorPolicy,
 } from '../node-catalog/node-catalog.constant.ts';
-import {
-  NodeDefinitionContract,
-  NodeObjectSchema,
-  NodeTargetingContract,
-} from '../node-catalog/node-definition.model.ts';
+import { NodeDefinitionContract, NodeObjectSchema } from '../node-catalog/node-definition.model.ts';
 import {
   EDITOR_GRAPH_IDENTIFIER_MAX_LENGTH,
   WorkflowValidationDiagnosticCode,
@@ -119,12 +115,7 @@ export const WorkflowNodeDefinition = z
     inputSchema: NodeObjectSchema.optional(),
     outputSchema: NodeObjectSchema.optional(),
     outputPorts: NodeDefinitionContract.shape.outputPorts,
-    editorHints: z
-      .object({
-        targeting: NodeTargetingContract.optional(),
-      })
-      .passthrough()
-      .optional(),
+    editorHints: NodeDefinitionContract.shape.editorHints,
   })
   .strict();
 

@@ -7,6 +7,7 @@ import {
   EDITOR_GRAPH_MAX_EDGES,
   EDITOR_GRAPH_MAX_NODES,
   WORKFLOW_VALIDATION_DIAGNOSTIC_MESSAGES,
+  WorkflowBindingKind,
 } from '../../../shared/constants/workflow-validation.constant.ts';
 import {
   buildValidationOutput,
@@ -146,6 +147,7 @@ function definition(
     type,
     configSchema,
     outputPorts: { ports },
+    editorHints: { bindingKinds: Object.values(WorkflowBindingKind) },
   };
 }
 
@@ -372,6 +374,58 @@ describe('validateEditorGraph', () => {
         code: 'NODE_CONFIG_INVALID',
         nodeId: 'configured_01',
         path: ['nodes', 1, 'config', invalidField],
+      }),
+    );
+  });
+
+  it('rejects a binding kind not published by the node definition', () => {
+    const graph = fixture('valid-minimal.json');
+    graph.nodes.splice(1, 0, {
+      id: 'constrained_01',
+      type: 'test.constrained',
+      config: {},
+      bindings: {
+        value: { kind: WorkflowBindingKind.FLOW_VARIABLE, name: 'sharedValue' },
+      },
+      errorPolicy: 'STOP',
+      editor: { x: 1, y: 1 },
+    });
+    graph.edges = [
+      {
+        id: 'edge_01',
+        sourceNodeId: 'start_01',
+        sourcePort: 'success',
+        targetNodeId: 'constrained_01',
+      },
+      {
+        id: 'edge_02',
+        sourceNodeId: 'constrained_01',
+        sourcePort: 'success',
+        targetNodeId: 'end_01',
+      },
+    ];
+    const constrainedDefinition: WorkflowNodeDefinitionType = {
+      ...definition('test.constrained', ['success']),
+      inputSchema: {
+        type: 'object',
+        properties: { value: { type: 'string' } },
+        required: ['value'],
+        additionalProperties: false,
+      },
+      editorHints: { bindingKinds: [WorkflowBindingKind.LITERAL] },
+    };
+
+    const diagnostics = validateEditorGraphCatalog(graph, [
+      definition('flow.start', ['success']),
+      constrainedDefinition,
+      definition('flow.end', []),
+    ]);
+
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'NODE_VALUE_BINDING_INVALID',
+        nodeId: 'constrained_01',
+        path: ['nodes', 1, 'bindings', 'value'],
       }),
     );
   });

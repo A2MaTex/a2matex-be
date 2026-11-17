@@ -9,6 +9,7 @@ import {
   NodeOutputPort,
 } from '../node-catalog.constant.ts';
 import type { NodeDefinitionType } from '../node-definition.model.ts';
+import { WorkflowBindingKind } from '../../../shared/constants/workflow-validation.constant.ts';
 
 const EMPTY_OBJECT_SCHEMA: NodeDefinitionType['configSchema'] = {
   type: 'object',
@@ -23,6 +24,11 @@ const SUCCESS_AND_ERROR_PORTS: NodeDefinitionType['outputPorts'] = {
 
 const DEVICE_CONTROL_CAPABILITY: NodeDefinitionType['capabilities'] = [
   NodeCapability.ANDROID_DEVICE_CONTROL,
+];
+const ALL_BINDING_KINDS: NodeDefinitionType['editorHints']['bindingKinds'] =
+  Object.values(WorkflowBindingKind);
+const LITERAL_BINDING_KIND: NodeDefinitionType['editorHints']['bindingKinds'] = [
+  WorkflowBindingKind.LITERAL,
 ];
 
 const PIXEL_COORDINATE_FIELD = {
@@ -154,7 +160,7 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
     },
     outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
-    editorHints: {},
+    editorHints: { bindingKinds: ALL_BINDING_KINDS },
     capabilities: DEVICE_CONTROL_CAPABILITY,
   },
   {
@@ -170,6 +176,7 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
     outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
     editorHints: {
+      bindingKinds: LITERAL_BINDING_KIND,
       targeting: POINT_TARGETING,
     },
     capabilities: DEVICE_CONTROL_CAPABILITY,
@@ -187,6 +194,7 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
     outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
     editorHints: {
+      bindingKinds: LITERAL_BINDING_KIND,
       targeting: SWIPE_TARGETING,
     },
     capabilities: DEVICE_CONTROL_CAPABILITY,
@@ -213,7 +221,7 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
     },
     outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
-    editorHints: {},
+    editorHints: { bindingKinds: ALL_BINDING_KINDS },
     capabilities: DEVICE_CONTROL_CAPABILITY,
   },
   {
@@ -284,6 +292,7 @@ export const ANDROID_NODE_DEFINITIONS: NodeDefinitionType[] = [
     outputSchema: EMPTY_OBJECT_SCHEMA,
     outputPorts: SUCCESS_AND_ERROR_PORTS,
     editorHints: {
+      bindingKinds: LITERAL_BINDING_KIND,
       targeting: LONG_PRESS_TARGETING,
     },
     capabilities: DEVICE_CONTROL_CAPABILITY,
