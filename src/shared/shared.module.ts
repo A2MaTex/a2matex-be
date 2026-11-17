@@ -18,8 +18,15 @@ import { OBJECT_STORAGE_PROVIDER } from './infrastructure/storage/object-storage
 import { S3ObjectStorageProvider } from './infrastructure/storage/s3/s3-object-storage.provider.ts';
 import { ProjectAccessRepo } from './repositories/project-access.repo.ts';
 import { ProjectAccessPolicy } from './services/project-access.policy.ts';
+import { QueueModule } from './infrastructure/queue/queue.ts';
+import { UploadSessionRepository } from './repositories/upload-session.repo.ts';
+
+import { ContextLoggerService } from './infrastructure/logging/context-logger.service.js';
+import { RequestLogContextService } from './infrastructure/logging/request-log-context.service.js';
 
 const sharedServices = [
+  ContextLoggerService,
+  RequestLogContextService,
   PrismaService,
   TransactionContext,
   TransactionService,
@@ -32,6 +39,7 @@ const sharedServices = [
   StaticService,
   ProjectAccessRepo,
   ProjectAccessPolicy,
+  UploadSessionRepository,
 ];
 
 const objectStorageProvider = {
@@ -56,7 +64,7 @@ const cacheProvider = {
 @Global()
 @Module({
   providers: [...sharedServices, cacheProvider, objectStorageProvider, AccessTokenGuard],
-  exports: [...sharedServices, cacheProvider, objectStorageProvider, AccessTokenGuard],
-  imports: [JwtModule],
+  imports: [JwtModule, QueueModule],
+  exports: [...sharedServices, cacheProvider, objectStorageProvider, AccessTokenGuard, QueueModule],
 })
 export class SharedModule {}

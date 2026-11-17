@@ -8,7 +8,6 @@ type ProjectDraftHashContent = {
   inputSchema: unknown;
   runtimeIr: unknown;
   validationSummary: unknown;
-  testSummary: unknown;
 };
 
 function canonicalizeJson(value: unknown): string {
@@ -33,30 +32,44 @@ export function prepareProjectDraftContent(data: SaveProjectDraftInputType) {
     inputSchema: data.inputSchema,
     runtimeIr: data.runtimeIr,
     validationSummary: data.validationSummary,
-    testSummary: data.testSummary,
   };
-  const canonicalContent = canonicalizeProjectDraftContent(content);
+  const canonicalContent = canonicalizeJson(content);
 
   if (Buffer.byteLength(canonicalContent, 'utf8') > PROJECT_DRAFT_MAX_CONTENT_BYTES) {
     throw ProjectDraftPayloadTooLargeException;
   }
 
   return {
-    contentHash: createHash('sha256').update(canonicalContent).digest('hex'),
+    contentHash: calculateProjectDraftContentHash(content),
     content,
   };
 }
 
 export function calculateProjectDraftContentHash(data: ProjectDraftHashContent): string {
-  return createHash('sha256').update(canonicalizeProjectDraftContent(data)).digest('hex');
+  return createHash('sha256').update(canonicalizeProjectDraftSource(data)).digest('hex');
 }
 
-function canonicalizeProjectDraftContent(data: ProjectDraftHashContent): string {
+export function isProjectDraftContentEqual(
+  left: ProjectDraftHashContent,
+  right: ProjectDraftHashContent,
+): boolean {
+  return (
+    canonicalizeProjectDraftStoredContent(left) === canonicalizeProjectDraftStoredContent(right)
+  );
+}
+
+function canonicalizeProjectDraftStoredContent(data: ProjectDraftHashContent): string {
   return canonicalizeJson({
     editorGraph: data.editorGraph,
     inputSchema: data.inputSchema,
     runtimeIr: data.runtimeIr,
     validationSummary: data.validationSummary,
-    testSummary: data.testSummary,
+  });
+}
+
+function canonicalizeProjectDraftSource(data: ProjectDraftHashContent): string {
+  return canonicalizeJson({
+    editorGraph: data.editorGraph,
+    inputSchema: data.inputSchema,
   });
 }

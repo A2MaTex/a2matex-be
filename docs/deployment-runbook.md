@@ -512,13 +512,80 @@ ssh -i ~/.ssh/a2matex-dbtunnel dbtunnel@<IP VPS> id                       # ph�
 kill %1
 ```
 
+### A11. Thu log API lên Cloud Logging
+
+App ghi mỗi request thành một dòng JSON ra stdout, kèm `traceId` trả về client qua header
+`X-Trace-Id`. Ops Agent trên máy đọc file log của container rồi đẩy lên Cloud Logging, nhờ vậy
+dán trace ID vào Logs Explorer là ra đúng bản ghi, không cần dựng lại lỗi ở máy local.
+
+Không phải cấp IAM: service account mặc định của VM đã có scope `logging.write`. Muốn chắc thì
+ghi thử một bản ghi, `200` là đủ quyền, `403` thì cấp `roles/logging.logWriter` cho service
+account của máy:
+
+```bash
+TOKEN=$(curl -s -H "Metadata-Flavor: Google" \
+  http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token \
+  | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://logging.googleapis.com/v2/entries:write \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"logName":"projects/a2matex-prod/logs/probe","resource":{"type":"global"},"entries":[{"severity":"INFO","jsonPayload":{"message":"probe"}}]}'
+```
+
+Cài agent:
+
+```bash
+curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
+sudo bash add-google-cloud-ops-agent-repo.sh --also-install
+rm add-google-cloud-ops-agent-repo.sh
+systemctl is-active google-cloud-ops-agent
+```
+
+Cấu hình thì **không chép tay**. Receiver phải trỏ đường dẫn tuyệt đối tới file log của container,
+mà Compose cấp container ID mới mỗi lần tạo lại, nên cấu hình chép tay sẽ chết ngay sau lần deploy
+kế tiếp và **không báo lỗi gì cả**: agent vẫn `active`, chỉ là không còn bản ghi mới. Vì vậy
+`vps-deploy.sh` tự sinh `/etc/google-cloud-ops-agent/config.yaml` từ
+`deploy/google-cloud-ops-agent.yaml` sau mỗi lần deploy, và chỉ restart agent khi đường dẫn đổi.
+
+Lần đầu, trước khi có một lượt deploy mới, sinh cấu hình một lượt bằng tay:
+
+```bash
+LOG_PATH=$(docker inspect --format '{{.LogPath}}' a2matex-app)
+sed "s|^\( *- \).*CONTAINER_ID.*|\1$LOG_PATH|" /opt/a2matex/deploy/google-cloud-ops-agent.yaml \
+  | sudo tee /etc/google-cloud-ops-agent/config.yaml >/dev/null
+sudo systemctl restart google-cloud-ops-agent
+```
+
+Kiểm bằng một request chạy được và một request hỏng, rồi tra từng `X-Trace-Id` trong Logs Explorer
+của project `a2matex-prod` với `jsonPayload.traceId="<id>"`:
+
+```bash
+curl -is https://api.a2matex.com/api/v1/health        | grep -i x-trace-id
+curl -is https://api.a2matex.com/api/v1/khong-ton-tai | grep -i x-trace-id
+```
+
+Mỗi ID phải ra **đúng một** bản ghi. Bản 404 có `severity` là `ERROR` và trường `error` là tên
+exception. Severity hiện `Default` nghĩa là processor chưa chạy; `jsonPayload` còn nguyên key `log`
+chứa cả chuỗi JSON nghĩa là mới parse được một tầng.
+
+Cuối cùng xác nhận agent chết không kéo theo API. Trong lúc agent dừng, `docker logs a2matex-app`
+vẫn là bản ghi dự phòng tại chỗ:
+
+```bash
+sudo systemctl stop google-cloud-ops-agent
+curl -s -o /dev/null -w '%{http_code}\n' https://api.a2matex.com/api/v1/health   # phải 200
+sudo systemctl start google-cloud-ops-agent
+```
+
 ## B. Vận hành
 
 ### Deploy
 
 Merge vào `staging`. Không phải làm gì thêm. Theo dõi ở tab Actions. Nhánh `main` không còn tự deploy; muốn đưa `main` lên thì merge nó vào `staging`.
 
-Mỗi lần deploy thay cả hai container chạy từ cùng một image: `a2matex-app` (API) và `a2matex-cron` (job định kỳ, xem `specs/005-separate-cron-server/`). Script chờ cả hai báo healthy; container nào không lên được thì deploy thất bại và in 50 dòng log cuối của đúng container đó.
+Mỗi lần deploy thay ba container chạy từ cùng một image: `a2matex-app` (API),
+`a2matex-cron` (job định kỳ, xem `specs/005-separate-cron-server/`) và
+`a2matex-consumer` (Kafka handler). Script chờ cả ba báo healthy; container nào không lên được
+thì deploy thất bại và in 50 dòng log cuối của đúng container đó.
 
 ### Trước khi merge một migration vào staging
 
@@ -683,6 +750,79 @@ Mỗi deploy `compose pull` kéo `redis:7-alpine` mới và tạo lại containe
 docker exec a2matex-redis redis-server --version
 ```
 
+### Kafka: broker, topic và Kafka UI
+
+Chi tiết thiết kế ở `specs/006-kafka-broker-deployment/`. Broker chạy nội bộ trong stack
+(`kafka:29092`), không publish cổng nào; Kafka UI ở `https://kafka.a2matex.com` sau basic auth và
+**chỉ đọc**.
+
+**Bật lần đầu — hai lần deploy, không gộp.** Bật hàng đợi với `KAFKA_BROKERS` rỗng làm `app`,
+`cron` **và** `consumer` cùng dừng lúc khởi động (`src/shared/config.ts` gọi `process.exit(1)` khi
+nạp mã), mà `up -d` xoá container cũ trước khi chờ — đúng kiểu hỏng của hai lần gián đoạn
+2026-10-06 và 2026-10-20. Lần một deploy broker với `KAFKA_ENABLED=false`, lần hai mới bật cờ.
+
+Luôn validate trước khi thay container đang chạy, và nối bằng `&&`:
+
+```bash
+a2c run --rm --entrypoint node app -e "import('/app/dist/shared/config.js')" \
+  && a2c up -d --remove-orphans
+```
+
+**Thêm topic mới**: khai báo cặp `X` và `X.dlq` trong `src/shared/constants/kafka.constant.ts`,
+thêm vào vòng lặp của service `kafka-init` trong `deploy/docker-compose.prod.yaml`, rồi chạy lại
+job đó. Không cần khởi động lại broker.
+
+```bash
+a2c run --rm kafka-init
+a2c exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list
+```
+
+**Đọc topic thư chết** (Kafka UI chỉ đọc nên xem được nhưng không phát lại được; quy trình phát
+lại sẽ có cùng handler đầu tiên):
+
+```bash
+a2c exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server kafka:29092 \
+  --topic production.submission.scan.requested.dlq \
+  --from-beginning --formatter-property print.headers=true --timeout-ms 10000
+```
+
+Header `original-topic` cho biết tin đến từ đâu, `failure-reason` cho biết vì sao chết.
+
+**Rollback**: đổi `KAFKA_ENABLED=true` thành `false` trong `/opt/a2matex/.env.production` rồi chạy
+lại cặp lệnh validate `&&` deploy ở trên. Broker và UI vẫn chạy, vô hại. **Đừng xoá volume
+`kafka-data`** — xoá là mất `__consumer_offsets`, tức vị trí đọc của mọi nhóm tiêu thụ.
+
+**Ba bẫy đã kiểm chứng bằng thực nghiệm, đừng mất công tìm lại:**
+
+1. **Hash basic auth phải nhân đôi mọi `$`.** Docker Compose nội suy biến trong cả `env_file` lẫn
+   `--env-file`, nên `$2a$14$...` để thuần sẽ tới container dưới dạng `$2a$14` cụt và không ai
+   đăng nhập được. Viết `$$2a$$14$$...`. Ngược lại `docker run --env-file` **không** nội suy nên
+   nó hiện dạng `$$` — đừng lấy đó làm căn cứ để xoá bớt `$`. Kiểm đúng cách:
+
+   ```bash
+   a2c exec caddy printenv KAFKA_UI_PASSWORD_HASH   # phải thấy MỘT "$" mỗi nhóm
+   ```
+
+2. **Thêm biến môi trường mới cho Caddy buộc tạo lại container** (~1-2 giây mất kết nối): compose
+   bơm `environment:` lúc tạo container chứ không phải lúc `exec`, nên `a2c exec caddy caddy
+   validate` trong container cũ luôn báo `server block without any key`. Từ lần sau, khi chỉ sửa
+   nội dung Caddyfile, dùng đường không gián đoạn:
+
+   ```bash
+   a2c exec caddy caddy validate --config /etc/caddy/Caddyfile \
+     && a2c exec caddy caddy reload --config /etc/caddy/Caddyfile
+   ```
+
+   Trước khi merge một Caddyfile đã sửa, luôn validate nó trong container dùng một lần ở máy cá
+   nhân — xem `specs/006-kafka-broker-deployment/quickstart.md` §5.
+
+3. **`ns1.zonedns.vn` cần `dig +time=6`.** Ở `+time=3` nó timeout nhưng bản ghi vẫn đúng; một lần
+   timeout ngắn không có nghĩa là chưa lan truyền.
+
+**Kiểm cổng**: dùng `docker port a2matex-kafka` (phải không in gì), **không** dùng cột `Ports` của
+`a2c ps` — cột đó hiện `9092/tcp` từ `EXPOSE` của image kể cả khi không publish gì ra host.
+
 ### Gỡ VM cũ sau khi thay máy
 
 Máy cũ `a2matex-vps` (`34.87.57.207`) nằm trong project `robust-habitat-505713-b6` của **tài khoản
@@ -727,3 +867,4 @@ Bản ghi DNS `db.a2matex.com` của spec 003 (nếu đã tạo) không còn dù
 | `remaining connection slots are reserved` | `db-g1-small` giới hạn khoảng 50 kết nối; nhiều dev mở GUI cùng lúc | hạ `CONNECTION LIMIT` của role dev, hoặc nâng tier |
 | Auth Proxy báo 403 hoặc `permission denied` | tài khoản Google chưa có `roles/cloudsql.client`, hoặc chưa `gcloud auth login` | xem A10.1 |
 | Dev bị `password authentication failed` qua proxy | role chưa tạo hoặc sai mật khẩu | tạo lại role trong Cloud SQL Studio theo A10.1 |
+| Logs Explorer không có bản ghi mới dù agent `active` | `include_paths` còn trỏ container ID cũ sau khi container bị tạo lại | deploy lại để `vps-deploy.sh` tự sinh cấu hình, hoặc chạy tay lệnh `sed` ở A11 |

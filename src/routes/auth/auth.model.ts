@@ -33,7 +33,6 @@ export const LoginInput = User.pick({
 })
   .extend({
     account: z.string().min(1).max(500),
-    code: z.string().length(6).optional(),
   })
   .strict();
 

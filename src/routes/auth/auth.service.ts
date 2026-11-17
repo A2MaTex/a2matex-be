@@ -1,4 +1,4 @@
-import { HttpException, Inject, Injectable } from '@nestjs/common';
+import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { addMilliseconds } from 'date-fns';
 import { AuthRepository } from './auth.repo.js';
@@ -43,6 +43,8 @@ import { TransactionService } from '../../shared/services/transaction.service.ts
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @Inject(HashingService) private readonly hashingService: HashingService,
     @Inject(SharedRoleRepository) private readonly sharedRoleRepository: SharedRoleRepository,
@@ -102,13 +104,24 @@ export class AuthService {
         ip: body.ip,
       });
     } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
       if (isUniqueConstraintPrismaError(error)) {
-        await this.validateRegisterAccountIsUnique({
-          email: body.email,
-          username: body.username,
-        });
+        try {
+          await this.validateRegisterAccountIsUnique({
+            email: body.email,
+            username: body.username,
+          });
+        } catch (recheckError) {
+          if (!(recheckError instanceof HttpException)) {
+            this.logger.error('failed to check for an existing registration', recheckError);
+          }
+          throw recheckError;
+        }
         throw EmailAlreadyExistsException;
       }
+      this.logger.error('failed to register', error);
       throw error;
     }
   }
@@ -157,68 +170,86 @@ export class AuthService {
   }
 
   async sendOTP(body: SendOTPInputType) {
-    const user = await this.sharedUserRepository.findUnique({
-      email: body.email,
-    });
-    if (body.type === TypeOfVerificationCode.REGISTER && user) {
-      throw EmailAlreadyExistsException;
-    }
-    if (body.type === TypeOfVerificationCode.FORGOT_PASSWORD && !user) {
-      throw EmailNotFoundException;
-    }
+    try {
+      const user = await this.sharedUserRepository.findUnique({
+        email: body.email,
+      });
+      if (body.type === TypeOfVerificationCode.REGISTER && user) {
+        throw EmailAlreadyExistsException;
+      }
+      if (body.type === TypeOfVerificationCode.FORGOT_PASSWORD && !user) {
+        throw EmailNotFoundException;
+      }
 
-    const code = generateOTP();
-    await this.authRepository.createVerificationCode({
-      email: body.email,
-      code,
-      type: body.type,
-      expiresAt: addMilliseconds(new Date(), ms(envConfig.OTP_EXPIRES_IN as StringValue)),
-    });
+      const code = generateOTP();
+      await this.authRepository.createVerificationCode({
+        email: body.email,
+        code,
+        type: body.type,
+        expiresAt: addMilliseconds(new Date(), ms(envConfig.OTP_EXPIRES_IN as StringValue)),
+      });
 
-    let subject: string;
-    switch (body.type) {
-      case TypeOfVerificationCode.REGISTER:
-        subject = EmailSubject.REGISTER;
-        break;
-      case TypeOfVerificationCode.FORGOT_PASSWORD:
-        subject = EmailSubject.FORGOT_PASSWORD;
-        break;
-      default:
-        throw new Error('Invalid verification code type');
-    }
+      let subject: string;
+      switch (body.type) {
+        case TypeOfVerificationCode.REGISTER:
+          subject = EmailSubject.REGISTER;
+          break;
+        case TypeOfVerificationCode.FORGOT_PASSWORD:
+          subject = EmailSubject.FORGOT_PASSWORD;
+          break;
+        default:
+          throw new Error('Invalid verification code type');
+      }
 
-    const { error } = await this.emailService.sendOTP({
-      email: body.email,
-      code,
-      subject,
-    });
-    if (error) {
-      throw FailedToSendOTPException;
+      const { error } = await this.emailService.sendOTP({
+        email: body.email,
+        code,
+        subject,
+      });
+      if (error) {
+        this.logger.error('email provider rejected the verification email');
+        throw FailedToSendOTPException;
+      }
+      return SUCCESS_RESPONSE;
+    } catch (error) {
+      if (!(error instanceof HttpException)) {
+        this.logger.error('failed to send verification code', error);
+      }
+      throw error;
     }
-    return SUCCESS_RESPONSE;
   }
 
   async login(body: LoginInputType & { userAgent: string; ip: string }) {
-    const user = await this.authRepository.findUniqueUserWithActiveRole({
-      account: body.account,
-    });
-    if (!user) {
-      throw EmailOrUsernameNotFoundException;
-    }
-    if (user.status === UserStatus.BANNED) {
-      throw AccountBlockedException;
-    }
+    try {
+      const user = await this.authRepository.findUniqueUserWithActiveRole({
+        account: body.account,
+      });
+      if (!user) {
+        this.logger.error('email or username not found');
+        throw EmailOrUsernameNotFoundException;
+      }
+      if (user.status === UserStatus.BANNED) {
+        this.logger.error('account blocked');
+        throw AccountBlockedException;
+      }
 
-    const isPasswordMatch = await this.hashingService.compare(body.password, user.password);
-    if (!isPasswordMatch) {
-      throw InvalidPasswordException;
-    }
+      const isPasswordMatch = await this.hashingService.compare(body.password, user.password);
+      if (!isPasswordMatch) {
+        this.logger.error('invalid password');
+        throw InvalidPasswordException;
+      }
 
-    return this.loginWithSession({
-      userId: user.id,
-      userAgent: body.userAgent,
-      ip: body.ip,
-    });
+      return await this.loginWithSession({
+        userId: user.id,
+        userAgent: body.userAgent,
+        ip: body.ip,
+      });
+    } catch (error) {
+      if (!(error instanceof HttpException)) {
+        this.logger.error('failed to log in', error);
+      }
+      throw error;
+    }
   }
 
   @Transactional()
@@ -317,6 +348,7 @@ export class AuthService {
       if (error instanceof HttpException) {
         throw error;
       }
+      this.logger.error('failed to refresh session', error);
       throw UnauthorizedAccessException;
     }
   }
@@ -361,6 +393,9 @@ export class AuthService {
       if (isNotFoundPrismaError(error)) {
         throw RefreshTokenAlreadyUsedException;
       }
+      if (!(error instanceof HttpException)) {
+        this.logger.error('failed to log out', error);
+      }
       throw UnauthorizedAccessException;
     }
   }
@@ -383,28 +418,35 @@ export class AuthService {
   }
 
   async forgotPassword(body: ForgotPasswordInputType) {
-    const { email, code, newPassword } = body;
+    try {
+      const { email, code, newPassword } = body;
 
-    const user = await this.sharedUserRepository.findUnique({
-      email,
-    });
-    if (!user) {
-      throw EmailNotFoundException;
+      const user = await this.sharedUserRepository.findUnique({
+        email,
+      });
+      if (!user) {
+        throw EmailNotFoundException;
+      }
+
+      await this.validateVerificationCode({
+        email,
+        type: TypeOfVerificationCode.FORGOT_PASSWORD,
+        code,
+      });
+
+      const hashedPassword = await this.hashingService.hash(newPassword);
+      await this.resetPassword({
+        userId: user.id,
+        password: hashedPassword,
+        email: body.email,
+      });
+      return SUCCESS_RESPONSE;
+    } catch (error) {
+      if (!(error instanceof HttpException)) {
+        this.logger.error('failed to reset password', error);
+      }
+      throw error;
     }
-
-    await this.validateVerificationCode({
-      email,
-      type: TypeOfVerificationCode.FORGOT_PASSWORD,
-      code,
-    });
-
-    const hashedPassword = await this.hashingService.hash(newPassword);
-    await this.resetPassword({
-      userId: user.id,
-      password: hashedPassword,
-      email: body.email,
-    });
-    return SUCCESS_RESPONSE;
   }
 
   @Transactional()

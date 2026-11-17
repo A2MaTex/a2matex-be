@@ -8,6 +8,6 @@ import { PublisherService } from './publisher.service.ts';
 @Module({
   controllers: [PublisherController, MarketplacePublisherController],
   providers: [PublisherService, PublisherRepo, PublisherAccessPolicy],
-  exports: [PublisherAccessPolicy],
+  exports: [PublisherAccessPolicy, PublisherRepo],
 })
 export class PublisherModule {}

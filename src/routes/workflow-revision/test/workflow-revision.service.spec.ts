@@ -23,7 +23,6 @@ function draft(overrides: Record<string, unknown> = {}) {
     inputSchema: {},
     runtimeIr: { instructions: [] },
     validationSummary: {},
-    testSummary: {},
   };
   return {
     version: 4,
@@ -181,7 +180,6 @@ describe('WorkflowRevisionService', () => {
           inputSchema: assetDraft.inputSchema,
           runtimeIr: assetDraft.runtimeIr,
           validationSummary: assetDraft.validationSummary,
-          testSummary: assetDraft.testSummary,
         }),
       }),
     );

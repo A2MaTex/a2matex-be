@@ -18,17 +18,28 @@ Tài liệu API (Swagger UI) nằm tại `/api/v1/docs` trên mọi môi trườ
 ```bash
 npm install
 cp .env.example .env            # rồi điền giá trị
-npm run compose-up              # postgres + redis
+npm run compose-up              # postgres + redis + kafka + kafka ui
 npm run prisma:generate
 npm run prisma:migrate:deploy
 npm run seed:roles
 npm run seed:permissions
 npm run start:dev                # API trên PORT (9999)
 npm run start:cron:dev           # job định kỳ trên CRON_PORT (9998), terminal thứ hai
+npm run start:consumer:dev       # Kafka handlers, health trên QUEUE_CONSUMER_PORT (9997)
 ```
 
-API và cron service đọc cùng một `.env`; hai cổng mặc định khác nhau nên chạy song song
-được mà không sửa thêm biến nào.
+Ba tiến trình đọc cùng một `.env` và dùng các cổng khác nhau nên có thể chạy song song.
+
+## Queue consumer
+
+Kafka handler không chạy trong tiến trình API. `src/consumer/main.ts` khởi động một Nest
+application context không có HTTP controller; cổng `QUEUE_CONSUMER_PORT` chỉ phục vụ
+`GET /health`. Vì vậy một feature module có thể export service dùng chung cho controller
+và queue handler mà không mở API route trên cổng consumer.
+
+Handler mới implement `QueueConsumerHandler`, inject service nghiệp vụ bình thường, rồi được
+thêm vào danh sách `handlerTypes` trong `src/consumer/consumer.module.ts`. Consumer chỉ khỏe sau
+khi mọi subscription đã đăng ký thành công.
 
 ## Job định kỳ (cron service)
 
@@ -37,11 +48,11 @@ Job định kỳ không chạy trong tiến trình API. Chúng chạy trong mộ
 object storage với API, chỉ mở `GET /api/v1/health` trên `CRON_PORT`. Chi tiết:
 `specs/005-separate-cron-server/`.
 
-| Biến | Mặc định | Ý nghĩa |
-| --- | --- | --- |
-| `CRON_PORT` | `3001` (`.env.example`: `9998`) | cổng health của cron service |
-| `CRON_SHUTDOWN_GRACE_SECONDS` | `30` | thời gian chờ job đang chạy dở khi nhận SIGTERM |
-| `CRON_TOPUP_RECONCILE` | trống = `*/<SEPAY_RECONCILE_INTERVAL_MINUTES> * * * *` | lịch job đối soát Sepay; `off` tắt job |
+| Biến                          | Mặc định                                               | Ý nghĩa                                         |
+| ----------------------------- | ------------------------------------------------------ | ----------------------------------------------- |
+| `CRON_PORT`                   | `3001` (`.env.example`: `9998`)                        | cổng health của cron service                    |
+| `CRON_SHUTDOWN_GRACE_SECONDS` | `30`                                                   | thời gian chờ job đang chạy dở khi nhận SIGTERM |
+| `CRON_TOPUP_RECONCILE`        | trống = `*/<SEPAY_RECONCILE_INTERVAL_MINUTES> * * * *` | lịch job đối soát Sepay; `off` tắt job          |
 
 Lịch chỉ đọc từ biến môi trường lúc khởi động (biểu thức cron 5 trường). Biểu thức sai
 làm cron service thoát ngay với thông báo nêu đúng tên biến; API không bị ảnh hưởng.
@@ -72,6 +83,53 @@ Start the docker container with predefined env
 
 ```bash
 docker compose --env-file .env -f tools/docker-compose.yaml up -d
+```
+
+Start Kafka, create the development topics, and start Kafka UI without starting the other
+infrastructure services:
+
+```bash
+docker compose --env-file .env -f tools/docker-compose.yaml \
+  up -d kafka kafka-init kafka-ui
+```
+
+Check Kafka service status and topic initialization:
+
+```bash
+docker compose --env-file .env -f tools/docker-compose.yaml \
+  ps kafka kafka-init kafka-ui
+
+docker compose --env-file .env -f tools/docker-compose.yaml \
+  logs kafka-init
+```
+
+List topics:
+
+```bash
+docker compose --env-file .env -f tools/docker-compose.yaml exec kafka \
+  /opt/kafka/bin/kafka-topics.sh \
+  --bootstrap-server kafka:29092 \
+  --list
+```
+
+After adding a topic to the `kafka-init` loop, provision it without restarting the broker:
+
+```bash
+docker compose --env-file .env -f tools/docker-compose.yaml \
+  up --force-recreate kafka-init
+```
+
+Follow Kafka and Kafka UI logs:
+
+```bash
+docker compose --env-file .env -f tools/docker-compose.yaml \
+  logs -f kafka kafka-ui
+```
+
+Stop the local infrastructure while preserving its volumes:
+
+```bash
+docker compose --env-file .env -f tools/docker-compose.yaml down
 ```
 
 ## Prisma

@@ -35,6 +35,8 @@ import type {
   RolePermissionPayload,
 } from '../types/role-permission.type.ts';
 
+import { RequestLogContextService } from '../infrastructure/logging/request-log-context.service.js';
+
 const VALID_PERMISSION_SCOPES = new Set<string>(Object.values(PermissionScope));
 
 type AuthRequest = Request & {
@@ -56,11 +58,15 @@ export class AccessTokenGuard implements CanActivate {
     @Inject(TokenService) private readonly tokenService: TokenService,
     @Inject(PrismaService) private readonly prismaService: PrismaService,
     @Inject(CACHE_PROVIDER) private readonly cacheProvider: CacheProvider,
+    @Inject(RequestLogContextService) private readonly requestLogs: RequestLogContextService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthRequest>();
     const decodedAccessToken = await this.extractAndValidateToken(request);
+
+    const logContext = this.requestLogs.current;
+    if (logContext && !logContext.finalized) logContext.userId = decodedAccessToken.userId;
 
     const roleIds = await this.validateUserSession(decodedAccessToken);
     if (this.shouldSkipPermissionCheck(context)) {

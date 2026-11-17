@@ -59,6 +59,27 @@ export function requireAssetFreeWorkflow(editorGraph: Prisma.JsonObject): void {
   }
 }
 
+export type WorkflowRevisionHashContent = {
+  editorGraph: Prisma.JsonObject;
+  runtimeIr: Prisma.JsonObject;
+  inputSchema: Prisma.JsonObject;
+  nodeDefinitionManifest: Prisma.JsonObject;
+  capabilityManifest: Prisma.JsonObject;
+  validationSummary: Prisma.JsonObject;
+};
+
+// Canonical JSON sorts keys, so the envelope hashes the same whether it is built here
+// at freeze time or rebuilt from the stored columns when a scan re-verifies it.
+function buildHashEnvelope(content: WorkflowRevisionHashContent) {
+  return { hashVersion: WORKFLOW_REVISION_HASH_VERSION, ...content, assets: [] };
+}
+
+// The scan recomputes this from what was stored and compares it with the recorded
+// hash: the one check that proves an immutable snapshot was not altered after freeze.
+export function calculateWorkflowRevisionContentHash(content: WorkflowRevisionHashContent): string {
+  return sha256Hex(buildHashEnvelope(content));
+}
+
 export function prepareWorkflowRevisionSnapshot({
   draft,
   definitions,
@@ -70,7 +91,6 @@ export function prepareWorkflowRevisionSnapshot({
   const runtimeIr = requireJsonObject(draft.runtimeIr);
   const inputSchema = requireJsonObject(draft.inputSchema);
   const validationSummary = requireJsonObject(draft.validationSummary);
-  const testSummary = requireJsonObject(draft.testSummary);
 
   const frozenDefinitions = definitions
     .map((definition) => ({
@@ -86,7 +106,6 @@ export function prepareWorkflowRevisionSnapshot({
       outputSchema: requireJsonObject(definition.outputSchema),
       outputPorts: requireJsonObject(definition.outputPorts),
       editorHints: requireJsonObject(definition.editorHints),
-      supportedErrorPolicies: requireJsonObject(definition.supportedErrorPolicies),
       capabilityCodes: [
         ...new Set(definition.NodeDefinitionCapability.map(({ Capability }) => Capability.code)),
       ].sort(),
@@ -105,17 +124,14 @@ export function prepareWorkflowRevisionSnapshot({
     definitions: frozenDefinitions,
   };
 
-  const hashEnvelope = {
-    hashVersion: WORKFLOW_REVISION_HASH_VERSION,
+  const hashEnvelope = buildHashEnvelope({
     editorGraph,
     runtimeIr,
     inputSchema,
     nodeDefinitionManifest,
     capabilityManifest,
     validationSummary,
-    testSummary,
-    assets: [],
-  };
+  });
 
   if (
     Buffer.byteLength(canonicalJson(hashEnvelope), 'utf8') > WORKFLOW_REVISION_MAX_CONTENT_BYTES
@@ -130,7 +146,6 @@ export function prepareWorkflowRevisionSnapshot({
     nodeDefinitionManifest,
     capabilityManifest,
     validationSummary,
-    testSummary,
     contentHash: sha256Hex(hashEnvelope),
   };
 }

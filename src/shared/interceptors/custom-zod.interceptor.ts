@@ -19,7 +19,7 @@ export class CustomZodSerializerInterceptor extends ZodSerializerInterceptor {
         }
 
         const zodError = error.getZodError();
-        this.logger.error(zodError instanceof Error ? zodError.message : zodError);
+        this.logger.error('failed to serialize response', zodError);
 
         return throwError(
           () =>

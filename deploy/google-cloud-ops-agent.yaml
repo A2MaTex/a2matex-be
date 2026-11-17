@@ -1,0 +1,26 @@
+logging:
+  receivers:
+    a2matex_api:
+      type: files
+      include_paths:
+        - /var/lib/docker/containers/CONTAINER_ID/CONTAINER_ID-json.log
+  processors:
+    a2matex_docker_json:
+      type: parse_json
+    a2matex_extract_line:
+      type: modify_fields
+      fields:
+        jsonPayload.message:
+          move_from: jsonPayload.log
+    a2matex_api_json:
+      type: parse_json
+    a2matex_severity:
+      type: modify_fields
+      fields:
+        severity:
+          move_from: jsonPayload.severity
+  service:
+    pipelines:
+      a2matex_api:
+        receivers: [a2matex_api]
+        processors: [a2matex_docker_json, a2matex_extract_line, a2matex_api_json, a2matex_severity]

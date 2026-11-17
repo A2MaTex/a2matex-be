@@ -14,7 +14,10 @@ import type {
   WorkflowValidationDiagnosticType,
   WorkflowValidationOutputType,
 } from '../workflow-validation.model.ts';
-import { validateNodeConfig } from './node-config.validator.ts';
+import { validateNodeTargeting } from './node-targeting.validator.ts';
+import { validateNodeBindings } from './node-binding.validator.ts';
+import { SWITCH_TYPE, validateSwitches } from './switch.validator.ts';
+import { NodeErrorPolicy, NodeOutputPort } from '../../node-catalog/node-catalog.constant.ts';
 
 type IndexedEdge = EditorGraphType['edges'][number] & { index: number };
 
@@ -47,6 +50,22 @@ export function buildEditorGraphContractErrors(
   );
 }
 
+function comparePaths(left: Array<string | number>, right: Array<string | number>): number {
+  for (let index = 0; index < Math.min(left.length, right.length); index++) {
+    const a = left[index];
+    const b = right[index];
+    if (a === b) continue;
+    if (typeof a === 'number') return typeof b === 'number' ? a - b : -1;
+    if (typeof b === 'number') return 1;
+    return compareText(a, b);
+  }
+  return left.length - right.length;
+}
+
+function compareText(left: string, right: string): number {
+  return left === right ? 0 : Buffer.compare(Buffer.from(left), Buffer.from(right));
+}
+
 function compareDiagnostics(
   left: WorkflowValidationDiagnosticType,
   right: WorkflowValidationDiagnosticType,
@@ -54,10 +73,10 @@ function compareDiagnostics(
   // Validation traversals may discover the same problems in a different order after an internal
   // refactor. Sorting by stable public fields keeps API responses and Studio rendering predictable.
   return (
-    left.code.localeCompare(right.code) ||
-    (left.nodeId ?? '').localeCompare(right.nodeId ?? '') ||
-    (left.edgeId ?? '').localeCompare(right.edgeId ?? '') ||
-    JSON.stringify(left.path).localeCompare(JSON.stringify(right.path))
+    compareText(left.code, right.code) ||
+    compareText(left.nodeId ?? '', right.nodeId ?? '') ||
+    compareText(left.edgeId ?? '', right.edgeId ?? '') ||
+    comparePaths(left.path, right.path)
   );
 }
 
@@ -279,6 +298,7 @@ export function validateEditorGraphTopology(
 export function validateEditorGraphCatalog(
   graph: EditorGraphType,
   definitions: WorkflowNodeDefinitionType[],
+  workflowInputSchema?: NonNullable<WorkflowNodeDefinitionType['inputSchema']>,
 ): WorkflowValidationDiagnosticType[] {
   const errors: WorkflowValidationDiagnosticType[] = [];
 
@@ -302,7 +322,21 @@ export function validateEditorGraphCatalog(
       );
       return;
     }
-    errors.push(...validateNodeConfig(node, index, definition.configSchema));
+    if (node.type !== SWITCH_TYPE) {
+      errors.push(...validateNodeTargeting(node, index, definition));
+    }
+    if (
+      node.errorPolicy === NodeErrorPolicy.ERROR_BRANCH &&
+      !definition.outputPorts.ports.includes(NodeOutputPort.ERROR)
+    ) {
+      errors.push(
+        diagnostic(
+          WorkflowValidationDiagnosticCode.NODE_ERROR_POLICY_INVALID,
+          ['nodes', index, 'errorPolicy'],
+          { nodeId: node.id },
+        ),
+      );
+    }
   });
 
   // Catalog pass 2 - verify the named output port against the source node definition. Endpoint
@@ -313,8 +347,9 @@ export function validateEditorGraphCatalog(
     const sourceDefinition = sourceNode ? definitionByType.get(sourceNode.type) : undefined;
     if (
       sourceNode &&
+      sourceNode.type !== SWITCH_TYPE &&
       sourceDefinition &&
-      !sourceDefinition.outputPorts.ports.some(({ key }) => key === edge.sourcePort)
+      !sourceDefinition.outputPorts.ports.some((port) => port === edge.sourcePort)
     ) {
       errors.push(
         diagnostic(
@@ -326,5 +361,46 @@ export function validateEditorGraphCatalog(
     }
   });
 
-  return errors;
+  // Catalog pass 3 - ordinary executable nodes use one success transition. Error transitions are
+  // present exactly when the selected policy delegates failure to an error branch. Switch owns its
+  // dynamic rule/default cardinality in the dedicated validator below.
+  const outgoingPortCounts = new Map<string, Map<string, number>>();
+  graph.edges.forEach(({ sourceNodeId, sourcePort }) => {
+    const portCounts = outgoingPortCounts.get(sourceNodeId) ?? new Map<string, number>();
+    portCounts.set(sourcePort, (portCounts.get(sourcePort) ?? 0) + 1);
+    outgoingPortCounts.set(sourceNodeId, portCounts);
+  });
+  graph.nodes.forEach((node, index) => {
+    if (!definitionByType.has(node.type) || node.type === 'flow.end' || node.type === SWITCH_TYPE) {
+      return;
+    }
+
+    const portCounts = outgoingPortCounts.get(node.id);
+    const reportPort = (port: string) => {
+      errors.push(
+        diagnostic(
+          WorkflowValidationDiagnosticCode.NODE_PORT_EDGE_COUNT_INVALID,
+          ['nodes', index, 'ports', port],
+          { nodeId: node.id },
+        ),
+      );
+    };
+
+    if (portCounts?.get(NodeOutputPort.SUCCESS) !== 1) {
+      reportPort(NodeOutputPort.SUCCESS);
+    }
+
+    const errorEdgeCount = portCounts?.get(NodeOutputPort.ERROR) ?? 0;
+    if (
+      (node.errorPolicy === NodeErrorPolicy.ERROR_BRANCH && errorEdgeCount !== 1) ||
+      (node.errorPolicy === NodeErrorPolicy.STOP && errorEdgeCount !== 0)
+    ) {
+      reportPort(NodeOutputPort.ERROR);
+    }
+  });
+
+  return errors.concat(
+    validateSwitches(graph, definitionByType.has(SWITCH_TYPE)).diagnostics,
+    validateNodeBindings(graph, definitionByType, workflowInputSchema),
+  );
 }

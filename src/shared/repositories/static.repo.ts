@@ -13,6 +13,9 @@ export type CreateStaticInput = {
 
 export type CreateStaticOutput = {
   id: string;
+  originalFileName: string;
+  size: bigint;
+  contentType: string;
 };
 
 export type StaticImageVariantRecord = {
@@ -45,6 +48,9 @@ export class StaticRepository {
       data: input,
       select: {
         id: true,
+        originalFileName: true,
+        size: true,
+        contentType: true,
       },
     });
   }
@@ -91,6 +97,25 @@ export class StaticRepository {
     return this.prisma.static.findFirst({
       where: {
         id,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        objectKey: true,
+        originalFileName: true,
+        contentType: true,
+        size: true,
+        createdAt: true,
+        updatedAt: true,
+        deletedAt: true,
+      },
+    });
+  }
+
+  findByFileKey(filekey: string): Promise<StaticEntityType | null> {
+    return this.prisma.static.findFirst({
+      where: {
+        objectKey: filekey,
         deletedAt: null,
       },
       select: {

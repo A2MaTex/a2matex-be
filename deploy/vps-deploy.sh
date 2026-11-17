@@ -14,6 +14,8 @@ COMPOSE_FILE="${APP_DIR}/deploy/docker-compose.prod.yaml"
 ENV_FILE="${APP_DIR}/.env.production"
 DEPLOY_ENV_FILE="${APP_DIR}/.env.deploy"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-120}"
+KEEP_IMAGES="${KEEP_IMAGES:-2}"
+OPS_AGENT_CONFIG="${OPS_AGENT_CONFIG:-/etc/google-cloud-ops-agent/config.yaml}"
 
 : "${IMAGE_REPO:?IMAGE_REPO is required}"
 : "${IMAGE_TAG:?IMAGE_TAG is required}"
@@ -67,16 +69,38 @@ if ! compose run --rm migrate < /dev/null; then
   exit 1
 fi
 
+# Bring up the broker on its own first: this only adds a container, it never
+# replaces one that is serving. Then provision topics as a one-off job. A failure
+# in either step stops the deploy while the whole previous stack is still running -
+# the same protection `run --rm migrate` above gives the database.
+log "Starting Kafka broker"
+if ! compose up -d kafka; then
+  echo "Kafka broker failed to start. The previous stack is still running; nothing was replaced." >&2
+  printf 'IMAGE_REPO=%s\nIMAGE_TAG=%s\n' "$PREVIOUS_REPO" "$PREVIOUS_TAG" > "$DEPLOY_ENV_FILE"
+  docker logout ghcr.io >/dev/null 2>&1 || true
+  exit 1
+fi
+
+log "Provisioning Kafka topics"
+if ! compose run --rm kafka-init < /dev/null; then
+  echo "Kafka topic provisioning failed. The previous stack is still running; nothing was replaced." >&2
+  printf 'IMAGE_REPO=%s\nIMAGE_TAG=%s\n' "$PREVIOUS_REPO" "$PREVIOUS_TAG" > "$DEPLOY_ENV_FILE"
+  docker logout ghcr.io >/dev/null 2>&1 || true
+  exit 1
+fi
+
 log "Starting stack"
 compose up -d --remove-orphans
 
 docker logout ghcr.io >/dev/null 2>&1 || true
 
-# The API and the cron service come from the same image and both must be healthy
-# before the deploy counts as done. They share one deadline.
-log "Waiting for the API and the cron service to report healthy"
+# All long-running processes come from the same image and must be healthy before
+# the deploy counts as done. They share one deadline.
+# Kafka goes first so a broker problem surfaces immediately instead of after the
+# other three have each burned through the shared deadline.
+log "Waiting for Kafka, the API, cron, and consumer services to report healthy"
 deadline=$(( $(date +%s) + HEALTH_TIMEOUT ))
-for container in a2matex-app a2matex-cron; do
+for container in a2matex-kafka a2matex-app a2matex-cron a2matex-consumer; do
   while :; do
     status="$(docker inspect --format '{{.State.Health.Status}}' "$container" 2>/dev/null || echo missing)"
     if [ "$status" = "healthy" ]; then
@@ -94,8 +118,39 @@ for container in a2matex-app a2matex-cron; do
   done
 done
 
-log "Removing dangling images"
-docker image prune -f >/dev/null
+# The Ops Agent tails the API container's JSON log by absolute path, and Compose
+# gives the container a new id whenever it is recreated, which silently stops
+# collection. Rebuild the receiver path from the template and restart the agent
+# only when the path actually changed. Skipped when the agent is not installed,
+# and never allowed to fail a deploy that already succeeded.
+if [ -d /etc/google-cloud-ops-agent ]; then
+  log "Refreshing Ops Agent log path"
+  {
+    rendered="$(mktemp)"
+    log_path="$(docker inspect --format '{{.LogPath}}' a2matex-app)"
+    sed "s|^\( *- \).*CONTAINER_ID.*|\1${log_path}|" \
+      "${APP_DIR}/deploy/google-cloud-ops-agent.yaml" >"$rendered"
+    if ! sudo -n cmp -s "$rendered" "$OPS_AGENT_CONFIG"; then
+      sudo -n cp "$rendered" "$OPS_AGENT_CONFIG"
+      sudo -n systemctl restart google-cloud-ops-agent
+    fi
+    rm -f "$rendered"
+  } || true
+fi
+
+log "Removing superseded images"
+# `docker image prune` only drops untagged layers, but every deploy leaves a
+# fully tagged ${IMAGE_REPO}:sha-* behind, which filled the disk. Keep the tag
+# just deployed plus the newest KEEP_IMAGES builds so a rollback pull stays
+# cheap. Cleanup must never fail a deploy that already succeeded.
+{
+  docker images "$IMAGE_REPO" --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}' \
+    | sort -r | cut -f2 \
+    | grep -v ':<none>$' | grep -vxF "${IMAGE_REPO}:${IMAGE_TAG}" \
+    | tail -n +"$((KEEP_IMAGES + 1))" \
+    | xargs -r -n1 docker image rm
+  docker image prune -f
+} >/dev/null 2>&1 || true
 
 log "Deployed ${IMAGE_REPO}:${IMAGE_TAG}"
 compose ps

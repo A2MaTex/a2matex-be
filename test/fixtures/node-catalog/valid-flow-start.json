@@ -25,14 +25,8 @@
     "additionalProperties": false
   },
   "outputPorts": {
-    "ports": [{ "key": "success", "kind": "CONTROL", "label": "Success" }]
+    "ports": ["success"]
   },
-  "editorHints": {
-    "icon": "play",
-    "fieldOrder": []
-  },
-  "supportedErrorPolicies": {
-    "supported": ["STOP"]
-  },
+  "editorHints": {},
   "capabilities": []
 }

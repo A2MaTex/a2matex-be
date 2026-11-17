@@ -40,7 +40,6 @@ const NodeCatalogItemOutput = z
     outputSchema: NodeDefinitionContract.shape.outputSchema,
     outputPorts: NodeDefinitionContract.shape.outputPorts,
     editorHints: NodeDefinitionContract.shape.editorHints,
-    supportedErrorPolicies: NodeDefinitionContract.shape.supportedErrorPolicies,
     capabilities: z.array(CapabilityOutput),
   })
   .strict();

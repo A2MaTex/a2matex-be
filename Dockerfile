@@ -1,8 +1,7 @@
 # syntax=docker/dockerfile:1.7
 #
-# One image serves four roles: the API (default CMD), the cron service
-# (`node dist/cron/main.js`, specs/005-separate-cron-server), the migration job
-# (`npx prisma migrate deploy`) and the manual seed jobs (`npx tsx src/seed/...`).
+# One image serves the API (default CMD), cron, queue consumer, migration, and
+# manual seed processes. Compose selects their entry points from the same build.
 # Debian slim instead of Alpine because bcrypt ships glibc prebuilds.
 ARG NODE_IMAGE=node:24-bookworm-slim
 

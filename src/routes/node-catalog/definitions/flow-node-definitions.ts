@@ -2,10 +2,9 @@ import {
   DEFAULT_FLOW_NODE_TIMEOUT_MS,
   MAX_DELAY_DURATION_MS,
   MAX_LOG_MESSAGE_LENGTH,
+  MAX_NODE_TIMEOUT_MS,
   NodeCategory,
-  NodeErrorPolicy,
   NodeOutputPort,
-  NodeOutputPortKind,
 } from '../node-catalog.constant.ts';
 import type { NodeDefinitionType } from '../node-definition.model.ts';
 
@@ -16,25 +15,8 @@ const EMPTY_OBJECT_SCHEMA: NodeDefinitionType['configSchema'] = {
   additionalProperties: false,
 };
 
-const SUCCESS_PORT: NodeDefinitionType['outputPorts']['ports'][number] = {
-  key: NodeOutputPort.SUCCESS,
-  kind: NodeOutputPortKind.CONTROL,
-  label: 'Success',
-};
-
-const ERROR_PORT: NodeDefinitionType['outputPorts']['ports'][number] = {
-  key: NodeOutputPort.ERROR,
-  kind: NodeOutputPortKind.ERROR,
-  label: 'Error',
-};
-
-const STOP_ONLY: NodeDefinitionType['supportedErrorPolicies'] = {
-  supported: [NodeErrorPolicy.STOP],
-};
-
-const STOP_OR_ERROR_BRANCH: NodeDefinitionType['supportedErrorPolicies'] = {
-  supported: [NodeErrorPolicy.STOP, NodeErrorPolicy.ERROR_BRANCH],
-};
+const SUCCESS_PORT: NodeDefinitionType['outputPorts']['ports'][number] = NodeOutputPort.SUCCESS;
+const ERROR_PORT: NodeDefinitionType['outputPorts']['ports'][number] = NodeOutputPort.ERROR;
 
 export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
   {
@@ -51,11 +33,7 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
     outputPorts: {
       ports: [SUCCESS_PORT],
     },
-    editorHints: {
-      icon: 'play',
-      fieldOrder: [],
-    },
-    supportedErrorPolicies: STOP_ONLY,
+    editorHints: {},
     capabilities: [],
   },
   {
@@ -72,11 +50,7 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
     outputPorts: {
       ports: [],
     },
-    editorHints: {
-      icon: 'stop',
-      fieldOrder: [],
-    },
-    supportedErrorPolicies: STOP_ONLY,
+    editorHints: {},
     capabilities: [],
   },
   {
@@ -114,11 +88,7 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
     outputPorts: {
       ports: [SUCCESS_PORT, ERROR_PORT],
     },
-    editorHints: {
-      icon: 'clock',
-      fieldOrder: ['durationMs'],
-    },
-    supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
+    editorHints: {},
     capabilities: [],
   },
   {
@@ -146,11 +116,65 @@ export const FLOW_NODE_DEFINITIONS: NodeDefinitionType[] = [
     outputPorts: {
       ports: [SUCCESS_PORT, ERROR_PORT],
     },
-    editorHints: {
-      icon: 'text',
-      fieldOrder: ['message'],
+    editorHints: {},
+    capabilities: [],
+  },
+  {
+    type: 'flow.wait_variable',
+    name: 'Wait for Variable',
+    description: 'Wait for a named Global variable to exist in the current run group.',
+    category: NodeCategory.FLOW,
+    runtimeHandler: 'flow.wait_variable',
+    minimumRuntimeVersion: '0.1.0',
+    defaultTimeoutMs: MAX_NODE_TIMEOUT_MS,
+    configSchema: {
+      ...EMPTY_OBJECT_SCHEMA,
+      properties: {
+        name: { type: 'string', pattern: '^[A-Za-z_][A-Za-z0-9_]{0,99}$' },
+      },
+      required: ['name'],
     },
-    supportedErrorPolicies: STOP_OR_ERROR_BRANCH,
+    inputSchema: EMPTY_OBJECT_SCHEMA,
+    outputSchema: EMPTY_OBJECT_SCHEMA,
+    outputPorts: { ports: [SUCCESS_PORT, ERROR_PORT] },
+    editorHints: {},
+    capabilities: [],
+  },
+  {
+    type: 'flow.switch',
+    name: 'Switch',
+    description: 'Route to the first matching rule or the default branch.',
+    category: NodeCategory.FLOW,
+    runtimeHandler: 'flow.switch',
+    minimumRuntimeVersion: '0.1.0',
+    defaultTimeoutMs: DEFAULT_FLOW_NODE_TIMEOUT_MS,
+    configSchema: EMPTY_OBJECT_SCHEMA,
+    inputSchema: EMPTY_OBJECT_SCHEMA,
+    outputSchema: EMPTY_OBJECT_SCHEMA,
+    outputPorts: { ports: [ERROR_PORT] },
+    editorHints: {},
+    capabilities: [],
+  },
+  {
+    type: 'flow.set_variable',
+    name: 'Set Variable',
+    description: 'Save a value under a name in the current device execution or run group.',
+    category: NodeCategory.FLOW,
+    runtimeHandler: 'flow.set_variable',
+    minimumRuntimeVersion: '0.1.0',
+    defaultTimeoutMs: DEFAULT_FLOW_NODE_TIMEOUT_MS,
+    configSchema: {
+      ...EMPTY_OBJECT_SCHEMA,
+      properties: {
+        name: { type: 'string', pattern: '^[A-Za-z_][A-Za-z0-9_]{0,99}$' },
+        scope: { type: 'string', pattern: '^(FLOW|RUN_GROUP)$' },
+      },
+      required: ['name'],
+    },
+    inputSchema: EMPTY_OBJECT_SCHEMA,
+    outputSchema: EMPTY_OBJECT_SCHEMA,
+    outputPorts: { ports: [SUCCESS_PORT, ERROR_PORT] },
+    editorHints: {},
     capabilities: [],
   },
 ];

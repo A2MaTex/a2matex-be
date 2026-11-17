@@ -30,11 +30,11 @@ describe('NodeDefinitionContract', () => {
     }
   });
 
-  it('validates all 11 predefined MVP nodes', () => {
+  it('validates all 15 predefined authoring nodes', () => {
     const result = NodeDefinitionCatalogContract.parse(BASIC_NODE_DEFINITIONS);
 
-    expect(result).toHaveLength(11);
-    expect(new Set(result.map(({ type }) => type)).size).toBe(11);
+    expect(result).toHaveLength(15);
+    expect(new Set(result.map(({ type }) => type)).size).toBe(15);
   });
 
   it('publishes only workflow-consumable Android outputs', () => {

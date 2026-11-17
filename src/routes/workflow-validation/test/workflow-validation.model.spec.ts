@@ -84,6 +84,26 @@ describe('Workflow Validation contracts', () => {
     );
   });
 
+  it('accepts bounded node execution policy and rejects invalid bounds', () => {
+    const graph = (fixture('valid-minimal.json') as { editorGraph: { nodes: unknown[] } })
+      .editorGraph;
+    const valid = structuredClone(graph) as { nodes: Array<Record<string, unknown>> };
+    valid.nodes[0].timeoutMs = 600_000;
+    valid.nodes[0].retryPolicy = { maxAttempts: 3, delayMs: 60_000 };
+
+    const zeroTimeout = structuredClone(valid);
+    zeroTimeout.nodes[0].timeoutMs = 0;
+    const excessiveAttempts = structuredClone(valid);
+    excessiveAttempts.nodes[0].retryPolicy = { maxAttempts: 4, delayMs: 0 };
+    const unknownPolicyField = structuredClone(valid);
+    unknownPolicyField.nodes[0].retryPolicy = { maxAttempts: 1, unknown: true };
+
+    expect(EditorGraph.safeParse(valid).success).toBe(true);
+    expect(EditorGraph.safeParse(zeroTimeout).success).toBe(false);
+    expect(EditorGraph.safeParse(excessiveAttempts).success).toBe(false);
+    expect(EditorGraph.safeParse(unknownPolicyField).success).toBe(false);
+  });
+
   it('accepts the declared validation response contract', () => {
     expect(
       WorkflowValidationOutput.safeParse({

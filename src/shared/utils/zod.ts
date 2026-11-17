@@ -29,3 +29,34 @@ export const zBigIntAsNumber = () => {
   schema._zod.toJSONSchema = () => ({ type: 'integer' });
   return schema;
 };
+
+/**
+ * A JSON object that is returned, not accepted. Stored snapshots were validated by
+ * their own schema at write time and are immutable afterwards, so re-parsing them on
+ * every read buys nothing and costs a deep walk: `z.record(z.string(), z.json())`
+ * tries each node against a recursive union and clones the result, which is hundreds
+ * of milliseconds on a large workflow graph. Re-validating also pins immutable rows
+ * to the *current* schema, so bumping a snapshot version would break every historical
+ * record.
+ *
+ * `docs` is the schema the value was written against. It documents the field in
+ * OpenAPI and is never used to parse, which is what lets the stored shape and the
+ * documented shape move apart over time without breaking old rows.
+ */
+export const zJsonObject = (docs?: z.ZodType) => {
+  // Typed `unknown` so a Prisma `JsonValue` column assigns to it without a cast, which
+  // keeps the response-type check between a repo select and its schema meaningful.
+  // The runtime guard still rejects a column that somehow holds a scalar or array.
+  const schema = z.custom<unknown>(
+    (value) => value !== null && typeof value === 'object' && !Array.isArray(value),
+  );
+  let documented: Record<string, unknown> | undefined;
+  schema._zod.toJSONSchema = () => {
+    // Resolved once, and only while the OpenAPI document is being built.
+    documented ??= docs
+      ? (z.toJSONSchema(docs) as Record<string, unknown>)
+      : { type: 'object', additionalProperties: true };
+    return documented;
+  };
+  return schema;
+};

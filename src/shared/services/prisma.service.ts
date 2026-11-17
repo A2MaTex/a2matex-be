@@ -4,6 +4,8 @@ import { Prisma, PrismaClient } from '../../generated/prisma/client.ts';
 import envConfig from '../config.ts';
 import { TransactionContext } from '../infrastructure/database/transaction/transaction-context.ts';
 
+const PRISMA_LOG_IGNORED_ENVIRONMENTS = ['production'];
+
 export type PrismaClientOrTransaction = Prisma.TransactionClient | PrismaService;
 
 @Injectable()
@@ -13,19 +15,22 @@ export class PrismaService extends PrismaClient {
     @Inject(TransactionContext)
     private readonly transactionContext?: TransactionContext,
   ) {
+    const loggingEnabled = !PRISMA_LOG_IGNORED_ENVIRONMENTS.includes(envConfig.NODE_ENV);
     const adapter = new PrismaPg({
       connectionString: envConfig.DATABASE_URL,
     });
     super({
       adapter,
-      log: [{ emit: 'event', level: 'query' }, 'info', 'error'],
+      log: loggingEnabled ? [{ emit: 'event', level: 'query' }, 'info', 'error'] : [],
     });
 
-    const queryClient = this as PrismaClient<'query'>;
-    queryClient.$on('query', (event) => {
-      console.log(`prisma:query ${event.query}`);
-      console.log(`prisma:params ${event.params}`);
-    });
+    if (loggingEnabled) {
+      const queryClient = this as PrismaClient<'query'>;
+      queryClient.$on('query', (event) => {
+        console.log(`prisma:query ${event.query}`);
+        console.log(`prisma:params ${event.params}`);
+      });
+    }
   }
 
   getClient(): PrismaClientOrTransaction {

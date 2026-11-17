@@ -45,7 +45,6 @@ export class NodeCatalogRepo {
         outputSchema: true,
         outputPorts: true,
         editorHints: true,
-        supportedErrorPolicies: true,
         NodeDefinitionCapability: {
           where: {
             deletedAt: null,
@@ -217,7 +216,6 @@ export class NodeCatalogRepo {
           "outputSchema" JSONB,
           "outputPorts" JSONB,
           "editorHints" JSONB,
-          "supportedErrorPolicies" JSONB,
           "contentHash" TEXT
         )
       )
@@ -235,7 +233,6 @@ export class NodeCatalogRepo {
         "outputSchema",
         "outputPorts",
         "editorHints",
-        "supportedErrorPolicies",
         "contentHash"
       )
       SELECT
@@ -252,7 +249,6 @@ export class NodeCatalogRepo {
         "outputSchema",
         "outputPorts",
         "editorHints",
-        "supportedErrorPolicies",
         "contentHash"
       FROM incoming
       ON CONFLICT (type) DO UPDATE SET
@@ -268,7 +264,6 @@ export class NodeCatalogRepo {
         "outputSchema" = EXCLUDED."outputSchema",
         "outputPorts" = EXCLUDED."outputPorts",
         "editorHints" = EXCLUDED."editorHints",
-        "supportedErrorPolicies" = EXCLUDED."supportedErrorPolicies",
         "contentHash" = EXCLUDED."contentHash",
         "updatedAt" = now(),
         "deletedAt" = NULL

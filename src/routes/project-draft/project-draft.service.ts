@@ -9,7 +9,7 @@ import type {
   SaveProjectDraftInputType,
 } from './project-draft.model.ts';
 import { ProjectDraftRepo } from './project-draft.repo.ts';
-import { prepareProjectDraftContent } from './project-draft.util.ts';
+import { isProjectDraftContentEqual, prepareProjectDraftContent } from './project-draft.util.ts';
 import { ProjectArchivedException, ProjectNotFoundException } from '../project/project.error.ts';
 
 @Injectable()
@@ -65,8 +65,16 @@ export class ProjectDraftService {
     }
 
     const { content, contentHash } = prepareProjectDraftContent(data);
+    const currentDraft = project.ProjectDraft;
+    if (
+      currentDraft?.contentHash === contentHash &&
+      isProjectDraftContentEqual(currentDraft, content)
+    ) {
+      const { id, version, savedAt } = currentDraft;
+      return { id, version, contentHash, savedAt };
+    }
 
-    if (data.expectedVersion === 0 && !project.ProjectDraft) {
+    if (data.expectedVersion === 0 && !currentDraft) {
       try {
         return await this.projectDraftRepo.create({
           projectId,
@@ -93,16 +101,18 @@ export class ProjectDraftService {
       }
     }
 
-    return this.resolveUnchangedOrConflictingSave({ projectId, access, contentHash });
+    return this.resolveUnchangedOrConflictingSave({ projectId, access, content, contentHash });
   }
 
   private async resolveUnchangedOrConflictingSave({
     projectId,
     access,
+    content,
     contentHash,
   }: {
     projectId: string;
     access: Awaited<ReturnType<ProjectAccessPolicy['resolveDraftSaveAccess']>>;
+    content: Omit<SaveProjectDraftInputType, 'expectedVersion'>;
     contentHash: string;
   }): Promise<ProjectDraftSyncOutputType> {
     const project = await this.projectDraftRepo.getAccessibleProject({ projectId, access });
@@ -114,7 +124,10 @@ export class ProjectDraftService {
     }
 
     const currentDraft = project.ProjectDraft;
-    if (currentDraft?.contentHash === contentHash) {
+    if (
+      currentDraft?.contentHash === contentHash &&
+      isProjectDraftContentEqual(currentDraft, content)
+    ) {
       const { id, version, savedAt } = currentDraft;
       return { id, version, contentHash, savedAt };
     }

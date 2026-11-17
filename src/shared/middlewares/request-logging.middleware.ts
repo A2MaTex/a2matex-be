@@ -1,35 +1,48 @@
-import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
+import { Inject, Injectable, type NestMiddleware } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
+import { TRACE_ID_HEADER } from '../constants/logging.constant.js';
+import { ContextLoggerService } from '../infrastructure/logging/context-logger.service.js';
+import { RequestLogContextService } from '../infrastructure/logging/request-log-context.service.js';
+import type { RequestLogContext } from '../infrastructure/logging/request-log-context.js';
+
+const CLIENT_CLOSED_REQUEST = 499;
 
 @Injectable()
-/**
- * Logs every HTTP request at the middleware layer, before guards run, so
- * rejected requests still produce request/response logs.
- */
 export class RequestLoggingMiddleware implements NestMiddleware {
-  private readonly logger = new Logger(RequestLoggingMiddleware.name);
+  constructor(
+    @Inject(RequestLogContextService) private readonly contexts: RequestLogContextService,
+    @Inject(ContextLoggerService) private readonly logger: ContextLoggerService,
+  ) {}
 
   use(request: Request, response: Response, next: NextFunction): void {
-    const startedAt = Date.now();
-    const { method, originalUrl, ip } = request;
-    const userAgentHeader = request.headers['user-agent'];
-    const userAgent = Array.isArray(userAgentHeader)
-      ? userAgentHeader.join(',')
-      : (userAgentHeader ?? '');
+    const context: RequestLogContext = {
+      traceId: randomBytes(16).toString('hex'),
+      startedAt: performance.now(),
+    };
+    response.setHeader(TRACE_ID_HEADER, context.traceId);
 
-    this.logger.log(`Incoming request ${method} ${originalUrl} ip=${ip} userAgent="${userAgent}"`);
+    const finalize = () => {
+      if (context.finalized) return;
+      context.finalized = true;
 
-    response.on('finish', () => {
-      const message = `Completed request ${method} ${originalUrl} status=${response.statusCode} duration=${Date.now() - startedAt}ms`;
+      const statusCode =
+        response.writableFinished || response.headersSent
+          ? response.statusCode
+          : (context.failureStatusCode ?? CLIENT_CLOSED_REQUEST);
+      const route =
+        typeof request.route?.path === 'string'
+          ? request.baseUrl + request.route.path
+          : request.path;
 
-      if (response.statusCode >= 400) {
-        this.logger.error(message);
-        return;
-      }
+      this.logger.writeRequest(context, request.method, route, statusCode);
+      context.messages = undefined;
+      context.rootError = undefined;
+      context.cause = undefined;
+    };
 
-      this.logger.log(message);
-    });
-
-    next();
+    response.once('finish', finalize);
+    response.once('close', finalize);
+    this.contexts.run(context, next);
   }
 }

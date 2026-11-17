@@ -11,7 +11,6 @@ export const SaveProjectDraftInput = z
     inputSchema: ProjectDraftJsonObject,
     runtimeIr: ProjectDraftJsonObject.nullable(),
     validationSummary: ProjectDraftJsonObject,
-    testSummary: ProjectDraftJsonObject,
   })
   .strict();
 
@@ -28,7 +27,6 @@ export const ProjectDraftOutput = ProjectDraftSyncOutput.extend({
   inputSchema: ProjectDraftJsonObject,
   runtimeIr: ProjectDraftJsonObject.nullable(),
   validationSummary: ProjectDraftJsonObject,
-  testSummary: ProjectDraftJsonObject,
 });
 
 export const GetProjectDraftOutput = z.object({

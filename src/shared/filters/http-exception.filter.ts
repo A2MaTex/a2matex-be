@@ -1,24 +1,18 @@
-import { Logger, Catch, ArgumentsHost, HttpException } from '@nestjs/common';
-import { BaseExceptionFilter } from '@nestjs/core';
-import { ZodSerializationException } from 'nestjs-zod';
-import { ZodError as ZodErrorV4 } from 'zod/v4';
+import { Catch, Inject, HttpException, type ArgumentsHost } from '@nestjs/common';
+import { BaseExceptionFilter, HttpAdapterHost } from '@nestjs/core';
+import { RequestLogContextService } from '../infrastructure/logging/request-log-context.service.js';
 
 @Catch(HttpException)
-/**
- * Logs details for known HTTP exceptions, then lets Nest's base HTTP exception
- * handling keep the response format and status code consistent.
- */
 export class HttpExceptionFilter extends BaseExceptionFilter {
-  private readonly logger = new Logger(HttpExceptionFilter.name);
+  constructor(
+    @Inject(HttpAdapterHost) { httpAdapter }: HttpAdapterHost,
+    @Inject(RequestLogContextService) private readonly requestLogs: RequestLogContextService,
+  ) {
+    super(httpAdapter);
+  }
 
   catch(exception: HttpException, host: ArgumentsHost) {
-    if (exception instanceof ZodSerializationException) {
-      const zodError = exception.getZodError();
-      if (zodError instanceof ZodErrorV4) {
-        this.logger.error(`ZodSerializationException: ${zodError.message}`);
-      }
-    }
-
+    this.requestLogs.recordFailure(exception, exception.getStatus());
     super.catch(exception, host);
   }
 }

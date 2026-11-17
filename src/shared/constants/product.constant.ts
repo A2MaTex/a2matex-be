@@ -7,6 +7,13 @@ export const ProductStatus = {
 
 export type ProductStatusType = (typeof ProductStatus)[keyof typeof ProductStatus];
 
+// A Product may enter the release pipeline (submit, review, approve) only in these
+// statuses. Submission and Review must agree on the list, so it lives here once.
+export const RELEASABLE_PRODUCT_STATUSES: ProductStatusType[] = [
+  ProductStatus.DRAFT,
+  ProductStatus.ACTIVE,
+];
+
 export const ProductMediaType = {
   ICON: 'ICON',
   COVER: 'COVER',

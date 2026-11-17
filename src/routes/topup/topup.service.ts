@@ -104,14 +104,16 @@ export class TopUpService {
     const matched = await this.findPendingRequestInContent(payload.content);
 
     if (matched) {
-      await this.creditTopUp({
+      const credited = await this.creditTopUp({
         topUpTransactionId: matched.id,
         userId: matched.userId as string,
         receivedAmount,
         providerTransactionId: payload.id,
         rawContent: payload.content,
       });
-      return;
+      if (credited) {
+        return;
+      }
     }
 
     await this.topUpRepo.createUnmatched({
@@ -150,13 +152,19 @@ export class TopUpService {
     receivedAmount: bigint;
     providerTransactionId: string;
     rawContent: string;
-  }): Promise<void> {
-    await this.topUpRepo.markCredited({
+  }): Promise<boolean> {
+    const result = await this.topUpRepo.tryMarkCredited({
       topUpTransactionId,
       receivedAmount,
       providerTransactionId,
       rawContent,
     });
+
+    if (result.count !== 1) {
+      return false;
+    }
+
     await this.topUpRepo.incrementProfileBalance({ userId, amount: receivedAmount });
+    return true;
   }
 }
