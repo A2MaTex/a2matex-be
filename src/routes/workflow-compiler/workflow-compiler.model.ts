@@ -58,9 +58,23 @@ const WorkflowIntegerField = z
     }
   });
 
+const WorkflowNumberField = z
+  .object({
+    type: z.literal('number'),
+    minimum: z.number().finite().optional(),
+    maximum: z.number().finite().optional(),
+  })
+  .strict()
+  .superRefine(({ minimum, maximum }, ctx) => {
+    if (minimum !== undefined && maximum !== undefined && minimum > maximum) {
+      ctx.addIssue({ code: 'custom', message: 'minimum must not exceed maximum' });
+    }
+  });
+
 const WorkflowInputField = z.discriminatedUnion('type', [
   WorkflowStringField,
   WorkflowIntegerField,
+  WorkflowNumberField,
   z.object({ type: z.literal('boolean') }).strict(),
 ]);
 
@@ -96,7 +110,7 @@ export const WorkflowInputSchema = z
 export const RuntimeInputSource = z.discriminatedUnion('source', [
   z.strictObject({
     source: z.literal(WorkflowBindingKind.LITERAL),
-    value: z.union([z.string(), z.number().int().safe(), z.boolean()]),
+    value: z.union([z.string(), z.number().finite(), z.boolean()]),
   }),
   z.strictObject({
     source: z.literal(WorkflowBindingKind.WORKFLOW_INPUT),

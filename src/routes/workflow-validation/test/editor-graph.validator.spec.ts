@@ -2,11 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ANDROID_NODE_DEFINITIONS } from '../../node-catalog/definitions/android-node-definitions.ts';
 import { BASIC_NODE_DEFINITIONS } from '../../node-catalog/definitions/basic-node-definitions.ts';
+import type { WorkflowCompilerRepo } from '../../workflow-compiler/workflow-compiler.repo.ts';
+import { WorkflowCompilerService } from '../../workflow-compiler/workflow-compiler.service.ts';
 import {
   EDITOR_GRAPH_MAX_DIAGNOSTICS,
   EDITOR_GRAPH_MAX_EDGES,
   EDITOR_GRAPH_MAX_NODES,
   WORKFLOW_VALIDATION_DIAGNOSTIC_MESSAGES,
+  WorkflowBindingKind,
 } from '../../../shared/constants/workflow-validation.constant.ts';
 import {
   buildValidationOutput,
@@ -15,6 +18,10 @@ import {
 } from '../validator/editor-graph.validator.ts';
 import { EditorGraph, type EditorGraphType } from '../workflow-validation.model.ts';
 import type { WorkflowNodeDefinitionType } from '../workflow-validation.model.ts';
+
+vi.mock('../../workflow-compiler/workflow-compiler.repo.ts', () => ({
+  WorkflowCompilerRepo: class WorkflowCompilerRepo {},
+}));
 
 const targetingCases = JSON.parse(
   fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'targeting-parity.json'), 'utf8'),
@@ -64,6 +71,8 @@ describe('binding parity', () => {
 });
 
 describe('targeting parity', () => {
+  const compiler = new WorkflowCompilerService({} as WorkflowCompilerRepo);
+
   it.each(targetingCases)('$name', ({ type, config, bindings, paths }) => {
     const graph = EditorGraph.parse({
       schemaVersion: 1,
@@ -116,6 +125,45 @@ describe('targeting parity', () => {
       warnings: [],
       truncated: false,
     });
+
+    if (type === 'android.screenshot') {
+      const compiled = compiler.compileWorkflow(graph, EMPTY_SCHEMA, BASIC_NODE_DEFINITIONS);
+      expect(compiled.validation).toEqual(buildValidationOutput({ errors }));
+      expect(compiled.success).toBe(paths.length === 0);
+      if (compiled.success) {
+        expect(compiled.runtimeIr.nodes.find(({ id }) => id === 'target')).toMatchObject({
+          config,
+          inputs: Object.fromEntries(
+            Object.entries(bindings).map(([field, binding]) => [
+              field,
+              { source: 'LITERAL', value: (binding as { value: number }).value },
+            ]),
+          ),
+        });
+      }
+    }
+  });
+
+  it('preserves a frozen full-screen Screenshot definition', () => {
+    const source = bindingCases.find(({ name }) => name === 'direct output');
+    const graph = EditorGraph.parse(source?.graph);
+    const capture = graph.nodes.find(({ type }) => type === 'android.screenshot');
+    if (!capture) throw new Error('Missing Screenshot test node');
+    capture.config = {};
+
+    const definitions = BASIC_NODE_DEFINITIONS.map((definition) =>
+      definition.type === 'android.screenshot'
+        ? { ...definition, configSchema: EMPTY_SCHEMA, editorHints: {} }
+        : definition,
+    );
+    const compiled = compiler.compileWorkflow(graph, EMPTY_SCHEMA, definitions);
+    expect(compiled.success).toBe(true);
+    if (compiled.success) {
+      expect(compiled.runtimeIr.nodes.find(({ id }) => id === capture.id)).toMatchObject({
+        config: {},
+        inputs: {},
+      });
+    }
   });
 });
 
@@ -146,6 +194,7 @@ function definition(
     type,
     configSchema,
     outputPorts: { ports },
+    editorHints: { bindingKinds: Object.values(WorkflowBindingKind) },
   };
 }
 
@@ -372,6 +421,58 @@ describe('validateEditorGraph', () => {
         code: 'NODE_CONFIG_INVALID',
         nodeId: 'configured_01',
         path: ['nodes', 1, 'config', invalidField],
+      }),
+    );
+  });
+
+  it('rejects a binding kind not published by the node definition', () => {
+    const graph = fixture('valid-minimal.json');
+    graph.nodes.splice(1, 0, {
+      id: 'constrained_01',
+      type: 'test.constrained',
+      config: {},
+      bindings: {
+        value: { kind: WorkflowBindingKind.FLOW_VARIABLE, name: 'sharedValue' },
+      },
+      errorPolicy: 'STOP',
+      editor: { x: 1, y: 1 },
+    });
+    graph.edges = [
+      {
+        id: 'edge_01',
+        sourceNodeId: 'start_01',
+        sourcePort: 'success',
+        targetNodeId: 'constrained_01',
+      },
+      {
+        id: 'edge_02',
+        sourceNodeId: 'constrained_01',
+        sourcePort: 'success',
+        targetNodeId: 'end_01',
+      },
+    ];
+    const constrainedDefinition: WorkflowNodeDefinitionType = {
+      ...definition('test.constrained', ['success']),
+      inputSchema: {
+        type: 'object',
+        properties: { value: { type: 'string' } },
+        required: ['value'],
+        additionalProperties: false,
+      },
+      editorHints: { bindingKinds: [WorkflowBindingKind.LITERAL] },
+    };
+
+    const diagnostics = validateEditorGraphCatalog(graph, [
+      definition('flow.start', ['success']),
+      constrainedDefinition,
+      definition('flow.end', []),
+    ]);
+
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'NODE_VALUE_BINDING_INVALID',
+        nodeId: 'constrained_01',
+        path: ['nodes', 1, 'bindings', 'value'],
       }),
     );
   });
