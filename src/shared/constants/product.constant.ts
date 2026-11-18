@@ -22,14 +22,24 @@ export const ProductMediaType = {
 
 export type ProductMediaTypeValue = (typeof ProductMediaType)[keyof typeof ProductMediaType];
 
+// Publisher owns visibility, Admin owns moderation. A Publisher can never undo a
+// suspension and Admin can never undo a Publisher's archival.
 export const ProductLifecycleAction = {
+  ACTIVATE: 'ACTIVATE',
   ARCHIVE: 'ARCHIVE',
-  SUSPEND: 'SUSPEND',
   REACTIVATE: 'REACTIVATE',
 } as const;
 
 export type ProductLifecycleActionType =
   (typeof ProductLifecycleAction)[keyof typeof ProductLifecycleAction];
+
+export const ProductModerationAction = {
+  SUSPEND: 'SUSPEND',
+  REACTIVATE: 'REACTIVATE',
+} as const;
+
+export type ProductModerationActionType =
+  (typeof ProductModerationAction)[keyof typeof ProductModerationAction];
 
 export const PRODUCT_NAME_MAX_LENGTH = 255;
 export const PRODUCT_SLUG_MAX_LENGTH = 255;

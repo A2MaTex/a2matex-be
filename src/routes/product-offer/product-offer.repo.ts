@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.ts';
+import { ProductOfferType } from '../../shared/constants/product-offer.constant.ts';
 import type { ProductOfferTypeValue } from '../../shared/constants/product-offer.constant.ts';
 import type { ProductStatusType } from '../../shared/constants/product.constant.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
@@ -157,6 +158,37 @@ export class ProductOfferRepo {
         deletedAt,
         deletedById: userId,
       },
+    });
+  }
+
+  // One existence query, not a collection read: activation only asks whether a usable
+  // subscription is there.
+  async hasEligibleSubscription(productId: string): Promise<boolean> {
+    const offer = await this.prisma.productOffer.findFirst({
+      where: {
+        productId,
+        deletedAt: null,
+        type: ProductOfferType.SUBSCRIPTION,
+        priceAmount: { gt: 0 },
+        durationDays: { gt: 0 },
+      },
+      select: { id: true },
+    });
+    return offer !== null;
+  }
+
+  // First activation seeds the window; the Product row is already locked and audited by
+  // the lifecycle transaction that calls this.
+  async recordInitialOfferChange({
+    productId,
+    occurredAt,
+  }: {
+    productId: string;
+    occurredAt: Date;
+  }): Promise<void> {
+    await this.prisma.product.update({
+      where: { id: productId },
+      data: { offerChangeTimestamps: [occurredAt] },
     });
   }
 

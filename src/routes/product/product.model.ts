@@ -9,6 +9,7 @@ import {
   PRODUCT_STATUS_REASON_MAX_LENGTH,
   ProductLifecycleAction,
   ProductMediaType,
+  ProductModerationAction,
   ProductStatus,
 } from '../../shared/constants/product.constant.ts';
 import { ProjectStatus } from '../../shared/constants/project.constant.ts';
@@ -163,25 +164,33 @@ export const ProductManagementOutput = Product.pick({
 export const UpdateProductLifecycleInput = z
   .object({
     action: z.enum([
+      ProductLifecycleAction.ACTIVATE,
       ProductLifecycleAction.ARCHIVE,
-      ProductLifecycleAction.SUSPEND,
       ProductLifecycleAction.REACTIVATE,
     ]),
+  })
+  .strict();
+
+// createZodDto needs a single object schema, so the pairing of action and reason is a
+// refinement rather than a discriminated union.
+export const UpdateProductModerationInput = z
+  .object({
+    action: z.enum([ProductModerationAction.SUSPEND, ProductModerationAction.REACTIVATE]),
     reason: z.string().trim().min(1).max(PRODUCT_STATUS_REASON_MAX_LENGTH).optional(),
   })
   .strict()
   .superRefine(({ action, reason }, ctx) => {
-    if (action === ProductLifecycleAction.SUSPEND && !reason) {
+    if (action === ProductModerationAction.SUSPEND && !reason) {
       ctx.addIssue({
         code: 'custom',
-        message: 'Reason is required when suspending a product',
+        message: 'Error.ProductSuspendReasonRequired',
         path: ['reason'],
       });
     }
-    if (action !== ProductLifecycleAction.SUSPEND && reason !== undefined) {
+    if (action === ProductModerationAction.REACTIVATE && reason !== undefined) {
       ctx.addIssue({
         code: 'custom',
-        message: 'Reason is only allowed when suspending a product',
+        message: 'Error.ProductSuspendReasonNotAllowed',
         path: ['reason'],
       });
     }
@@ -217,6 +226,7 @@ export type CreateProductInputType = z.infer<typeof CreateProductInput>;
 export type CreateProductOutputType = z.infer<typeof CreateProductOutput>;
 export type UpdateProductInputType = z.infer<typeof UpdateProductInput>;
 export type UpdateProductLifecycleInputType = z.infer<typeof UpdateProductLifecycleInput>;
+export type UpdateProductModerationInputType = z.infer<typeof UpdateProductModerationInput>;
 export type GetProductListInputType = z.infer<typeof GetProductListInput>;
 export type GetProductListOutputType = z.infer<typeof GetProductListOutput>;
 export type ProductManagementOutputType = z.infer<typeof ProductManagementOutput>;

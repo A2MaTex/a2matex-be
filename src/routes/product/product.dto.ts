@@ -9,6 +9,7 @@ import {
   ProductManagementOutput,
   UpdateProductInput,
   UpdateProductLifecycleInput,
+  UpdateProductModerationInput,
 } from './product.model.ts';
 
 export class ProductIdParamDTO extends createZodDto(ProductIdParam) {}
@@ -28,3 +29,5 @@ export class ProductManagementOutputDTO extends createZodDto(ProductManagementOu
 export class ProductDetailOutputDTO extends createZodDto(ProductDetailOutput) {}
 
 export class UpdateProductLifecycleInputDTO extends createZodDto(UpdateProductLifecycleInput) {}
+
+export class UpdateProductModerationInputDTO extends createZodDto(UpdateProductModerationInput) {}

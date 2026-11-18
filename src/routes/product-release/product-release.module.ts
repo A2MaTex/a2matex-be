@@ -21,7 +21,7 @@ import { PublisherModule } from '../publisher/publisher.module.ts';
     ProductReleaseManagementService,
     ProductReleaseManagementRepo,
   ],
-  exports: [ProjectReleaseService],
+  exports: [ProjectReleaseService, ProductReleaseManagementService],
   controllers: [ProductReleaseController, ProductReleaseManagementController],
 })
 export class ProductReleaseModule {}

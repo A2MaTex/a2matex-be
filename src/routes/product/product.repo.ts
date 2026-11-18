@@ -75,6 +75,13 @@ type ProductRow = Prisma.ProductGetPayload<{ select: typeof PRODUCT_SELECT }>;
 
 type ProductDetailRow = Prisma.ProductGetPayload<{ select: typeof PRODUCT_DETAIL_SELECT }>;
 
+export type LockedProduct = {
+  id: string;
+  status: ProductStatusType;
+  currentReleaseId: string | null;
+  transactionNow: Date;
+};
+
 @Injectable()
 export class ProductRepo {
   constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
@@ -304,6 +311,79 @@ export class ProductRepo {
     }
 
     return result;
+  }
+
+  // Lifecycle serializes on the Product row: readiness is validated and the status moves
+  // inside one lock, so a Release disable or an Offer replacement cannot slip between.
+  async lockProduct({
+    id,
+    access,
+  }: {
+    id: string;
+    access: ProductAccess;
+  }): Promise<LockedProduct | null> {
+    const ownerFilter = access.unrestricted
+      ? Prisma.empty
+      : Prisma.sql`AND "publisherAccountId" = ${access.publisherAccountId}::uuid`;
+    // Epoch milliseconds read the same whichever shape the driver returns.
+    const rows = await this.prisma.$queryRaw<
+      {
+        id: string;
+        status: ProductStatusType;
+        currentReleaseId: string | null;
+        transactionNowMs: bigint | number | string;
+      }[]
+    >`
+      SELECT id, status, "currentReleaseId",
+             (EXTRACT(EPOCH FROM now()) * 1000)::bigint AS "transactionNowMs"
+      FROM "Product"
+      WHERE id = ${id}::uuid
+        AND "deletedAt" IS NULL
+        ${ownerFilter}
+      FOR UPDATE
+    `;
+    const row = rows[0];
+    return (
+      row && {
+        id: row.id,
+        status: row.status,
+        currentReleaseId: row.currentReleaseId,
+        transactionNow: new Date(Number(row.transactionNowMs)),
+      }
+    );
+  }
+
+  // The row is already locked and its source status checked, so these are plain writes.
+  setStatus({ id, status, userId }: { id: string; status: ProductStatusType; userId: string }) {
+    const now = new Date();
+    return this.prisma.product.update({
+      where: { id },
+      data: {
+        status,
+        statusReason: null,
+        suspendedAt: null,
+        suspendedById: null,
+        updatedById: userId,
+        updatedAt: now,
+      },
+      select: { id: true },
+    });
+  }
+
+  suspend({ id, userId, reason }: { id: string; userId: string; reason: string }) {
+    const now = new Date();
+    return this.prisma.product.update({
+      where: { id },
+      data: {
+        status: ProductStatus.SUSPENDED,
+        statusReason: reason,
+        suspendedAt: now,
+        suspendedById: userId,
+        updatedById: userId,
+        updatedAt: now,
+      },
+      select: { id: true },
+    });
   }
 
   // Soft-delete first: the partial unique indexes only consider live rows, so

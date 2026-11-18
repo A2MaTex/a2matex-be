@@ -150,6 +150,30 @@ export class ProductOfferService {
     return SUCCESS_RESPONSE;
   }
 
+  // Called by ProductService inside its lifecycle transaction. No transaction of its own:
+  // the repo resolves PrismaService.getClient() and joins the caller's.
+  async assertActivationReady(productId: string): Promise<void> {
+    if (await this.productOfferRepo.hasEligibleSubscription(productId)) {
+      return;
+    }
+    this.logger.warn(
+      `Product activation rejected: Error.ProductSubscriptionOfferRequired productId=${productId}`,
+    );
+    throw ProductSubscriptionOfferRequiredException;
+  }
+
+  // Only the first DRAFT -> ACTIVE records a timestamp. Reactivation changes no
+  // commercial terms, so it spends nothing.
+  async recordInitialPublicConfiguration({
+    productId,
+    occurredAt,
+  }: {
+    productId: string;
+    occurredAt: Date;
+  }): Promise<void> {
+    await this.productOfferRepo.recordInitialOfferChange({ productId, occurredAt });
+  }
+
   // Price is not part of the identity: the same type and duration at a new price is an
   // update of that row, never a delete followed by an insert.
   private diff({

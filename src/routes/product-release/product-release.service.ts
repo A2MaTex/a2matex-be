@@ -12,6 +12,7 @@ import { ProductAccessPolicy } from '../product/product-access.policy.ts';
 import {
   ProductAccessDeniedException,
   ProductNotFoundException,
+  ProductReleaseUnavailableException,
 } from '../product/product.error.ts';
 import {
   ProductReleaseDisableConflictException,
@@ -134,6 +135,26 @@ export class ProductReleaseManagementService {
     }
     await this.commitDisable({ productId, releaseId, data, userId });
     return SUCCESS_RESPONSE;
+  }
+
+  // Product lifecycle calls this before ACTIVATE and both REACTIVATE paths: the pointer
+  // may have been selected long ago and the Release disabled since. It locks, never
+  // mutates, and joins the caller's ambient transaction.
+  async assertCurrentReleaseEligible({
+    productId,
+    releaseId,
+  }: {
+    productId: string;
+    releaseId: string;
+  }): Promise<void> {
+    const release = await this.repo.lockRelease({ id: releaseId, productId });
+    if (!release || !isSelectable(release)) {
+      this.logger.warn(
+        'Product release eligibility rejected: current release missing or not selectable ' +
+          `productId=${productId} releaseId=${releaseId}`,
+      );
+      throw ProductReleaseUnavailableException;
+    }
   }
 
   private async getVisibleProduct({

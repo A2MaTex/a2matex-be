@@ -14,6 +14,7 @@ import {
   ProductDetailOutputDTO,
   UpdateProductInputDTO,
   UpdateProductLifecycleInputDTO,
+  UpdateProductModerationInputDTO,
 } from './product.dto.ts';
 import { ProductService } from './product.service.ts';
 
@@ -60,6 +61,8 @@ export class ProductController {
     return this.productService.update({ id: params.productId, data: body, userId, scopes });
   }
 
+  // Publisher visibility only. Suspension lives on the Admin moderation route so an
+  // owner can never undo it.
   @Put(':productId/lifecycle')
   @ZodResponse({ type: MessageResDTO })
   applyLifecycle(
@@ -69,5 +72,21 @@ export class ProductController {
     @ActivePermissionScopes() scopes: ActivePermissionScope[],
   ) {
     return this.productService.applyLifecycle({ id: params.productId, data: body, userId, scopes });
+  }
+
+  @Put(':productId/moderation')
+  @ZodResponse({ type: MessageResDTO })
+  applyModeration(
+    @Param() params: ProductIdParamDTO,
+    @Body() body: UpdateProductModerationInputDTO,
+    @ActiveUser('userId') userId: string,
+    @ActivePermissionScopes() scopes: ActivePermissionScope[],
+  ) {
+    return this.productService.applyModeration({
+      id: params.productId,
+      data: body,
+      userId,
+      scopes,
+    });
   }
 }
