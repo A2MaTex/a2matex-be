@@ -13,6 +13,7 @@ import type {
   ProductReleaseDetailOutputType,
   ProductReleaseSummaryOutputType,
 } from './product-release.model.ts';
+import { StaticService } from '../../shared/services/static.service.ts';
 
 export type LockedProduct = {
   id: string;
@@ -50,7 +51,10 @@ type ReleaseSummaryRow = Prisma.ProductReleaseGetPayload<{ select: typeof RELEAS
 
 @Injectable()
 export class ProductReleaseManagementRepo {
-  constructor(@Inject(PrismaService) private readonly prismaService: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prismaService: PrismaService,
+    @Inject(StaticService) private readonly staticService: StaticService,
+  ) {}
 
   private get prisma() {
     return this.prismaService.getClient();
@@ -147,8 +151,14 @@ export class ProductReleaseManagementRepo {
     const requiredCapabilities = (runtimeIr as { requiredCapabilities?: unknown })
       .requiredCapabilities;
 
+    let presignUrlRes = null;
+
+    if (release.packageStaticId)
+      presignUrlRes = await this.staticService.getDownloadUrl(release.packageStaticId);
+
     return {
       ...this.toSummary(release, currentReleaseId),
+      downloadUrl: presignUrlRes?.downloadUrl || null,
       workflowRevisionId: release.submission.workflowRevisionId,
       packageSizeBytes: packageStatic ? packageStatic.size.toString() : null,
       packageHash: release.packageHash,

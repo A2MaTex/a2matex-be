@@ -66,6 +66,7 @@ export const ProductReleaseDetailOutput = ProductReleaseSummaryOutput.extend({
   inputSchema: zJsonObject(),
   disabledAt: zDate().nullable(),
   disabledReason: z.string().nullable(),
+  downloadUrl: z.string().nullable(),
   // Present only for an unrestricted Admin; omitted for Publishers.
   buildFailureCode: z.string().nullable().optional(),
 });
