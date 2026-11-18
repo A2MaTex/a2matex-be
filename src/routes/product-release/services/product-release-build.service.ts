@@ -35,6 +35,7 @@ const BuildFailureCode = {
   MISSING_RUNTIMEIR_CONTENTHASH: 'MISSING_RUNTIMEIR_CONTENTHASH',
   ALREADY_PUBLISHED: 'ALREADY_PUBLISHED',
   FAILED: 'FAILED',
+  DISABLE_RELEASE: 'DISABLE_RELEASE'
 } as const;
 
 export type BuildOutcomeType = (typeof BuildOutcome)[keyof typeof BuildOutcome];
@@ -91,7 +92,7 @@ export class ProjectReleaseService {
       }
       if (existing?.status === ProductReleaseStatus.DISABLED) {
         this.logger.error(`Release of submission ${body.submissionId} is disabled, not rebuilding`);
-        buildFailureCode = BuildFailureCode.DISABLE_SUBMISSION;
+        buildFailureCode = BuildFailureCode.DISABLE_RELEASE;
         return BuildOutcome.INVALID;
       }
 
@@ -129,6 +130,7 @@ export class ProjectReleaseService {
         return BuildOutcome.COMPLETED;
       }
       if (packageStatic.outcome === 'disabled') {
+        buildFailureCode = BuildFailureCode.DISABLE_SUBMISSION;
         return BuildOutcome.INVALID;
       }
 
@@ -182,7 +184,7 @@ export class ProjectReleaseService {
       // 'published' or 'alreadyTerminal' (a concurrent worker published first): success.
       return BuildOutcome.COMPLETED;
     } catch (error) {
-      this.logger.error(error);
+      this.logger.error(`Error when building product release: ${error instanceof Error ? error.message : 'unknown'}`);
       // Best effort: if even this write fails the release stays BUILDING, which the next
       // attempt treats the same as BUILD_FAILED.
       if (productReleaseId) {
@@ -192,7 +194,7 @@ export class ProjectReleaseService {
             productReleaseId,
           );
         } catch (updateError) {
-          this.logger.error(updateError);
+          this.logger.error(`Error when update buildFailureCode: ${updateError instanceof Error ? updateError.message : 'unknown'}`);
         }
       }
       return BuildOutcome.RETRY;
