@@ -3,7 +3,6 @@ import { ProductReleasePackageService } from './product-release-package.service.
 import { SubmissionRepository } from '../../../shared/repositories/submission.repo.ts';
 import { ProductReleaseRepository } from '../../../shared/repositories/product-release.repo.ts';
 import { randomUUID } from 'crypto';
-import { SharedUserRepository } from '../../../shared/repositories/shared-user.repo.ts';
 import { StaticService } from '../../../shared/services/static.service.ts';
 import { TransactionService } from '../../../shared/services/transaction.service.ts';
 import { ProductReleaseBuildRequestedPayloadType } from '../product-release-build.model.ts';
@@ -27,11 +26,15 @@ export const BuildOutcome = {
   INVALID: 'INVALID',
 } as const;
 
-export const BuildFailureCode = {
+const BuildFailureCode = {
+  NO_LONGER_ELIGIBLE: 'NO_LONGER_ELIGIBLE',
   SUBMISSION_NOT_FOUND: 'SUBMISSION_NOT_FOUND',
   NOT_APPROVE_YET: 'NOT_APPROVE_YET',
   DISABLE_SUBMISSION: 'DISABLE_SUBMISSION',
   NOT_PASS_SCAN: 'NOT_PASS_SCAN',
+  MISSING_RUNTIMEIR_CONTENTHASH: 'MISSING_RUNTIMEIR_CONTENTHASH',
+  ALREADY_PUBLISHED: 'ALREADY_PUBLISHED',
+  FAILED: 'FAILED',
 } as const;
 
 export type BuildOutcomeType = (typeof BuildOutcome)[keyof typeof BuildOutcome];
@@ -51,26 +54,31 @@ export class ProjectReleaseService {
   ) {}
   async build(body: ProductReleaseBuildRequestedPayloadType) {
     let productReleaseId: string | undefined;
+    let buildFailureCode: string | undefined;
     try {
       const submission = await this.submissionRepo.findById(body.submissionId);
       if (!submission) {
         this.logger.error(`Find no submission with id = ${body.submissionId}`);
+        buildFailureCode = BuildFailureCode.SUBMISSION_NOT_FOUND;
         return BuildOutcome.INVALID;
       }
       if (submission.status !== SubmissionStatus.APPROVED) {
         this.logger.error(
           `Submission with id = ${body.submissionId} has not been approved by admin`,
         );
+        buildFailureCode = BuildFailureCode.NOT_APPROVE_YET;
         return BuildOutcome.INVALID;
       }
       if (submission.scanStatus !== SubmissionScanStatus.PASSED) {
         this.logger.error(`Submission with id = ${body.submissionId} has not passed Scan Workflow`);
+        buildFailureCode = BuildFailureCode.NOT_PASS_SCAN;
         return BuildOutcome.INVALID;
       }
       if (!submission?.runtimeIr || !submission?.contentHash) {
         this.logger.error(
           `WorkflowRevision of Submission with id = ${body.submissionId} does not have runtimeIr or contentHash`,
         );
+        buildFailureCode = BuildFailureCode.MISSING_RUNTIMEIR_CONTENTHASH;
         return BuildOutcome.INVALID;
       }
 
@@ -78,10 +86,12 @@ export class ProjectReleaseService {
       const existing = await this.productReleaseRepo.findBySubmissionId(body.submissionId);
       if (existing?.status === ProductReleaseStatus.PUBLISHED) {
         this.logger.debug(`Submission with id = ${body.submissionId} has been published`);
+        buildFailureCode = BuildFailureCode.ALREADY_PUBLISHED;
         return BuildOutcome.COMPLETED;
       }
       if (existing?.status === ProductReleaseStatus.DISABLED) {
         this.logger.error(`Release of submission ${body.submissionId} is disabled, not rebuilding`);
+        buildFailureCode = BuildFailureCode.DISABLE_SUBMISSION;
         return BuildOutcome.INVALID;
       }
 
@@ -165,6 +175,7 @@ export class ProjectReleaseService {
           objectKey: packageStatic.objectKey,
           buildFailureCode: publication.outcome === 'disabled' ? 'DISABLED' : 'INELIGIBLE',
         });
+        buildFailureCode = BuildFailureCode.NO_LONGER_ELIGIBLE;
         return BuildOutcome.INVALID;
       }
 
@@ -177,7 +188,7 @@ export class ProjectReleaseService {
       if (productReleaseId) {
         try {
           await this.productReleaseRepo.update(
-            { buildFailureCode: 'FAILED', status: ProductReleaseStatus.BUILD_FAILED },
+            { buildFailureCode: buildFailureCode || BuildFailureCode.FAILED, status: ProductReleaseStatus.BUILD_FAILED },
             productReleaseId,
           );
         } catch (updateError) {
