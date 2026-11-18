@@ -15,6 +15,7 @@ import {
   NodeOutputPort,
   STRICT_SEMANTIC_VERSION_PATTERN,
 } from './node-catalog.constant.ts';
+import { WorkflowBindingKind } from '../../shared/constants/workflow-validation.constant.ts';
 
 const NodeFieldSchema = z.record(z.string(), z.json());
 const TARGET_BINDING_FIELD_NAME_PATTERN = /^[a-z][a-zA-Z0-9_]*$/;
@@ -24,6 +25,7 @@ function objectSchema(fieldNamePattern: RegExp) {
     .object({
       type: z.literal('object'),
       properties: z.record(z.string(), NodeFieldSchema),
+      dynamicInputs: z.record(z.string(), z.json()).optional(),
       required: z.array(z.string().min(1).max(NODE_FIELD_NAME_MAX_LENGTH)),
       additionalProperties: z.literal(false),
     })
@@ -68,6 +70,7 @@ const TargetBindingObjectSchema = objectSchema(TARGET_BINDING_FIELD_NAME_PATTERN
 const NodeOutputPortContract = z.enum([
   NodeOutputPort.SUCCESS,
   NodeOutputPort.ERROR,
+  NodeOutputPort.DEFAULT,
   NodeOutputPort.TRUE,
   NodeOutputPort.FALSE,
   NodeOutputPort.BODY,
@@ -77,6 +80,12 @@ const NodeOutputPortContract = z.enum([
 const NodeOutputPortsContract = z
   .object({
     ports: z.array(NodeOutputPortContract),
+    dynamicPorts: z
+      .object({
+        keysFrom: z.literal('config.rules[].id'),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine(({ ports }, ctx) => {
@@ -93,12 +102,62 @@ const NodeOutputPortsContract = z
     });
   });
 
-const TargetMode = z.enum(['ABSOLUTE_PIXELS', 'SCREEN_PERCENT', 'SELECTOR_ID']);
+const TargetMode = z.enum(['ABSOLUTE_PIXELS', 'SCREEN_PERCENT', 'SELECTOR_ID', 'FULL_SCREEN']);
 
 const TargetModeDefinition = z
   .object({
     mode: TargetMode,
     bindingSchema: TargetBindingObjectSchema,
+  })
+  .strict();
+
+const WorkflowBindingKindContract = z.enum([
+  WorkflowBindingKind.LITERAL,
+  WorkflowBindingKind.WORKFLOW_INPUT,
+  WorkflowBindingKind.NODE_OUTPUT,
+  WorkflowBindingKind.FLOW_VARIABLE,
+  WorkflowBindingKind.GLOBAL_VARIABLE,
+]);
+
+export const SetVariableBindingKindsContract = z
+  .object({
+    [WorkflowBindingKind.LITERAL]: z
+      .object({
+        fields: z
+          .object({
+            value: z
+              .object({
+                types: z.tuple([z.literal('string'), z.literal('number'), z.literal('boolean')]),
+              })
+              .strict(),
+          })
+          .strict(),
+      })
+      .strict(),
+    [WorkflowBindingKind.WORKFLOW_INPUT]: z
+      .object({ fields: z.tuple([z.literal('inputName')]) })
+      .strict(),
+    [WorkflowBindingKind.NODE_OUTPUT]: z
+      .object({ fields: z.tuple([z.literal('nodeId'), z.literal('field')]) })
+      .strict(),
+    [WorkflowBindingKind.FLOW_VARIABLE]: z
+      .object({ fields: z.tuple([z.literal('name')]) })
+      .strict(),
+    [WorkflowBindingKind.GLOBAL_VARIABLE]: z
+      .object({ fields: z.tuple([z.literal('name')]) })
+      .strict(),
+  })
+  .strict();
+
+export const SwitchDynamicInputsContract = z
+  .object({
+    ruleOperand: z
+      .object({
+        bindingKeyFrom: z.literal('config.rules[].id'),
+        operandCountFrom: z.literal('config.rules[].operator'),
+        bindingKinds: SetVariableBindingKindsContract,
+      })
+      .strict(),
   })
   .strict();
 
@@ -123,6 +182,17 @@ export const NodeTargetingContract = z
 
 const NodeEditorHintsContract = z
   .object({
+    bindingKinds: z
+      .array(WorkflowBindingKindContract)
+      .superRefine((bindingKinds, ctx) => {
+        if (new Set(bindingKinds).size !== bindingKinds.length) {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'Binding kinds must be unique',
+          });
+        }
+      })
+      .optional(),
     targeting: NodeTargetingContract.optional(),
   })
   .strict();
@@ -155,6 +225,49 @@ export const NodeDefinitionContract = z
   })
   .strict()
   .superRefine((definition, ctx) => {
+    if (definition.type === 'flow.set_variable') {
+      const result = SetVariableBindingKindsContract.safeParse(
+        definition.inputSchema.properties.value?.bindingKinds,
+      );
+      if (!result.success) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Set Variable must publish its value binding kinds in inputSchema',
+          path: ['inputSchema', 'properties', 'value', 'bindingKinds'],
+        });
+      }
+    }
+
+    if (definition.type === 'flow.switch') {
+      const valueBindingKinds = SetVariableBindingKindsContract.safeParse(
+        definition.inputSchema.properties.value?.bindingKinds,
+      );
+      const dynamicInputs = SwitchDynamicInputsContract.safeParse(
+        definition.inputSchema.dynamicInputs,
+      );
+      if (!valueBindingKinds.success) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Switch must publish its value binding kinds in inputSchema',
+          path: ['inputSchema', 'properties', 'value', 'bindingKinds'],
+        });
+      }
+      if (!dynamicInputs.success) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Switch must publish its dynamic rule operand inputs',
+          path: ['inputSchema', 'dynamicInputs'],
+        });
+      }
+      if (definition.outputPorts.dynamicPorts?.keysFrom !== 'config.rules[].id') {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Switch must derive dynamic ports from rule IDs',
+          path: ['outputPorts', 'dynamicPorts'],
+        });
+      }
+    }
+
     const capabilities = new Set<string>();
     definition.capabilities.forEach((capability, index) => {
       if (capabilities.has(capability)) {

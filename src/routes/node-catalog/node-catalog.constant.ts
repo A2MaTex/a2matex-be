@@ -17,10 +17,28 @@ export const NodeCapability = {
 export const NodeOutputPort = {
   SUCCESS: 'success',
   ERROR: 'error',
+  DEFAULT: 'default',
   TRUE: 'true',
   FALSE: 'false',
   BODY: 'body',
   COMPLETED: 'completed',
+} as const;
+
+export const SwitchOperator = {
+  EQ: 'EQ',
+  NE: 'NE',
+  LT: 'LT',
+  LTE: 'LTE',
+  GT: 'GT',
+  GTE: 'GTE',
+  CONTAINS: 'CONTAINS',
+  NOT_CONTAINS: 'NOT_CONTAINS',
+  STARTS_WITH: 'STARTS_WITH',
+  ENDS_WITH: 'ENDS_WITH',
+  IS_EMPTY: 'IS_EMPTY',
+  IS_NOT_EMPTY: 'IS_NOT_EMPTY',
+  IS_TRUE: 'IS_TRUE',
+  IS_FALSE: 'IS_FALSE',
 } as const;
 
 export const NODE_TYPE_MAX_LENGTH = 255;
@@ -37,6 +55,7 @@ export const MAX_NODE_TIMEOUT_MS = 600_000;
 
 export const MAX_DELAY_DURATION_MS = 300_000;
 export const MAX_LOG_MESSAGE_LENGTH = 4_000;
+export const MAX_SWITCH_RULES = 32;
 export const MAX_ANDROID_PACKAGE_NAME_LENGTH = 255;
 export const MAX_ANDROID_COORDINATE = 100_000;
 export const MAX_SWIPE_DURATION_MS = 60_000;

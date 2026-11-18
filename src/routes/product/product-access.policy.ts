@@ -61,6 +61,22 @@ export class ProductAccessPolicy {
     return { unrestricted: false, publisherAccountId };
   }
 
+  // Current-Release selection: an unrestricted caller reaches any Product, an owner
+  // only its own and only while its Publisher account is still active.
+  async resolveReleaseSelectionAccess(
+    userId: string,
+    scopes: ActivePermissionScope[],
+  ): Promise<ProductAccess> {
+    if (scopes.includes(null)) {
+      return { unrestricted: true };
+    }
+    if (!scopes.includes(PermissionScope.OWN)) {
+      throw ProductAccessDeniedException;
+    }
+    const { publisherAccountId } = await this.publisherAccessPolicy.assertActivePublisher(userId);
+    return { unrestricted: false, publisherAccountId };
+  }
+
   // Reads deliberately skip the eligibility checks that mutations require: a blocked
   // former Publisher must still be able to inspect its own Product history. Null means
   // the caller owns no Publisher account, which lists answer with an empty page.

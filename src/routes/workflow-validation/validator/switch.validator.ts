@@ -4,18 +4,30 @@ import type {
   EditorGraphType,
   WorkflowValidationDiagnosticType,
 } from '../workflow-validation.model.ts';
+import { MAX_SWITCH_RULES, SwitchOperator } from '../../node-catalog/node-catalog.constant.ts';
 
 export const SWITCH_TYPE = 'flow.switch';
+const unaryOperators = new Set<string>([
+  SwitchOperator.IS_EMPTY,
+  SwitchOperator.IS_NOT_EMPTY,
+  SwitchOperator.IS_TRUE,
+  SwitchOperator.IS_FALSE,
+]);
+
+export function switchOperatorRequiresOperand(operator: string): boolean {
+  return !unaryOperators.has(operator);
+}
+
 const config = z.strictObject({
   rules: z
     .array(
       z.strictObject({
-        id: z.string().regex(/^rule_[A-Za-z0-9_]{1,64}$/),
-        operator: z.enum(['EQ', 'NE', 'LT', 'LTE', 'GT', 'GTE', 'IS_EMPTY']),
+        id: z.uuid(),
+        operator: z.enum(SwitchOperator),
       }),
     )
     .min(1)
-    .max(32),
+    .max(MAX_SWITCH_RULES),
 });
 
 export function switchRules(node: EditorGraphType['nodes'][number]) {

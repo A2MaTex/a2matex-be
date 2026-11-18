@@ -28,6 +28,7 @@ function storedDefinition(type: string, ports: WorkflowNodeDefinitionType['outpu
     type,
     configSchema: EMPTY_SCHEMA,
     outputPorts: { ports },
+    editorHints: {},
   };
 }
 
