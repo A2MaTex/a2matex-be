@@ -27,6 +27,9 @@ model User {
   Product_Product_deletedByIdToUser                   Product[]             @relation("Product_deletedByIdToUser")
   Product_Product_suspendedByIdToUser                 Product[]             @relation("Product_suspendedByIdToUser")
   Product_Product_updatedByIdToUser                   Product[]             @relation("Product_updatedByIdToUser")
+  createdProductOffers                                ProductOffer[]        @relation("ProductOfferCreatedBy")
+  updatedProductOffers                                ProductOffer[]        @relation("ProductOfferUpdatedBy")
+  deletedProductOffers                                ProductOffer[]        @relation("ProductOfferDeletedBy")
   createdProfiles                                     Profile[]             @relation("ProfileCreatedBy")
   deletedProfiles                                     Profile[]             @relation("ProfileDeletedBy")
   updatedProfiles                                     Profile[]             @relation("ProfileUpdatedBy")
@@ -449,6 +452,7 @@ model Product {
   createdById                        String           @db.Uuid
   updatedById                        String?          @db.Uuid
   deletedById                        String?          @db.Uuid
+  offerChangeTimestamps              DateTime[]       @default([]) @db.Timestamptz(6)
   User_Product_createdByIdToUser     User             @relation("Product_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   currentRelease                     ProductRelease?  @relation("CurrentProductRelease", fields: [currentReleaseId], references: [id])
   User_Product_deletedByIdToUser     User?            @relation("Product_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -458,6 +462,7 @@ model Product {
   User_Product_suspendedByIdToUser   User?            @relation("Product_suspendedByIdToUser", fields: [suspendedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_Product_updatedByIdToUser     User?            @relation("Product_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   ProductMedia                       ProductMedia[]
+  ProductOffer                       ProductOffer[]
   releases                           ProductRelease[] @relation("ProductReleases")
   Submission                         Submission[]
 
@@ -584,6 +589,28 @@ enum SessionStatus {
   ABORTED
 }
 
+/// The commercial terms a customer accepts to acquire a Product. Type and duration form
+/// the natural key; the replacement API owns every price/duration rule.
+model ProductOffer {
+  id           String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId    String           @db.Uuid
+  type         ProductOfferType
+  priceAmount  BigInt
+  durationDays Int?
+  createdAt    DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime?        @db.Timestamptz(6)
+  deletedAt    DateTime?        @db.Timestamptz(6)
+  createdById  String           @db.Uuid
+  updatedById  String?          @db.Uuid
+  deletedById  String?          @db.Uuid
+  Product      Product          @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy    User             @relation("ProductOfferCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  updatedBy    User?            @relation("ProductOfferUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  deletedBy    User?            @relation("ProductOfferDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([productId], map: "ProductOffer_productId_idx", where: raw("(\"deletedAt\" IS NULL)"))
+}
+
 enum UserStatus {
   ACTIVE
   INACTIVE
@@ -665,6 +692,11 @@ enum ProductStatus {
   ACTIVE
   SUSPENDED
   ARCHIVED
+}
+
+enum ProductOfferType {
+  ONE_TIME
+  SUBSCRIPTION
 }
 
 enum SubmissionStatus {

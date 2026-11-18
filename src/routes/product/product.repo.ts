@@ -12,6 +12,7 @@ import type {
   CreateProductOutputType,
   GetProductListInputType,
   GetProductListOutputType,
+  ProductDetailOutputType,
   ProductManagementOutputType,
   ProductMediaInputType,
   UpdateProductInputType,
@@ -53,7 +54,33 @@ const PRODUCT_SELECT = {
   },
 } satisfies Prisma.ProductSelect;
 
+// Canonical Offer order: type, then finite duration ascending, then permanent access.
+const PRODUCT_DETAIL_SELECT = {
+  ...PRODUCT_SELECT,
+  ProductOffer: {
+    where: {
+      deletedAt: null,
+    },
+    select: {
+      id: true,
+      type: true,
+      priceAmount: true,
+      durationDays: true,
+    },
+    orderBy: [{ type: 'asc' }, { durationDays: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }],
+  },
+} satisfies Prisma.ProductSelect;
+
 type ProductRow = Prisma.ProductGetPayload<{ select: typeof PRODUCT_SELECT }>;
+
+type ProductDetailRow = Prisma.ProductGetPayload<{ select: typeof PRODUCT_DETAIL_SELECT }>;
+
+export type LockedProduct = {
+  id: string;
+  status: ProductStatusType;
+  currentReleaseId: string | null;
+  transactionNow: Date;
+};
 
 @Injectable()
 export class ProductRepo {
@@ -192,6 +219,25 @@ export class ProductRepo {
     return product ? this.toManagementOutput(product) : null;
   }
 
+  // Only the detail route pays for the Offer collection; the lifecycle paths call
+  // getById for a status they already failed to update.
+  async getDetailById({
+    id,
+    access,
+  }: {
+    id: string;
+    access: ProductAccess;
+  }): Promise<ProductDetailOutputType | null> {
+    const product = await this.prisma.product.findFirst({
+      where: {
+        id,
+        ...buildProductAccessWhere(access),
+      },
+      select: PRODUCT_DETAIL_SELECT,
+    });
+    return product ? this.toDetailOutput(product) : null;
+  }
+
   async getList({
     query,
     access,
@@ -265,6 +311,79 @@ export class ProductRepo {
     }
 
     return result;
+  }
+
+  // Lifecycle serializes on the Product row: readiness is validated and the status moves
+  // inside one lock, so a Release disable or an Offer replacement cannot slip between.
+  async lockProduct({
+    id,
+    access,
+  }: {
+    id: string;
+    access: ProductAccess;
+  }): Promise<LockedProduct | null> {
+    const ownerFilter = access.unrestricted
+      ? Prisma.empty
+      : Prisma.sql`AND "publisherAccountId" = ${access.publisherAccountId}::uuid`;
+    // Epoch milliseconds read the same whichever shape the driver returns.
+    const rows = await this.prisma.$queryRaw<
+      {
+        id: string;
+        status: ProductStatusType;
+        currentReleaseId: string | null;
+        transactionNowMs: bigint | number | string;
+      }[]
+    >`
+      SELECT id, status, "currentReleaseId",
+             (EXTRACT(EPOCH FROM now()) * 1000)::bigint AS "transactionNowMs"
+      FROM "Product"
+      WHERE id = ${id}::uuid
+        AND "deletedAt" IS NULL
+        ${ownerFilter}
+      FOR UPDATE
+    `;
+    const row = rows[0];
+    return (
+      row && {
+        id: row.id,
+        status: row.status,
+        currentReleaseId: row.currentReleaseId,
+        transactionNow: new Date(Number(row.transactionNowMs)),
+      }
+    );
+  }
+
+  // The row is already locked and its source status checked, so these are plain writes.
+  setStatus({ id, status, userId }: { id: string; status: ProductStatusType; userId: string }) {
+    const now = new Date();
+    return this.prisma.product.update({
+      where: { id },
+      data: {
+        status,
+        statusReason: null,
+        suspendedAt: null,
+        suspendedById: null,
+        updatedById: userId,
+        updatedAt: now,
+      },
+      select: { id: true },
+    });
+  }
+
+  suspend({ id, userId, reason }: { id: string; userId: string; reason: string }) {
+    const now = new Date();
+    return this.prisma.product.update({
+      where: { id },
+      data: {
+        status: ProductStatus.SUSPENDED,
+        statusReason: reason,
+        suspendedAt: now,
+        suspendedById: userId,
+        updatedById: userId,
+        updatedAt: now,
+      },
+      select: { id: true },
+    });
   }
 
   // Soft-delete first: the partial unique indexes only consider live rows, so
@@ -380,6 +499,14 @@ export class ProductRepo {
       ...rest,
       project: Project,
       media: ProductMedia,
+    };
+  }
+
+  private toDetailOutput(product: ProductDetailRow): ProductDetailOutputType {
+    const { ProductOffer, ...rest } = product;
+    return {
+      ...this.toManagementOutput(rest),
+      offers: ProductOffer,
     };
   }
 }

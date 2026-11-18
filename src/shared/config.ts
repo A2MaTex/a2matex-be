@@ -12,6 +12,7 @@ if (fs.existsSync(envFilePath)) {
 }
 
 const MIN_SECRET_LENGTH = 32;
+const MAX_SIGNED_BIGINT = 9223372036854775807n;
 
 const emptyToUndefined = (value: string | undefined) => (value ? value : undefined);
 const booleanString = z
@@ -70,6 +71,18 @@ const configSchema = z
       .int()
       .positive()
       .default(DEFAULT_STATIC_UPLOAD_MAX_SIZE_MB),
+    // Product Offer bounds. No defaults: a wrong commercial limit must stop the app,
+    // not fall back to a number nobody chose.
+    PRODUCT_OFFER_MAX_COUNT: z.coerce.number().int().positive(),
+    PRODUCT_OFFER_MAX_DURATION_DAYS: z.coerce.number().int().positive(),
+    PRODUCT_OFFER_CHANGE_MAX_COUNT: z.coerce.number().int().positive(),
+    PRODUCT_OFFER_CHANGE_WINDOW_HOURS: z.coerce.number().int().positive(),
+    // Decimal string: the signed BIGINT maximum does not survive a JavaScript number.
+    PRODUCT_OFFER_MAX_PRICE_AMOUNT: z
+      .string()
+      .regex(/^\d{1,19}$/)
+      .transform((value) => BigInt(value))
+      .refine((value) => value <= MAX_SIGNED_BIGINT),
     // Shared secret Sepay sends back in the webhook's Authorization header.
     SEPAY_WEBHOOK_API_KEY: z.string().optional().transform(emptyToUndefined),
     // Static bank account info shown to the user when they request a top-up.

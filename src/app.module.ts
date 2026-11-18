@@ -17,6 +17,7 @@ import { ProjectDraftModule } from './routes/project-draft/project-draft.module.
 import { SubmissionModule } from './routes/submission/submission.module.ts';
 import { SubmissionReviewModule } from './routes/submission-review/submission-review.module.ts';
 import { ProductModule } from './routes/product/product.module.ts';
+import { ProductOfferModule } from './routes/product-offer/product-offer.module.ts';
 import { WorkflowValidationModule } from './routes/workflow-validation/workflow-validation.module.ts';
 import { WorkflowCompilerModule } from './routes/workflow-compiler/workflow-compiler.module.ts';
 import { UserModule } from './routes/user/user.module.ts';
@@ -46,6 +47,7 @@ import { ProductReleaseModule } from './routes/product-release/product-release.m
     ProjectModule,
     ProjectDraftModule,
     ProductModule,
+    ProductOfferModule,
     SubmissionModule,
     SubmissionReviewModule,
     WorkflowValidationModule,

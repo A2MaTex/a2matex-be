@@ -60,3 +60,14 @@ export const zJsonObject = (docs?: z.ZodType) => {
   };
   return schema;
 };
+
+/**
+ * A decimal string for a `BigInt` column whose range exceeds
+ * `Number.MAX_SAFE_INTEGER`, so the value must never pass through a JavaScript
+ * number on its way in or out.
+ */
+export const zBigIntAsString = () => {
+  const schema = z.bigint().transform((value) => value.toString());
+  schema._zod.toJSONSchema = () => ({ type: 'string' });
+  return schema;
+};

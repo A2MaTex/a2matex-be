@@ -21,6 +21,20 @@ export const ProductLifecycleActionDeniedException = new ForbiddenException(
   'Error.ProductLifecycleActionDenied',
 );
 
+// A Publisher reaching a SUSPENDED Product, or Admin moderation reaching an ARCHIVED one:
+// each role may only undo its own decision.
+export const ProductLifecycleUnavailableException = new ConflictException(
+  'Error.ProductLifecycleUnavailable',
+);
+
+export const ProductModerationUnavailableException = new ConflictException(
+  'Error.ProductModerationUnavailable',
+);
+
+export const ProductCannotBeActivatedException = new ConflictException(
+  'Error.ProductCannotBeActivated',
+);
+
 export const ProductCannotBeArchivedException = new ConflictException(
   'Error.ProductCannotBeArchived',
 );

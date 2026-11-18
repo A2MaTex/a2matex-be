@@ -1,5 +1,9 @@
 import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
-import { ProductLifecycleAction, ProductStatus } from '../../shared/constants/product.constant.ts';
+import {
+  ProductLifecycleAction,
+  ProductModerationAction,
+  ProductStatus,
+} from '../../shared/constants/product.constant.ts';
 import type { ActivePermissionScope } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
 import { TransactionService } from '../../shared/services/transaction.service.ts';
@@ -7,15 +11,20 @@ import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import type { MessageResType } from '../../shared/models/response.model.ts';
 import { getPagination } from '../../shared/utils/pagination.ts';
 import { isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
+import { ProductOfferService } from '../product-offer/product-offer.service.ts';
+import { ProductReleaseManagementService } from '../product-release/product-release.service.ts';
 import { ProjectNotFoundException } from '../project/project.error.ts';
 import type { ProductAccess } from './product-access.model.ts';
 import { ProductAccessPolicy } from './product-access.policy.ts';
 import {
   ProductAlreadyExistsException,
   ProductArchivedException,
+  ProductCannotBeActivatedException,
   ProductCannotBeArchivedException,
   ProductCannotBeReactivatedException,
   ProductCannotBeSuspendedException,
+  ProductLifecycleUnavailableException,
+  ProductModerationUnavailableException,
   ProductMediaInvalidException,
   ProductNotFoundException,
   ProductReleaseUnavailableException,
@@ -28,12 +37,14 @@ import type {
   CreateProductOutputType,
   GetProductListInputType,
   GetProductListOutputType,
-  ProductManagementOutputType,
+  ProductDetailOutputType,
   ProductMediaInputType,
   UpdateProductInputType,
   UpdateProductLifecycleInputType,
+  UpdateProductModerationInputType,
 } from './product.model.ts';
 import { ProductRepo } from './product.repo.ts';
+import type { LockedProduct } from './product.repo.ts';
 import { isProductProjectConflict, isProductSlugConflict } from './product.util.ts';
 
 @Injectable()
@@ -44,6 +55,9 @@ export class ProductService {
     @Inject(ProductRepo) private readonly productRepo: ProductRepo,
     @Inject(ProductAccessPolicy) private readonly productAccessPolicy: ProductAccessPolicy,
     @Inject(TransactionService) private readonly transactionService: TransactionService,
+    @Inject(ProductOfferService) private readonly productOfferService: ProductOfferService,
+    @Inject(ProductReleaseManagementService)
+    private readonly productReleaseService: ProductReleaseManagementService,
   ) {}
 
   async create({
@@ -187,7 +201,7 @@ export class ProductService {
     id: string;
     userId: string;
     scopes: ActivePermissionScope[];
-  }): Promise<ProductManagementOutputType> {
+  }): Promise<ProductDetailOutputType> {
     const access = await this.productAccessPolicy.resolveReadAccess(userId, scopes);
     if (!access) {
       this.logger.warn(
@@ -196,7 +210,7 @@ export class ProductService {
       throw ProductNotFoundException;
     }
 
-    const product = await this.productRepo.getById({ id, access });
+    const product = await this.productRepo.getDetailById({ id, access });
     if (!product) {
       this.logger.warn(
         `Product read rejected: not found or not visible to caller productId=${id} userId=${userId}`,
@@ -206,6 +220,7 @@ export class ProductService {
     return product;
   }
 
+  @Transactional()
   async applyLifecycle({
     id,
     data,
@@ -217,132 +232,186 @@ export class ProductService {
     userId: string;
     scopes: ActivePermissionScope[];
   }): Promise<MessageResType> {
-    const access = await this.productAccessPolicy.resolveLifecycleAccess(
-      userId,
-      scopes,
-      data.action,
-    );
+    const access = await this.productAccessPolicy.resolveLifecycleAccess(userId, scopes);
+    const product = await this.lockForLifecycle({ id, access });
+
+    // A Publisher cannot undo an Admin decision.
+    if (product.status === ProductStatus.SUSPENDED) {
+      this.logger.warn(
+        `Product lifecycle rejected: Error.ProductLifecycleUnavailable productId=${id}`,
+      );
+      throw ProductLifecycleUnavailableException;
+    }
 
     if (data.action === ProductLifecycleAction.ARCHIVE) {
-      await this.archive({ id, access, userId });
-    } else if (data.action === ProductLifecycleAction.SUSPEND) {
-      const { reason } = data;
-      if (reason === undefined) {
-        // Unreachable through the request schema, which requires a reason here.
-        // Refusing beats writing a suspension record with no stated cause.
-        this.logger.warn(
-          `Product suspend rejected: reason missing productId=${id} userId=${userId}`,
-        );
-        throw ProductSuspendReasonRequiredException;
-      }
-      await this.suspend({ id, access, userId, reason });
+      await this.archive({ product, userId });
+    } else if (data.action === ProductLifecycleAction.ACTIVATE) {
+      await this.activate({ product, userId });
     } else {
-      await this.reactivate({ id, access, userId });
+      await this.reactivate({ product, userId, conflict: ProductCannotBeReactivatedException });
     }
+
     return SUCCESS_RESPONSE;
   }
 
-  private async archive({
+  @Transactional()
+  async applyModeration({
     id,
-    access,
+    data,
     userId,
+    scopes,
   }: {
     id: string;
-    access: ProductAccess;
+    data: UpdateProductModerationInputType;
     userId: string;
-  }): Promise<void> {
-    const result = await this.productRepo.archiveDraft({ id, access, userId });
-    if (result.count === 0) {
-      await this.assertLifecycleOutcome({
-        id,
-        access,
-        idempotentStatus: ProductStatus.ARCHIVED,
-        conflict: ProductCannotBeArchivedException,
-      });
-    }
-  }
+    scopes: ActivePermissionScope[];
+  }): Promise<MessageResType> {
+    const access = this.productAccessPolicy.resolveModerationAccess(scopes);
+    const product = await this.lockForLifecycle({ id, access });
 
-  private async suspend({
-    id,
-    access,
-    userId,
-    reason,
-  }: {
-    id: string;
-    access: ProductAccess;
-    userId: string;
-    reason: string;
-  }): Promise<void> {
-    const result = await this.productRepo.suspendActive({ id, access, userId, reason });
-    if (result.count === 0) {
-      // Repeating a suspension keeps the original actor, timestamp and reason.
-      await this.assertLifecycleOutcome({
-        id,
-        access,
-        idempotentStatus: ProductStatus.SUSPENDED,
-        conflict: ProductCannotBeSuspendedException,
-      });
-    }
-  }
-
-  private async reactivate({
-    id,
-    access,
-    userId,
-  }: {
-    id: string;
-    access: ProductAccess;
-    userId: string;
-  }): Promise<void> {
-    const result = await this.productRepo.reactivateSuspended({ id, access, userId });
-    if (result.count > 0) {
-      return;
-    }
-
-    const product = await this.productRepo.getById({ id, access });
-    if (!product) {
-      this.logger.warn(`Product reactivate rejected: not found productId=${id}`);
-      throw ProductNotFoundException;
-    }
-    if (product.status === ProductStatus.ACTIVE) {
-      // Idempotent: already where the caller wants it.
-      return;
-    }
-    if (product.status !== ProductStatus.SUSPENDED) {
+    // Admin moderation cannot undo a Publisher's archival.
+    if (product.status === ProductStatus.ARCHIVED) {
       this.logger.warn(
-        `Product reactivate rejected: status=${product.status} is not SUSPENDED productId=${id}`,
+        `Product moderation rejected: Error.ProductModerationUnavailable productId=${id}`,
       );
-      throw ProductCannotBeReactivatedException;
+      throw ProductModerationUnavailableException;
     }
-    // Suspended but the release pointer failed the predicate.
-    this.logger.warn(`Product reactivate rejected: no current release productId=${id}`);
-    throw ProductReleaseUnavailableException;
+
+    if (data.action === ProductModerationAction.SUSPEND) {
+      await this.suspend({ product, userId, reason: data.reason });
+    } else {
+      await this.reactivate({ product, userId, conflict: ProductCannotBeReactivatedException });
+    }
+
+    return SUCCESS_RESPONSE;
   }
 
-  // One authorization-safe read separates idempotent completion from not found and
-  // from an invalid source status, without revealing cross-owner data.
-  private async assertLifecycleOutcome({
+  private async lockForLifecycle({
     id,
     access,
-    idempotentStatus,
-    conflict,
   }: {
     id: string;
     access: ProductAccess;
-    idempotentStatus: ProductManagementOutputType['status'];
-    conflict: HttpException;
-  }) {
-    const product = await this.productRepo.getById({ id, access });
+  }): Promise<LockedProduct> {
+    const product = await this.productRepo.lockProduct({ id, access });
     if (!product) {
       this.logger.warn(`Product lifecycle rejected: not found productId=${id}`);
       throw ProductNotFoundException;
     }
-    if (product.status !== idempotentStatus) {
+    return product;
+  }
+
+  private async activate({
+    product,
+    userId,
+  }: {
+    product: LockedProduct;
+    userId: string;
+  }): Promise<void> {
+    if (product.status === ProductStatus.ACTIVE) {
+      return;
+    }
+    if (product.status !== ProductStatus.DRAFT) {
       this.logger.warn(
-        `Product lifecycle rejected: status=${product.status} cannot become ${idempotentStatus} productId=${id}`,
+        `Product activate rejected: status=${product.status} productId=${product.id}`,
+      );
+      throw ProductCannotBeActivatedException;
+    }
+
+    await this.assertActivationReadiness(product);
+    await this.productRepo.setStatus({ id: product.id, status: ProductStatus.ACTIVE, userId });
+    // Only the first public configuration seeds the Offer window.
+    await this.productOfferService.recordInitialPublicConfiguration({
+      productId: product.id,
+      occurredAt: product.transactionNow,
+    });
+  }
+
+  private async archive({
+    product,
+    userId,
+  }: {
+    product: LockedProduct;
+    userId: string;
+  }): Promise<void> {
+    if (product.status === ProductStatus.ARCHIVED) {
+      return;
+    }
+    if (product.status !== ProductStatus.ACTIVE) {
+      this.logger.warn(
+        `Product archive rejected: status=${product.status} productId=${product.id}`,
+      );
+      throw ProductCannotBeArchivedException;
+    }
+    // Releases, Offers and the rate-limit history all survive an unlisting.
+    await this.productRepo.setStatus({ id: product.id, status: ProductStatus.ARCHIVED, userId });
+  }
+
+  // Shared by the Publisher ARCHIVED -> ACTIVE and the Admin SUSPENDED -> ACTIVE paths:
+  // both revalidate readiness and neither spends an Offer-change slot.
+  private async reactivate({
+    product,
+    userId,
+    conflict,
+  }: {
+    product: LockedProduct;
+    userId: string;
+    conflict: HttpException;
+  }): Promise<void> {
+    if (product.status === ProductStatus.ACTIVE) {
+      return;
+    }
+    if (product.status === ProductStatus.DRAFT) {
+      this.logger.warn(
+        `Product reactivate rejected: Product is still a draft productId=${product.id}`,
       );
       throw conflict;
     }
+
+    await this.assertActivationReadiness(product);
+    await this.productRepo.setStatus({ id: product.id, status: ProductStatus.ACTIVE, userId });
+  }
+
+  private async suspend({
+    product,
+    userId,
+    reason,
+  }: {
+    product: LockedProduct;
+    userId: string;
+    reason: string | undefined;
+  }): Promise<void> {
+    if (product.status === ProductStatus.SUSPENDED) {
+      // Repeating a suspension keeps the original actor, timestamp and reason.
+      return;
+    }
+    if (product.status !== ProductStatus.ACTIVE) {
+      this.logger.warn(
+        `Product suspend rejected: status=${product.status} productId=${product.id}`,
+      );
+      throw ProductCannotBeSuspendedException;
+    }
+    if (reason === undefined) {
+      // Unreachable through the request schema, which requires a reason here.
+      this.logger.warn(`Product suspend rejected: reason missing productId=${product.id}`);
+      throw ProductSuspendReasonRequiredException;
+    }
+
+    await this.productRepo.suspend({ id: product.id, userId, reason });
+  }
+
+  // Release and Offer readiness are checked under the same Product lock as the status
+  // change, so neither can be withdrawn between the check and the commit.
+  private async assertActivationReadiness(product: LockedProduct): Promise<void> {
+    if (!product.currentReleaseId) {
+      this.logger.warn(`Product activation rejected: no current release productId=${product.id}`);
+      throw ProductReleaseUnavailableException;
+    }
+    await this.productReleaseService.assertCurrentReleaseEligible({
+      productId: product.id,
+      releaseId: product.currentReleaseId,
+    });
+    await this.productOfferService.assertActivationReady(product.id);
   }
 
   @Transactional()
