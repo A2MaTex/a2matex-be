@@ -1,46 +1,23 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.ts';
-import { ProductStatus } from '../../shared/constants/product.constant.ts';
+import type { ProductOfferTypeValue } from '../../shared/constants/product-offer.constant.ts';
 import type { ProductStatusType } from '../../shared/constants/product.constant.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
-import { getPagination } from '../../shared/utils/pagination.ts';
-import { buildProductAccessWhere, type ProductAccess } from '../product/product-access.model.ts';
-import { ProductOfferStatus } from '../../shared/constants/product-offer.constant.ts';
-import type { ProductOfferStatusValue } from '../../shared/constants/product-offer.constant.ts';
-import type { ProductOfferTypeValue } from '../../shared/constants/product-offer.constant.ts';
-import type {
-  CreateProductOfferInputType,
-  CreateProductOfferOutputType,
-  GetProductOfferListInputType,
-  GetProductOfferListOutputType,
-  ProductOfferManagementOutputType,
-  UpdateProductOfferInputType,
-} from './product-offer.model.ts';
+import type { ProductOfferInputType } from './product-offer.model.ts';
 
-/** The columns an update or a lifecycle action has to judge the Offer by. */
-export type ProductOfferCommercialRow = {
+export type LockedProduct = {
   id: string;
-  status: ProductOfferStatusValue;
-  productStatus: ProductStatusType;
-  type: ProductOfferTypeValue;
-  priceMinor: bigint | null;
-  currency: string | null;
-  durationDays: number | null;
+  status: ProductStatusType;
+  offerChangeTimestamps: Date[];
+  transactionNow: Date;
 };
 
-const PRODUCT_OFFER_SELECT = {
-  id: true,
-  productId: true,
-  type: true,
-  status: true,
-  priceMinor: true,
-  currency: true,
-  durationDays: true,
-  maxConcurrentDevices: true,
-  usagePolicy: true,
-  createdAt: true,
-  updatedAt: true,
-} satisfies Prisma.ProductOfferSelect;
+export type StoredProductOffer = {
+  id: string;
+  type: ProductOfferTypeValue;
+  priceAmount: bigint;
+  durationDays: number | null;
+};
 
 @Injectable()
 export class ProductOfferRepo {
@@ -50,221 +27,154 @@ export class ProductOfferRepo {
     return this.prismaService.getClient();
   }
 
-  getProduct({
+  // Every mutating path serializes here, so two replacements of one Product can neither
+  // create duplicate natural keys nor spend the same rate-limit slot.
+  async lockProduct({
     productId,
-    access,
+    publisherAccountId,
   }: {
     productId: string;
-    access: ProductAccess;
-  }): Promise<{ id: string; status: ProductStatusType } | null> {
-    return this.prisma.product.findFirst({
-      where: {
-        id: productId,
-        ...buildProductAccessWhere(access),
-      },
-      select: {
-        id: true,
-        status: true,
-      },
+    publisherAccountId: string;
+  }): Promise<LockedProduct | null> {
+    // Epoch milliseconds, not a timestamp: a raw timestamptz would arrive as a Date or a
+    // string depending on the driver, while Number() reads either shape of this.
+    const rows = await this.prisma.$queryRaw<
+      { id: string; status: ProductStatusType; transactionNowMs: bigint | number | string }[]
+    >`
+      SELECT id, status, (EXTRACT(EPOCH FROM now()) * 1000)::bigint AS "transactionNowMs"
+      FROM "Product"
+      WHERE id = ${productId}::uuid
+        AND "publisherAccountId" = ${publisherAccountId}::uuid
+        AND "deletedAt" IS NULL
+      FOR UPDATE
+    `;
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+
+    // The row is locked, so this second read is a primary-key lookup that cannot change
+    // underneath us. Going through the typed client keeps the timestamptz[] mapping out
+    // of this file.
+    const { offerChangeTimestamps } = await this.prisma.product.findUniqueOrThrow({
+      where: { id: row.id },
+      select: { offerChangeTimestamps: true },
     });
-  }
-
-  async getListByProduct({
-    productId,
-    query,
-  }: {
-    productId: string;
-    query: GetProductOfferListInputType;
-  }): Promise<GetProductOfferListOutputType> {
-    const { page, limit, skip, take } = getPagination(query);
-    const where = { productId, deletedAt: null };
-
-    const [totalItems, offers] = await Promise.all([
-      this.prisma.productOffer.count({ where }),
-      this.prisma.productOffer.findMany({
-        where,
-        select: PRODUCT_OFFER_SELECT,
-        // The id breaks ties so pages stay stable.
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        skip,
-        take,
-      }),
-    ]);
 
     return {
-      // The usagePolicy CHECK guarantees an object; Prisma's JsonValue is wider.
-      items: offers as ProductOfferManagementOutputType[],
-      totalItems,
-      page,
-      limit,
-      totalPages: Math.ceil(totalItems / limit),
+      id: row.id,
+      status: row.status,
+      offerChangeTimestamps,
+      transactionNow: new Date(Number(row.transactionNowMs)),
     };
   }
 
-  // An Offer is the caller's only if its Product is.
-  async getOwnedOffer({
-    offerId,
-    productId,
-    publisherAccountId,
-  }: {
-    offerId: string;
-    productId: string;
-    publisherAccountId: string;
-  }): Promise<ProductOfferCommercialRow | null> {
-    const offer = await this.prisma.productOffer.findFirst({
-      where: {
-        id: offerId,
-        productId,
-        deletedAt: null,
-        Product: {
-          publisherAccountId,
-          deletedAt: null,
-        },
-      },
-      select: {
-        id: true,
-        status: true,
-        type: true,
-        priceMinor: true,
-        currency: true,
-        durationDays: true,
-        Product: {
-          select: {
-            status: true,
-          },
-        },
-      },
-    });
+  // priceAmount is normalised rather than trusted: a BIGINT that came back as a string
+  // would make every diff look like a price change and quietly spend a rate-limit slot.
+  async lockOffers(productId: string): Promise<StoredProductOffer[]> {
+    const rows = await this.prisma.$queryRaw<
+      {
+        id: string;
+        type: ProductOfferTypeValue;
+        priceAmount: bigint | number | string;
+        durationDays: number | string | null;
+      }[]
+    >`
+      SELECT id, type, "priceAmount", "durationDays"
+      FROM "ProductOffer"
+      WHERE "productId" = ${productId}::uuid
+        AND "deletedAt" IS NULL
+      ORDER BY id
+      FOR UPDATE
+    `;
 
-    return offer && { ...offer, productStatus: offer.Product.status };
+    return rows.map((row) => ({
+      id: row.id,
+      type: row.type,
+      priceAmount: BigInt(row.priceAmount),
+      durationDays: row.durationDays === null ? null : Number(row.durationDays),
+    }));
   }
 
-  // TODO(release): once ProductRelease exists, this must also require the Product to
-  // carry a current release that is PUBLISHED and not disabled (product.md §8).
-  activate({
-    offerId,
-    productId,
-    publisherAccountId,
+  // One statement for the whole set: the collection is bounded, but a query per input
+  // offer would still serialize round trips under the Product lock.
+  async updatePrices({
+    updates,
     userId,
   }: {
-    offerId: string;
-    productId: string;
-    publisherAccountId: string;
+    updates: { id: string; priceAmount: bigint }[];
     userId: string;
-  }): Promise<{ count: number }> {
-    return this.prisma.productOffer.updateMany({
-      where: {
-        id: offerId,
-        productId,
-        deletedAt: null,
-        status: {
-          in: [ProductOfferStatus.DRAFT, ProductOfferStatus.INACTIVE],
-        },
-        Product: {
-          publisherAccountId,
-          deletedAt: null,
-          status: ProductStatus.ACTIVE,
-        },
-      },
-      data: {
-        status: ProductOfferStatus.ACTIVE,
-        updatedById: userId,
-        updatedAt: new Date(),
-      },
-    });
+  }): Promise<void> {
+    const values = Prisma.join(
+      updates.map((update) => Prisma.sql`(${update.id}::uuid, ${update.priceAmount}::bigint)`),
+    );
+    await this.prisma.$executeRaw`
+      UPDATE "ProductOffer" AS offer
+      SET "priceAmount" = desired."priceAmount",
+          "updatedAt" = now(),
+          "updatedById" = ${userId}::uuid
+      FROM (VALUES ${values}) AS desired (id, "priceAmount")
+      WHERE offer.id = desired.id
+    `;
   }
 
-  deactivate({
-    offerId,
+  async insertOffers({
     productId,
-    publisherAccountId,
-    userId,
-  }: {
-    offerId: string;
-    productId: string;
-    publisherAccountId: string;
-    userId: string;
-  }): Promise<{ count: number }> {
-    return this.prisma.productOffer.updateMany({
-      where: {
-        id: offerId,
-        productId,
-        deletedAt: null,
-        status: ProductOfferStatus.ACTIVE,
-        Product: {
-          publisherAccountId,
-          deletedAt: null,
-        },
-      },
-      data: {
-        status: ProductOfferStatus.INACTIVE,
-        updatedById: userId,
-        updatedAt: new Date(),
-      },
-    });
-  }
-
-  // The status guard repeats here: a concurrent ACTIVATE must not lose its price.
-  updateEditable({
-    offerId,
-    productId,
-    publisherAccountId,
-    data,
-    userId,
-  }: {
-    offerId: string;
-    productId: string;
-    publisherAccountId: string;
-    data: UpdateProductOfferInputType;
-    userId: string;
-  }): Promise<{ count: number }> {
-    const { priceMinor, ...fields } = data;
-
-    return this.prisma.productOffer.updateMany({
-      where: {
-        id: offerId,
-        productId,
-        deletedAt: null,
-        status: {
-          in: [ProductOfferStatus.DRAFT, ProductOfferStatus.INACTIVE],
-        },
-        Product: {
-          publisherAccountId,
-          deletedAt: null,
-        },
-      },
-      data: {
-        ...fields,
-        ...(priceMinor === undefined ? {} : { priceMinor: BigInt(priceMinor ?? 0) }),
-        updatedById: userId,
-        updatedAt: new Date(),
-      },
-    });
-  }
-
-  create({
-    productId,
-    data,
+    offers,
     userId,
   }: {
     productId: string;
-    data: CreateProductOfferInputType;
+    offers: ProductOfferInputType[];
     userId: string;
-  }): Promise<CreateProductOfferOutputType> {
-    return this.prisma.productOffer.create({
-      data: {
+  }): Promise<void> {
+    await this.prisma.productOffer.createMany({
+      data: offers.map((offer) => ({
         productId,
-        type: data.type,
-        // A FREE Offer stores 0, not NULL, so Order totals never have to guess.
-        priceMinor: BigInt(data.priceMinor ?? 0),
-        currency: data.currency ?? null,
-        durationDays: data.durationDays ?? null,
-        maxConcurrentDevices: data.maxConcurrentDevices,
-        usagePolicy: data.usagePolicy,
+        type: offer.type,
+        priceAmount: offer.priceAmount,
+        durationDays: offer.durationDays,
         createdById: userId,
+      })),
+    });
+  }
+
+  // Soft deletion is final: a reintroduced type and duration inserts a new row instead.
+  async softDeleteOffers({
+    offerIds,
+    deletedAt,
+    userId,
+  }: {
+    offerIds: string[];
+    deletedAt: Date;
+    userId: string;
+  }): Promise<void> {
+    await this.prisma.productOffer.updateMany({
+      where: {
+        id: { in: offerIds },
+        deletedAt: null,
       },
-      select: {
-        id: true,
+      data: {
+        deletedAt,
+        deletedById: userId,
+      },
+    });
+  }
+
+  async recordOfferChange({
+    productId,
+    timestamps,
+    userId,
+  }: {
+    productId: string;
+    timestamps: Date[];
+    userId: string;
+  }): Promise<void> {
+    await this.prisma.product.update({
+      where: { id: productId },
+      data: {
+        offerChangeTimestamps: timestamps,
+        updatedAt: timestamps[timestamps.length - 1],
+        updatedById: userId,
       },
     });
   }

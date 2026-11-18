@@ -1,23 +1,35 @@
-import { ConflictException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import {
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 
-export const ProductOfferNotFoundException = new NotFoundException('Error.ProductOfferNotFound');
-
-export const ProductOfferNotEditableException = new ConflictException(
-  'Error.ProductOfferNotEditable',
+export const ProductOfferSuspendedProductException = new ConflictException(
+  'Error.ProductOfferSuspendedProduct',
 );
 
-export const ProductOfferAlreadyActiveException = new ConflictException(
-  'Error.ProductOfferAlreadyActive',
+export const ProductOfferArchivedProductException = new ConflictException(
+  'Error.ProductOfferArchivedProduct',
 );
 
-export const ProductOfferCannotBeActivatedException = new ConflictException(
-  'Error.ProductOfferCannotBeActivated',
+export const ProductSubscriptionOfferRequiredException = new ConflictException(
+  'Error.ProductSubscriptionOfferRequired',
 );
 
-export const ProductOfferCannotBeDeactivatedException = new ConflictException(
-  'Error.ProductOfferCannotBeDeactivated',
+// Nest has no TooManyRequestsException, and a bare string would answer with a naked
+// JSON string instead of the envelope every other error uses. The body still says
+// nothing about remaining slots, the window or the next allowed time.
+export const ProductOfferChangeRateLimitExceededException = new HttpException(
+  {
+    message: 'Error.ProductOfferChangeRateLimitExceeded',
+    error: 'Too Many Requests',
+    statusCode: HttpStatus.TOO_MANY_REQUESTS,
+  },
+  HttpStatus.TOO_MANY_REQUESTS,
 );
 
-// Same shape as CustomZodValidationPipe, for rules checked on the merged row.
-export const productOfferShapeException = (issues: { message: string; path: string }[]) =>
-  new UnprocessableEntityException(issues);
+// A replacement waits on the Product row lock, so a slow winner can time the loser out.
+export const ProductOfferReplaceTimeoutException = new ServiceUnavailableException(
+  'Error.ProductOfferReplaceTimeout',
+);

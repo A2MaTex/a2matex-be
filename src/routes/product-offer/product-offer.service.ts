@@ -1,35 +1,37 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import {
-  ProductOfferLifecycleAction,
-  ProductOfferStatus,
-  ProductOfferType,
-} from '../../shared/constants/product-offer.constant.ts';
+import envConfig from '../../shared/config.ts';
+import { ProductOfferType } from '../../shared/constants/product-offer.constant.ts';
 import { ProductStatus } from '../../shared/constants/product.constant.ts';
 import type { ActivePermissionScope } from '../../shared/decorators/active-permission-scopes.decorator.ts';
+import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
 import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import type { MessageResType } from '../../shared/models/response.model.ts';
+import { TransactionService } from '../../shared/services/transaction.service.ts';
+import { isTransactionTimeoutPrismaError } from '../../shared/utils/prisma.ts';
 import { ProductAccessPolicy } from '../product/product-access.policy.ts';
-import { ProductArchivedException, ProductNotFoundException } from '../product/product.error.ts';
-import { isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
+import { ProductNotFoundException } from '../product/product.error.ts';
 import {
-  ProductOfferAlreadyActiveException,
-  ProductOfferCannotBeActivatedException,
-  ProductOfferCannotBeDeactivatedException,
-  ProductOfferNotEditableException,
-  ProductOfferNotFoundException,
-  productOfferShapeException,
+  ProductOfferArchivedProductException,
+  ProductOfferChangeRateLimitExceededException,
+  ProductOfferReplaceTimeoutException,
+  ProductOfferSuspendedProductException,
+  ProductSubscriptionOfferRequiredException,
 } from './product-offer.error.ts';
-import { ProductOfferCommercialShape } from './product-offer.model.ts';
+import { naturalKeyOf } from './product-offer.model.ts';
 import type {
-  CreateProductOfferInputType,
-  CreateProductOfferOutputType,
-  GetProductOfferListInputType,
-  GetProductOfferListOutputType,
-  UpdateProductOfferInputType,
-  UpdateProductOfferLifecycleInputType,
+  ProductOfferInputType,
+  ReplaceProductOffersInputType,
 } from './product-offer.model.ts';
 import { ProductOfferRepo } from './product-offer.repo.ts';
-import type { ProductOfferCommercialRow } from './product-offer.repo.ts';
+import type { StoredProductOffer } from './product-offer.repo.ts';
+
+const MILLISECONDS_PER_HOUR = 3_600_000;
+
+type OfferSetDiff = {
+  priceUpdates: { id: string; priceAmount: bigint }[];
+  inserts: ProductOfferInputType[];
+  deletedIds: string[];
+};
 
 @Injectable()
 export class ProductOfferService {
@@ -38,312 +40,171 @@ export class ProductOfferService {
   constructor(
     @Inject(ProductOfferRepo) private readonly productOfferRepo: ProductOfferRepo,
     @Inject(ProductAccessPolicy) private readonly productAccessPolicy: ProductAccessPolicy,
+    @Inject(TransactionService) private readonly transactionService: TransactionService,
   ) {}
 
-  async create({
+  async replace(input: {
+    productId: string;
+    data: ReplaceProductOffersInputType;
+    userId: string;
+    scopes: ActivePermissionScope[];
+  }): Promise<MessageResType> {
+    try {
+      return await this.replaceInTransaction(input);
+    } catch (error) {
+      // The loser of a race waits on the Product row lock, so a slow winner shows up
+      // here rather than as a conflict. 503 says retrying is the right answer.
+      if (isTransactionTimeoutPrismaError(error)) {
+        this.logger.error(
+          `Product Offer replace timed out waiting for the Product lock productId=${input.productId}`,
+        );
+        throw ProductOfferReplaceTimeoutException;
+      }
+      throw error;
+    }
+  }
+
+  @Transactional()
+  private async replaceInTransaction({
     productId,
     data,
     userId,
     scopes,
   }: {
     productId: string;
-    data: CreateProductOfferInputType;
+    data: ReplaceProductOffersInputType;
     userId: string;
     scopes: ActivePermissionScope[];
-  }): Promise<CreateProductOfferOutputType> {
+  }): Promise<MessageResType> {
     const { publisherAccountId } = await this.productAccessPolicy.resolveDraftSaveAccess(
       userId,
       scopes,
     );
 
-    // Writes are pinned to the caller's own Publisher account.
-    const product = await this.productOfferRepo.getProduct({
-      productId,
-      access: { unrestricted: false, publisherAccountId },
-    });
+    const product = await this.productOfferRepo.lockProduct({ productId, publisherAccountId });
     if (!product) {
       this.logger.warn(
-        'Product Offer create rejected: Product missing or owned by another Publisher ' +
+        'Product Offer replace rejected: Product missing or owned by another Publisher ' +
           `productId=${productId} publisherAccountId=${publisherAccountId}`,
       );
       throw ProductNotFoundException;
     }
-    // A suspended Product may still gather Offers; only activation puts one on sale.
+    if (product.status === ProductStatus.SUSPENDED) {
+      this.logger.warn(
+        `Product Offer replace rejected: Error.ProductOfferSuspendedProduct productId=${productId}`,
+      );
+      throw ProductOfferSuspendedProductException;
+    }
     if (product.status === ProductStatus.ARCHIVED) {
-      this.logger.warn(`Product Offer create rejected: Product archived productId=${productId}`);
-      throw ProductArchivedException;
-    }
-
-    try {
-      return await this.productOfferRepo.create({ productId, data, userId });
-    } catch (error) {
-      // CatchEverythingFilter answers 500 without logging anything itself.
-      this.logger.error(
-        `Product Offer create failed productId=${productId} type=${data.type}`,
-        error instanceof Error ? error.stack : String(error),
-      );
-      throw error;
-    }
-  }
-
-  async update({
-    productId,
-    offerId,
-    data,
-    userId,
-    scopes,
-  }: {
-    productId: string;
-    offerId: string;
-    data: UpdateProductOfferInputType;
-    userId: string;
-    scopes: ActivePermissionScope[];
-  }): Promise<MessageResType> {
-    const { publisherAccountId } = await this.productAccessPolicy.resolveDraftSaveAccess(
-      userId,
-      scopes,
-    );
-
-    const offer = await this.productOfferRepo.getOwnedOffer({
-      offerId,
-      productId,
-      publisherAccountId,
-    });
-    if (!offer) {
       this.logger.warn(
-        'Product Offer update rejected: Offer missing or owned by another Publisher ' +
-          `offerId=${offerId} productId=${productId} publisherAccountId=${publisherAccountId}`,
+        `Product Offer replace rejected: Error.ProductOfferArchivedProduct productId=${productId}`,
       );
-      throw ProductOfferNotFoundException;
-    }
-    // An ACTIVE Offer is what customers are being sold right now.
-    if (offer.status === ProductOfferStatus.ACTIVE) {
-      this.logger.warn(`Product Offer update rejected: Offer is ACTIVE offerId=${offerId}`);
-      throw ProductOfferNotEditableException;
+      throw ProductOfferArchivedProductException;
     }
 
-    this.assertMergedShape({ offer, data, offerId });
-
-    const result = await this.productOfferRepo.updateEditable({
-      offerId,
-      productId,
-      publisherAccountId,
-      data,
-      userId,
-    });
-    if (result.count === 0) {
-      // It matched a moment ago, so only a concurrent ACTIVATE or delete explains this.
+    const isPublic = product.status === ProductStatus.ACTIVE;
+    // Marketplace list pricing reads subscriptions only, so a public Product that keeps
+    // none of them would stay visible without a price.
+    if (isPublic && !data.offers.some((offer) => offer.type === ProductOfferType.SUBSCRIPTION)) {
       this.logger.warn(
-        `Product Offer update rejected: Offer changed during the update offerId=${offerId}`,
+        `Product Offer replace rejected: active Product keeps no subscription productId=${productId}`,
       );
-      throw ProductOfferNotEditableException;
+      throw ProductSubscriptionOfferRequiredException;
     }
 
-    return SUCCESS_RESPONSE;
-  }
-
-  async getList({
-    productId,
-    query,
-    userId,
-    scopes,
-  }: {
-    productId: string;
-    query: GetProductOfferListInputType;
-    userId: string;
-    scopes: ActivePermissionScope[];
-  }): Promise<GetProductOfferListOutputType> {
-    const access = await this.productAccessPolicy.resolveReadAccess(userId, scopes);
-    if (!access) {
-      this.logger.warn(
-        `Product Offer read rejected: caller owns no Publisher account productId=${productId} userId=${userId}`,
-      );
-      throw ProductNotFoundException;
+    const stored = await this.productOfferRepo.lockOffers(productId);
+    const diff = this.diff({ stored, desired: data.offers });
+    if (!diff.priceUpdates.length && !diff.inserts.length && !diff.deletedIds.length) {
+      return SUCCESS_RESPONSE;
     }
 
-    // Ownership first: a Product the caller cannot see must stay invisible.
-    const product = await this.productOfferRepo.getProduct({ productId, access });
-    if (!product) {
-      this.logger.warn(
-        `Product Offer read rejected: Product not found or not visible productId=${productId} userId=${userId}`,
-      );
-      throw ProductNotFoundException;
+    const retained = isPublic ? this.assertWindowSlot({ product, productId }) : null;
+
+    if (diff.priceUpdates.length) {
+      await this.productOfferRepo.updatePrices({ updates: diff.priceUpdates, userId });
     }
-
-    return this.productOfferRepo.getListByProduct({ productId, query });
-  }
-
-  async applyLifecycle({
-    productId,
-    offerId,
-    data,
-    userId,
-    scopes,
-  }: {
-    productId: string;
-    offerId: string;
-    data: UpdateProductOfferLifecycleInputType;
-    userId: string;
-    scopes: ActivePermissionScope[];
-  }): Promise<MessageResType> {
-    const { publisherAccountId } = await this.productAccessPolicy.resolveDraftSaveAccess(
-      userId,
-      scopes,
-    );
-
-    const offer = await this.productOfferRepo.getOwnedOffer({
-      offerId,
-      productId,
-      publisherAccountId,
-    });
-    if (!offer) {
-      this.logger.warn(
-        'Product Offer lifecycle rejected: Offer missing or owned by another Publisher ' +
-          `offerId=${offerId} productId=${productId} publisherAccountId=${publisherAccountId}`,
-      );
-      throw ProductOfferNotFoundException;
+    if (diff.inserts.length) {
+      await this.productOfferRepo.insertOffers({ productId, offers: diff.inserts, userId });
     }
-
-    if (data.action === ProductOfferLifecycleAction.ACTIVATE) {
-      await this.activate({ offer, offerId, productId, publisherAccountId, userId });
-    } else {
-      await this.deactivate({ offer, offerId, productId, publisherAccountId, userId });
-    }
-
-    return SUCCESS_RESPONSE;
-  }
-
-  private async activate({
-    offer,
-    offerId,
-    productId,
-    publisherAccountId,
-    userId,
-  }: {
-    offer: ProductOfferCommercialRow;
-    offerId: string;
-    productId: string;
-    publisherAccountId: string;
-    userId: string;
-  }): Promise<void> {
-    if (offer.status === ProductOfferStatus.ACTIVE) {
-      return;
-    }
-    // TODO(release): also require a current release that is PUBLISHED and not disabled
-    // once the ProductRelease module exists — product.md §8 forbids deciding availability
-    // from the Product status alone.
-    if (offer.productStatus !== ProductStatus.ACTIVE) {
-      this.logger.warn(
-        `Product Offer activate rejected: Product is ${offer.productStatus} offerId=${offerId}`,
-      );
-      throw ProductOfferCannotBeActivatedException;
-    }
-
-    let result: { count: number };
-    try {
-      result = await this.productOfferRepo.activate({
-        offerId,
-        productId,
-        publisherAccountId,
+    if (diff.deletedIds.length) {
+      await this.productOfferRepo.softDeleteOffers({
+        offerIds: diff.deletedIds,
+        deletedAt: product.transactionNow,
         userId,
       });
-    } catch (error) {
-      // The partial unique index allows one ACTIVE Offer per Product.
-      if (isUniqueConstraintPrismaError(error)) {
-        this.logger.warn(
-          `Product Offer activate rejected: Product already sells another Offer offerId=${offerId}`,
-        );
-        throw ProductOfferAlreadyActiveException;
-      }
-      this.logger.error(
-        `Product Offer activate failed offerId=${offerId} productId=${productId}`,
-        error instanceof Error ? error.stack : String(error),
-      );
-      throw error;
+    }
+    if (retained) {
+      await this.productOfferRepo.recordOfferChange({
+        productId,
+        timestamps: [...retained, product.transactionNow],
+        userId,
+      });
     }
 
-    if (result.count === 0) {
-      this.logger.warn(
-        `Product Offer activate rejected: Offer or Product changed during the action offerId=${offerId}`,
-      );
-      throw ProductOfferCannotBeActivatedException;
-    }
-  }
-
-  private async deactivate({
-    offer,
-    offerId,
-    productId,
-    publisherAccountId,
-    userId,
-  }: {
-    offer: ProductOfferCommercialRow;
-    offerId: string;
-    productId: string;
-    publisherAccountId: string;
-    userId: string;
-  }): Promise<void> {
-    if (offer.status === ProductOfferStatus.INACTIVE) {
-      return;
-    }
-    // A DRAFT Offer was never on sale, so there is nothing to take off sale.
-    if (offer.status !== ProductOfferStatus.ACTIVE) {
-      this.logger.warn(
-        `Product Offer deactivate rejected: Offer is ${offer.status} offerId=${offerId}`,
-      );
-      throw ProductOfferCannotBeDeactivatedException;
-    }
-
-    const result = await this.productOfferRepo.deactivate({
-      offerId,
-      productId,
-      publisherAccountId,
-      userId,
-    });
-    if (result.count === 0) {
-      this.logger.warn(
-        `Product Offer deactivate rejected: Offer changed during the action offerId=${offerId}`,
-      );
-      throw ProductOfferCannotBeDeactivatedException;
-    }
-  }
-
-  // Whether a price or duration is legal depends on the stored `type`, not on the body.
-  private assertMergedShape({
-    offer,
-    data,
-    offerId,
-  }: {
-    offer: ProductOfferCommercialRow;
-    data: UpdateProductOfferInputType;
-    offerId: string;
-  }): void {
-    // A FREE Offer stores 0, while the shared rules expect no price at all.
-    const storedPriceMinor =
-      offer.type === ProductOfferType.FREE || offer.priceMinor === null
-        ? null
-        : Number(offer.priceMinor);
-
-    const merged = {
-      type: offer.type,
-      priceMinor: data.priceMinor === undefined ? storedPriceMinor : data.priceMinor,
-      currency: data.currency === undefined ? offer.currency : data.currency,
-      durationDays: data.durationDays === undefined ? offer.durationDays : data.durationDays,
-    };
-
-    const result = ProductOfferCommercialShape.safeParse(merged);
-    if (result.success) {
-      return;
-    }
-
-    const issues = result.error.issues.map((issue) => ({
-      message: issue.message,
-      path: issue.path.join('.'),
-    }));
-    this.logger.warn(
-      `Product Offer update rejected: patch breaks the ${offer.type} shape offerId=${offerId} ` +
-        `fields=${issues.map((issue) => issue.path).join(',')}`,
+    this.logger.log(
+      `Product Offer replace committed productId=${productId} publisherAccountId=${publisherAccountId} ` +
+        `status=${product.status} inserted=${diff.inserts.length} updated=${diff.priceUpdates.length} ` +
+        `deleted=${diff.deletedIds.length}`,
     );
-    throw productOfferShapeException(issues);
+
+    return SUCCESS_RESPONSE;
+  }
+
+  // Price is not part of the identity: the same type and duration at a new price is an
+  // update of that row, never a delete followed by an insert.
+  private diff({
+    stored,
+    desired,
+  }: {
+    stored: StoredProductOffer[];
+    desired: ProductOfferInputType[];
+  }): OfferSetDiff {
+    const storedByKey = new Map(stored.map((offer) => [naturalKeyOf(offer), offer]));
+    const desiredKeys = new Set<string>();
+    const priceUpdates: OfferSetDiff['priceUpdates'] = [];
+    const inserts: ProductOfferInputType[] = [];
+
+    for (const offer of desired) {
+      const key = naturalKeyOf(offer);
+      desiredKeys.add(key);
+
+      const current = storedByKey.get(key);
+      if (!current) {
+        inserts.push(offer);
+      } else if (current.priceAmount !== offer.priceAmount) {
+        priceUpdates.push({ id: current.id, priceAmount: offer.priceAmount });
+      }
+    }
+
+    const deletedIds = stored
+      .filter((offer) => !desiredKeys.has(naturalKeyOf(offer)))
+      .map((offer) => offer.id);
+
+    return { priceUpdates, inserts, deletedIds };
+  }
+
+  // Returns the timestamps still inside the window, which the caller stores back with the
+  // one it is about to spend.
+  private assertWindowSlot({
+    product,
+    productId,
+  }: {
+    product: { offerChangeTimestamps: Date[]; transactionNow: Date };
+    productId: string;
+  }): Date[] {
+    const cutoff = new Date(
+      product.transactionNow.getTime() -
+        envConfig.PRODUCT_OFFER_CHANGE_WINDOW_HOURS * MILLISECONDS_PER_HOUR,
+    );
+    const retained = product.offerChangeTimestamps.filter((timestamp) => timestamp > cutoff);
+
+    if (retained.length >= envConfig.PRODUCT_OFFER_CHANGE_MAX_COUNT) {
+      this.logger.warn(
+        `Product Offer replace rejected: change window is full productId=${productId}`,
+      );
+      throw ProductOfferChangeRateLimitExceededException;
+    }
+
+    return retained;
   }
 }

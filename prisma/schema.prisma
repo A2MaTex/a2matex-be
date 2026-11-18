@@ -20,22 +20,23 @@ model User {
   deletedAt                                           DateTime?             @db.Timestamptz(6)
   auditHistory                                        Json                  @default("[]")
   device                                              Device[]
-  createdPermissions                                  Permission[]       @relation("PermissionCreatedBy")
-  deletedPermissions                                  Permission[]       @relation("PermissionDeletedBy")
-  updatedPermissions                                  Permission[]       @relation("PermissionUpdatedBy")
-  Product_Product_createdByIdToUser                   Product[]          @relation("Product_createdByIdToUser")
-  Product_Product_deletedByIdToUser                   Product[]          @relation("Product_deletedByIdToUser")
-  Product_Product_suspendedByIdToUser                 Product[]          @relation("Product_suspendedByIdToUser")
-  Product_Product_updatedByIdToUser                   Product[]          @relation("Product_updatedByIdToUser")
-  createdProductOffers                                ProductOffer[]     @relation("ProductOfferCreatedBy")
-  updatedProductOffers                                ProductOffer[]     @relation("ProductOfferUpdatedBy")
-  createdProfiles                                     Profile[]          @relation("ProfileCreatedBy")
-  deletedProfiles                                     Profile[]          @relation("ProfileDeletedBy")
-  updatedProfiles                                     Profile[]          @relation("ProfileUpdatedBy")
-  profile                                             Profile?           @relation("ProfileUser")
-  Project_Project_createdByIdToUser                   Project[]          @relation("Project_createdByIdToUser")
-  Project_Project_deletedByIdToUser                   Project[]          @relation("Project_deletedByIdToUser")
-  Project_Project_updatedByIdToUser                   Project[]          @relation("Project_updatedByIdToUser")
+  createdPermissions                                  Permission[]          @relation("PermissionCreatedBy")
+  deletedPermissions                                  Permission[]          @relation("PermissionDeletedBy")
+  updatedPermissions                                  Permission[]          @relation("PermissionUpdatedBy")
+  Product_Product_createdByIdToUser                   Product[]             @relation("Product_createdByIdToUser")
+  Product_Product_deletedByIdToUser                   Product[]             @relation("Product_deletedByIdToUser")
+  Product_Product_suspendedByIdToUser                 Product[]             @relation("Product_suspendedByIdToUser")
+  Product_Product_updatedByIdToUser                   Product[]             @relation("Product_updatedByIdToUser")
+  createdProductOffers                                ProductOffer[]        @relation("ProductOfferCreatedBy")
+  updatedProductOffers                                ProductOffer[]        @relation("ProductOfferUpdatedBy")
+  deletedProductOffers                                ProductOffer[]        @relation("ProductOfferDeletedBy")
+  createdProfiles                                     Profile[]             @relation("ProfileCreatedBy")
+  deletedProfiles                                     Profile[]             @relation("ProfileDeletedBy")
+  updatedProfiles                                     Profile[]             @relation("ProfileUpdatedBy")
+  profile                                             Profile?              @relation("ProfileUser")
+  Project_Project_createdByIdToUser                   Project[]             @relation("Project_createdByIdToUser")
+  Project_Project_deletedByIdToUser                   Project[]             @relation("Project_deletedByIdToUser")
+  Project_Project_updatedByIdToUser                   Project[]             @relation("Project_updatedByIdToUser")
   ProjectDraft                                        ProjectDraft[]
   blockedPublisherAccounts                            PublisherAccount[]    @relation("PublisherAccount_blockedByIdToUser")
   publisherAccount                                    PublisherAccount?     @relation("PublisherAccount_userIdToUser")
@@ -450,6 +451,7 @@ model Product {
   createdById                      String           @db.Uuid
   updatedById                      String?          @db.Uuid
   deletedById                      String?          @db.Uuid
+  offerChangeTimestamps            DateTime[]       @default([]) @db.Timestamptz(6)
   User_Product_createdByIdToUser   User             @relation("Product_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   User_Product_deletedByIdToUser   User?            @relation("Product_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   Project                          Project          @relation(fields: [projectId, publisherAccountId], references: [id, publisherAccountId], onDelete: NoAction, onUpdate: NoAction)
@@ -547,30 +549,26 @@ enum SessionStatus {
   ABORTED
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// The commercial terms a customer accepts to acquire a Product. Checks that tie `type`
-/// to `priceMinor`/`currency`/`durationDays` live only in the migration SQL.
+/// The commercial terms a customer accepts to acquire a Product. Type and duration form
+/// the natural key; the replacement API owns every price/duration rule.
 model ProductOffer {
-  id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  productId            String             @db.Uuid
-  type                 ProductOfferType
-  status               ProductOfferStatus @default(DRAFT)
-  currency             String?            @db.Char(3)
-  priceMinor           BigInt?
-  durationDays         Int?
-  maxConcurrentDevices Int                @default(1)
-  usagePolicy          Json               @default("{}")
-  createdAt            DateTime           @default(now()) @db.Timestamptz(6)
-  updatedAt            DateTime?          @db.Timestamptz(6)
-  deletedAt            DateTime?          @db.Timestamptz(6)
-  createdById          String             @db.Uuid
-  updatedById          String?            @db.Uuid
-  Product              Product            @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdBy            User               @relation("ProductOfferCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  updatedBy            User?              @relation("ProductOfferUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id           String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId    String           @db.Uuid
+  type         ProductOfferType
+  priceAmount  BigInt
+  durationDays Int?
+  createdAt    DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime?        @db.Timestamptz(6)
+  deletedAt    DateTime?        @db.Timestamptz(6)
+  createdById  String           @db.Uuid
+  updatedById  String?          @db.Uuid
+  deletedById  String?          @db.Uuid
+  Product      Product          @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy    User             @relation("ProductOfferCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  updatedBy    User?            @relation("ProductOfferUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  deletedBy    User?            @relation("ProductOfferDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@unique([productId], map: "ProductOffer_single_active_idx", where: raw("((status = 'ACTIVE'::\"ProductOfferStatus\") AND (\"deletedAt\" IS NULL))"))
-  @@index([productId, status], map: "ProductOffer_product_status_idx", where: raw("(\"deletedAt\" IS NULL)"))
+  @@index([productId], map: "ProductOffer_productId_idx", where: raw("(\"deletedAt\" IS NULL)"))
 }
 
 enum UserStatus {
@@ -657,15 +655,8 @@ enum ProductStatus {
 }
 
 enum ProductOfferType {
-  FREE
   ONE_TIME
   SUBSCRIPTION
-}
-
-enum ProductOfferStatus {
-  DRAFT
-  ACTIVE
-  INACTIVE
 }
 
 enum SubmissionStatus {

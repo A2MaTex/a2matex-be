@@ -1,159 +1,111 @@
 import { z } from 'zod';
-import {
-  ProductOffer,
-  ProductOfferTypeSchema,
-  ProductOfferUsagePolicy,
-} from '../../entities/product-offer.model.ts';
-import {
-  DEFAULT_PRODUCT_OFFER_USAGE_POLICY,
-  PRODUCT_OFFER_CURRENCY_VND,
-  PRODUCT_OFFER_MAX_CONCURRENT_DEVICES,
-  ProductOfferLifecycleAction,
-  ProductOfferType,
-} from '../../shared/constants/product-offer.constant.ts';
+import { ProductOffer, ProductOfferTypeSchema } from '../../entities/product-offer.model.ts';
+import envConfig from '../../shared/config.ts';
+import { ProductOfferType } from '../../shared/constants/product-offer.constant.ts';
 import type { ProductOfferTypeValue } from '../../shared/constants/product-offer.constant.ts';
-import { PaginationQuerySchema } from '../../shared/models/request.model.ts';
-import { zBigIntAsNumber } from '../../shared/utils/zod.ts';
+import { zBigIntAsString } from '../../shared/utils/zod.ts';
 
-const PRICE_REQUIRED = 'Error.ProductOfferPriceRequired';
-const PRICE_NOT_ALLOWED = 'Error.ProductOfferPriceNotAllowed';
-const CURRENCY_REQUIRED = 'Error.ProductOfferCurrencyRequired';
-const CURRENCY_NOT_ALLOWED = 'Error.ProductOfferCurrencyNotAllowed';
-const DURATION_REQUIRED = 'Error.ProductOfferDurationRequired';
-const DURATION_NOT_ALLOWED = 'Error.ProductOfferDurationNotAllowed';
+// The stable codes the failure table names; the frontend translates by key.
+const INVALID = 'Error.ProductOfferInvalid';
+const LIMIT_EXCEEDED = 'Error.ProductOfferLimitExceeded';
+const DUPLICATE = 'Error.ProductOfferDuplicate';
 
-// Integer minor unit: VND has no sub-unit, so one unit is one đồng.
-const ProductOfferPriceInput = z.number().int().positive().nullable().optional();
-const ProductOfferCurrencyInput = z.enum([PRODUCT_OFFER_CURRENCY_VND]).nullable().optional();
-const ProductOfferDurationInput = z.number().int().positive().nullable().optional();
+// A decimal string, not a number: the configured maximum is past Number.MAX_SAFE_INTEGER.
+// The pattern alone rejects signs, decimal points, exponents and whitespace.
+const PriceAmountInput = z
+  .string()
+  .regex(/^\d{1,19}$/, INVALID)
+  .transform((value) => BigInt(value))
+  .refine((value) => value <= envConfig.PRODUCT_OFFER_MAX_PRICE_AMOUNT, INVALID);
 
-// The type/price/duration pairs the migration enforces with CHECK constraints.
-const applyCommercialRules = (
-  {
-    type,
-    priceMinor,
-    currency,
-    durationDays,
-  }: {
-    type: ProductOfferTypeValue;
-    priceMinor?: number | null;
-    currency?: string | null;
-    durationDays?: number | null;
-  },
-  ctx: z.RefinementCtx,
-) => {
-  const isFree = type === ProductOfferType.FREE;
-  const isSubscription = type === ProductOfferType.SUBSCRIPTION;
+const DurationDaysInput = z
+  .number()
+  .int(INVALID)
+  .positive(INVALID)
+  .max(envConfig.PRODUCT_OFFER_MAX_DURATION_DAYS, INVALID)
+  .nullable();
 
-  if (isFree && priceMinor !== undefined && priceMinor !== null) {
-    ctx.addIssue({ code: 'custom', message: PRICE_NOT_ALLOWED, path: ['priceMinor'] });
-  }
-  if (!isFree && (priceMinor === undefined || priceMinor === null)) {
-    ctx.addIssue({ code: 'custom', message: PRICE_REQUIRED, path: ['priceMinor'] });
-  }
-  if (isFree && currency !== undefined && currency !== null) {
-    ctx.addIssue({ code: 'custom', message: CURRENCY_NOT_ALLOWED, path: ['currency'] });
-  }
-  if (!isFree && (currency === undefined || currency === null)) {
-    ctx.addIssue({ code: 'custom', message: CURRENCY_REQUIRED, path: ['currency'] });
-  }
-  if (isSubscription && (durationDays === undefined || durationDays === null)) {
-    ctx.addIssue({ code: 'custom', message: DURATION_REQUIRED, path: ['durationDays'] });
-  }
-  if (!isSubscription && durationDays !== undefined && durationDays !== null) {
-    ctx.addIssue({ code: 'custom', message: DURATION_NOT_ALLOWED, path: ['durationDays'] });
-  }
-};
-
-export const CreateProductOfferInput = z
+export const ProductOfferInput = z
   .object({
     type: ProductOfferTypeSchema,
-    priceMinor: ProductOfferPriceInput,
-    currency: ProductOfferCurrencyInput,
-    durationDays: ProductOfferDurationInput,
-    maxConcurrentDevices: z
-      .number()
-      .int()
-      .positive()
-      .max(PRODUCT_OFFER_MAX_CONCURRENT_DEVICES)
-      .default(1),
-    usagePolicy: ProductOfferUsagePolicy.optional().default(DEFAULT_PRODUCT_OFFER_USAGE_POLICY),
+    priceAmount: PriceAmountInput,
+    durationDays: DurationDaysInput,
   })
   .strict()
-  .superRefine(applyCommercialRules);
-
-export const CreateProductOfferOutput = ProductOffer.pick({ id: true });
-
-export const ProductOfferManagementOutput = ProductOffer.pick({
-  id: true,
-  productId: true,
-  type: true,
-  status: true,
-  currency: true,
-  durationDays: true,
-  maxConcurrentDevices: true,
-  usagePolicy: true,
-  createdAt: true,
-  updatedAt: true,
-}).extend({
-  // The CHECK lets a FREE Offer store NULL, so reads must allow it.
-  priceMinor: zBigIntAsNumber().nullable(),
-});
-
-export const ProductOfferIdParam = z
-  .object({
-    productId: z.uuid(),
-    offerId: z.uuid(),
-  })
-  .strict();
-
-// `type` is not editable: it decides which other columns are legal.
-export const UpdateProductOfferInput = z
-  .object({
-    priceMinor: ProductOfferPriceInput,
-    currency: ProductOfferCurrencyInput,
-    durationDays: ProductOfferDurationInput,
-    maxConcurrentDevices: z.number().int().positive().max(PRODUCT_OFFER_MAX_CONCURRENT_DEVICES),
-    usagePolicy: ProductOfferUsagePolicy,
-  })
-  .partial()
-  .strict()
-  .refine((value) => Object.keys(value).length > 0, {
-    message: 'At least one field is required',
+  .superRefine((offer, ctx) => {
+    if (offer.type !== ProductOfferType.SUBSCRIPTION) {
+      return;
+    }
+    // A subscription that is free or permanent would never expire into a repurchase.
+    if (offer.priceAmount <= 0n) {
+      ctx.addIssue({ code: 'custom', message: INVALID, path: ['priceAmount'] });
+    }
+    if (offer.durationDays === null) {
+      ctx.addIssue({ code: 'custom', message: INVALID, path: ['durationDays'] });
+    }
   });
 
-export const UpdateProductOfferLifecycleInput = z
+type ProductOfferInputShape = {
+  type: ProductOfferTypeValue;
+  priceAmount: bigint;
+  durationDays: number | null;
+};
+
+// Type, then finite duration ascending, then permanent last. Input order carries no
+// persistence or presentation meaning.
+const canonicalize = (offers: ProductOfferInputShape[]) =>
+  [...offers].sort((left, right) => {
+    if (left.type !== right.type) {
+      return left.type < right.type ? -1 : 1;
+    }
+    if (left.durationDays === right.durationDays) {
+      return 0;
+    }
+    if (left.durationDays === null) {
+      return 1;
+    }
+    if (right.durationDays === null) {
+      return -1;
+    }
+    return left.durationDays - right.durationDays;
+  });
+
+export const naturalKeyOf = (offer: Pick<ProductOfferInputShape, 'type' | 'durationDays'>) =>
+  `${offer.type}:${offer.durationDays ?? 'PERMANENT'}`;
+
+export const ReplaceProductOffersInput = z
   .object({
-    action: z.enum([ProductOfferLifecycleAction.ACTIVATE, ProductOfferLifecycleAction.DEACTIVATE]),
+    offers: z.array(ProductOfferInput).max(envConfig.PRODUCT_OFFER_MAX_COUNT, LIMIT_EXCEEDED),
   })
-  .strict();
-
-// What the row must still satisfy once the patch is applied on top of it.
-export const ProductOfferCommercialShape = z
-  .object({
-    type: ProductOfferTypeSchema,
-    priceMinor: z.number().int().positive().nullable(),
-    currency: z.string().nullable(),
-    durationDays: z.number().int().positive().nullable(),
+  .strict()
+  // Price is not part of the identity, so two rows sharing type and duration are the same
+  // offer sent twice rather than two offers.
+  .superRefine(({ offers }, ctx) => {
+    const seen = new Set<string>();
+    offers.forEach((offer, index) => {
+      const key = naturalKeyOf(offer);
+      if (seen.has(key)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: DUPLICATE,
+          path: ['offers', index, 'durationDays'],
+        });
+      }
+      seen.add(key);
+    });
   })
-  .superRefine(applyCommercialRules);
+  .transform(({ offers }) => ({ offers: canonicalize(offers) }));
 
-export const GetProductOfferListInput = PaginationQuerySchema.strict();
-
-export const GetProductOfferListOutput = z.object({
-  items: z.array(ProductOfferManagementOutput),
-  totalItems: z.number().int().nonnegative(),
-  page: z.number().int().positive(),
-  limit: z.number().int().positive(),
-  totalPages: z.number().int().nonnegative(),
+export const ProductOfferOutput = ProductOffer.pick({
+  id: true,
+  type: true,
+  durationDays: true,
+}).extend({
+  priceAmount: zBigIntAsString(),
 });
 
-export type CreateProductOfferInputType = z.infer<typeof CreateProductOfferInput>;
-export type UpdateProductOfferInputType = z.infer<typeof UpdateProductOfferInput>;
-export type UpdateProductOfferLifecycleInputType = z.infer<typeof UpdateProductOfferLifecycleInput>;
-export type CreateProductOfferOutputType = z.infer<typeof CreateProductOfferOutput>;
-// z.input, not z.infer: priceMinor leaves Prisma as bigint and only becomes a number
+export type ReplaceProductOffersInputType = z.infer<typeof ReplaceProductOffersInput>;
+export type ProductOfferInputType = z.infer<typeof ProductOfferInput>;
+// z.input, not z.infer: priceAmount leaves Prisma as a bigint and only becomes a string
 // when the response interceptor serializes it.
-export type GetProductOfferListInputType = z.infer<typeof GetProductOfferListInput>;
-export type ProductOfferManagementOutputType = z.input<typeof ProductOfferManagementOutput>;
-export type GetProductOfferListOutputType = z.input<typeof GetProductOfferListOutput>;
+export type ProductOfferOutputType = z.input<typeof ProductOfferOutput>;

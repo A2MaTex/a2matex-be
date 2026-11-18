@@ -13,6 +13,7 @@ import {
 } from '../../shared/constants/product.constant.ts';
 import { ProjectStatus } from '../../shared/constants/project.constant.ts';
 import { PaginationQuerySchema } from '../../shared/models/request.model.ts';
+import { ProductOfferOutput } from '../product-offer/product-offer.model.ts';
 
 const MEDIA_INVALID = 'Error.ProductMediaInvalid';
 
@@ -186,6 +187,12 @@ export const UpdateProductLifecycleInput = z
     }
   });
 
+// Only the detail preloads Offers: a management list would turn that into one query
+// per Product for a collection nobody reads there.
+export const ProductDetailOutput = ProductManagementOutput.extend({
+  offers: z.array(ProductOfferOutput),
+});
+
 export const GetProductListInput = PaginationQuerySchema.extend({
   status: z
     .enum([
@@ -213,3 +220,6 @@ export type UpdateProductLifecycleInputType = z.infer<typeof UpdateProductLifecy
 export type GetProductListInputType = z.infer<typeof GetProductListInput>;
 export type GetProductListOutputType = z.infer<typeof GetProductListOutput>;
 export type ProductManagementOutputType = z.infer<typeof ProductManagementOutput>;
+// z.input: an Offer price leaves Prisma as a bigint and the response interceptor
+// serializes it into a decimal string.
+export type ProductDetailOutputType = z.input<typeof ProductDetailOutput>;

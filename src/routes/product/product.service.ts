@@ -28,6 +28,7 @@ import type {
   CreateProductOutputType,
   GetProductListInputType,
   GetProductListOutputType,
+  ProductDetailOutputType,
   ProductManagementOutputType,
   ProductMediaInputType,
   UpdateProductInputType,
@@ -187,7 +188,7 @@ export class ProductService {
     id: string;
     userId: string;
     scopes: ActivePermissionScope[];
-  }): Promise<ProductManagementOutputType> {
+  }): Promise<ProductDetailOutputType> {
     const access = await this.productAccessPolicy.resolveReadAccess(userId, scopes);
     if (!access) {
       this.logger.warn(
@@ -196,7 +197,7 @@ export class ProductService {
       throw ProductNotFoundException;
     }
 
-    const product = await this.productRepo.getById({ id, access });
+    const product = await this.productRepo.getDetailById({ id, access });
     if (!product) {
       this.logger.warn(
         `Product read rejected: not found or not visible to caller productId=${id} userId=${userId}`,

@@ -12,6 +12,7 @@ import type {
   CreateProductOutputType,
   GetProductListInputType,
   GetProductListOutputType,
+  ProductDetailOutputType,
   ProductManagementOutputType,
   ProductMediaInputType,
   UpdateProductInputType,
@@ -53,7 +54,26 @@ const PRODUCT_SELECT = {
   },
 } satisfies Prisma.ProductSelect;
 
+// Canonical Offer order: type, then finite duration ascending, then permanent access.
+const PRODUCT_DETAIL_SELECT = {
+  ...PRODUCT_SELECT,
+  ProductOffer: {
+    where: {
+      deletedAt: null,
+    },
+    select: {
+      id: true,
+      type: true,
+      priceAmount: true,
+      durationDays: true,
+    },
+    orderBy: [{ type: 'asc' }, { durationDays: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }],
+  },
+} satisfies Prisma.ProductSelect;
+
 type ProductRow = Prisma.ProductGetPayload<{ select: typeof PRODUCT_SELECT }>;
+
+type ProductDetailRow = Prisma.ProductGetPayload<{ select: typeof PRODUCT_DETAIL_SELECT }>;
 
 @Injectable()
 export class ProductRepo {
@@ -190,6 +210,25 @@ export class ProductRepo {
       select: PRODUCT_SELECT,
     });
     return product ? this.toManagementOutput(product) : null;
+  }
+
+  // Only the detail route pays for the Offer collection; the lifecycle paths call
+  // getById for a status they already failed to update.
+  async getDetailById({
+    id,
+    access,
+  }: {
+    id: string;
+    access: ProductAccess;
+  }): Promise<ProductDetailOutputType | null> {
+    const product = await this.prisma.product.findFirst({
+      where: {
+        id,
+        ...buildProductAccessWhere(access),
+      },
+      select: PRODUCT_DETAIL_SELECT,
+    });
+    return product ? this.toDetailOutput(product) : null;
   }
 
   async getList({
@@ -380,6 +419,14 @@ export class ProductRepo {
       ...rest,
       project: Project,
       media: ProductMedia,
+    };
+  }
+
+  private toDetailOutput(product: ProductDetailRow): ProductDetailOutputType {
+    const { ProductOffer, ...rest } = product;
+    return {
+      ...this.toManagementOutput(rest),
+      offers: ProductOffer,
     };
   }
 }

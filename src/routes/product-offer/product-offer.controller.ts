@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Inject, Param, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
 import { ActivePermissionScopes } from '../../shared/decorators/active-permission-scopes.decorator.ts';
@@ -6,15 +6,7 @@ import type { ActivePermissionScope } from '../../shared/decorators/active-permi
 import { ActiveUser } from '../../shared/decorators/active-user.decorator.ts';
 import { MessageResDTO } from '../../shared/dtos/response.dto.ts';
 import { ProductIdParamDTO } from '../product/product.dto.ts';
-import {
-  CreateProductOfferInputDTO,
-  CreateProductOfferOutputDTO,
-  GetProductOfferListInputDTO,
-  GetProductOfferListOutputDTO,
-  ProductOfferIdParamDTO,
-  UpdateProductOfferInputDTO,
-  UpdateProductOfferLifecycleInputDTO,
-} from './product-offer.dto.ts';
+import { ReplaceProductOffersInputDTO } from './product-offer.dto.ts';
 import { ProductOfferService } from './product-offer.service.ts';
 
 @ApiTags('Product Offers')
@@ -25,66 +17,18 @@ export class ProductOfferController {
     @Inject(ProductOfferService) private readonly productOfferService: ProductOfferService,
   ) {}
 
-  @Post()
-  @ZodResponse({ type: CreateProductOfferOutputDTO })
-  create(
-    @Param() params: ProductIdParamDTO,
-    @Body() body: CreateProductOfferInputDTO,
-    @ActiveUser('userId') userId: string,
-    @ActivePermissionScopes() scopes: ActivePermissionScope[],
-  ) {
-    return this.productOfferService.create({
-      productId: params.productId,
-      data: body,
-      userId,
-      scopes,
-    });
-  }
-
-  @Get()
-  @ZodResponse({ type: GetProductOfferListOutputDTO })
-  getList(
-    @Param() params: ProductIdParamDTO,
-    @Query() query: GetProductOfferListInputDTO,
-    @ActiveUser('userId') userId: string,
-    @ActivePermissionScopes() scopes: ActivePermissionScope[],
-  ) {
-    return this.productOfferService.getList({
-      productId: params.productId,
-      query,
-      userId,
-      scopes,
-    });
-  }
-
-  @Patch(':offerId')
+  // Full replacement of the Product's offer collection. Product detail is what the
+  // frontend reloads afterwards for the newest rows and their generated IDs.
+  @Put()
   @ZodResponse({ type: MessageResDTO })
-  update(
-    @Param() params: ProductOfferIdParamDTO,
-    @Body() body: UpdateProductOfferInputDTO,
+  replace(
+    @Param() params: ProductIdParamDTO,
+    @Body() body: ReplaceProductOffersInputDTO,
     @ActiveUser('userId') userId: string,
     @ActivePermissionScopes() scopes: ActivePermissionScope[],
   ) {
-    return this.productOfferService.update({
+    return this.productOfferService.replace({
       productId: params.productId,
-      offerId: params.offerId,
-      data: body,
-      userId,
-      scopes,
-    });
-  }
-
-  @Put(':offerId/lifecycle')
-  @ZodResponse({ type: MessageResDTO })
-  applyLifecycle(
-    @Param() params: ProductOfferIdParamDTO,
-    @Body() body: UpdateProductOfferLifecycleInputDTO,
-    @ActiveUser('userId') userId: string,
-    @ActivePermissionScopes() scopes: ActivePermissionScope[],
-  ) {
-    return this.productOfferService.applyLifecycle({
-      productId: params.productId,
-      offerId: params.offerId,
       data: body,
       userId,
       scopes,

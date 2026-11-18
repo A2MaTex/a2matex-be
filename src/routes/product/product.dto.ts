@@ -4,6 +4,7 @@ import {
   CreateProductOutput,
   GetProductListInput,
   GetProductListOutput,
+  ProductDetailOutput,
   ProductIdParam,
   ProductManagementOutput,
   UpdateProductInput,
@@ -23,5 +24,7 @@ export class GetProductListInputDTO extends createZodDto(GetProductListInput) {}
 export class GetProductListOutputDTO extends createZodDto(GetProductListOutput) {}
 
 export class ProductManagementOutputDTO extends createZodDto(ProductManagementOutput) {}
+
+export class ProductDetailOutputDTO extends createZodDto(ProductDetailOutput) {}
 
 export class UpdateProductLifecycleInputDTO extends createZodDto(UpdateProductLifecycleInput) {}

@@ -11,7 +11,7 @@ import {
   GetProductListInputDTO,
   GetProductListOutputDTO,
   ProductIdParamDTO,
-  ProductManagementOutputDTO,
+  ProductDetailOutputDTO,
   UpdateProductInputDTO,
   UpdateProductLifecycleInputDTO,
 } from './product.dto.ts';
@@ -40,7 +40,7 @@ export class ProductController {
   }
 
   @Get(':productId')
-  @ZodResponse({ type: ProductManagementOutputDTO })
+  @ZodResponse({ type: ProductDetailOutputDTO })
   getDetail(
     @Param() params: ProductIdParamDTO,
     @ActiveUser('userId') userId: string,
