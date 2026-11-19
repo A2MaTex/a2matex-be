@@ -48,6 +48,7 @@ import {
 } from './static.dto.ts';
 import { StaticUploadCleanupInterceptor } from './static-upload-cleanup.interceptor.ts';
 import { ActiveUser } from '../../shared/decorators/active-user.decorator.ts';
+import { IsPublic } from '../../shared/decorators/auth.decorator.ts';
 import {
   completeMultipartUploadBody,
   getBatchUrlsBody,
@@ -194,7 +195,10 @@ export class StaticController {
     });
   }
 
+  // Marketplace cards and Publisher avatars are read by anonymous visitors, so the image
+  // bytes must be reachable without a token. The Static ID is the capability.
   @Get('images/:staticId')
+  @IsPublic()
   @ApiQuery({
     name: 'variant',
     required: false,
@@ -222,7 +226,9 @@ export class StaticController {
     const output = await this.staticService.getImage(params.staticId, query.variant);
     const etag = `"${params.staticId}:${query.variant}"`;
 
-    response.setHeader('Cache-Control', 'private, no-cache');
+    // A Static ID plus variant addresses one immutable object: re-uploading creates a new
+    // Static row, so a cached copy can never go stale and never needs invalidating.
+    response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     response.setHeader('ETag', etag);
     response.setHeader('X-Content-Type-Options', 'nosniff');
 

@@ -3,7 +3,8 @@ import { Prisma } from '../../generated/prisma/client.ts';
 import { RoleStatus, UserStatus } from '../../shared/constants/auth.constant.ts';
 import { ProductOfferType } from '../../shared/constants/product-offer.constant.ts';
 import { ProductReleaseStatus } from '../../shared/constants/product-release.constant.ts';
-import { ProductStatus } from '../../shared/constants/product.constant.ts';
+import { ProductMediaType, ProductStatus } from '../../shared/constants/product.constant.ts';
+import type { ProductMediaTypeValue } from '../../shared/constants/product.constant.ts';
 import { PublisherAccountStatus } from '../../shared/constants/publisher.constant.ts';
 import { RoleName } from '../../shared/constants/role.constant.ts';
 import { SubmissionStatus } from '../../shared/constants/submission.constant.ts';
@@ -15,6 +16,14 @@ import type {
   PublicProductDetailOutputType,
   PublicProductSummaryOutputType,
 } from './marketplace-product.model.ts';
+
+type SnapshotMediaRow = {
+  id: string;
+  staticId: string;
+  type: string;
+  sortOrder: number;
+  altText: string | null;
+};
 
 type PublicProductRow = {
   id: string;
@@ -30,6 +39,7 @@ type PublicProductRow = {
   minimumRuntimeVersion: string;
   minimumOfferPriceAmount: bigint;
   minimumOfferDurationDays: number;
+  media: SnapshotMediaRow[] | null;
 };
 
 type PublicProductDetailRow = PublicProductRow & {
@@ -52,7 +62,8 @@ const SUMMARY_COLUMNS = Prisma.sql`
   s."releaseRequest"->>'minimumLauncherVersion' AS "minimumLauncherVersion",
   s."releaseRequest"->>'minimumRuntimeVersion' AS "minimumRuntimeVersion",
   mo."priceAmount" AS "minimumOfferPriceAmount",
-  mo."durationDays" AS "minimumOfferDurationDays"
+  mo."durationDays" AS "minimumOfferDurationDays",
+  s."productSnapshot"->'media' AS "media"
 `;
 
 const DETAIL_COLUMNS = Prisma.sql`
@@ -60,6 +71,29 @@ const DETAIL_COLUMNS = Prisma.sql`
   s."productSnapshot"->>'description' AS "description",
   s."productSnapshot"->>'usageInstructions' AS "usageInstructions"
 `;
+
+// A card needs the icon and the cover; the gallery is unbounded, so a list page must not
+// carry it. Detail asks for the whole set.
+const CARD_MEDIA_TYPES: ProductMediaTypeValue[] = [ProductMediaType.ICON, ProductMediaType.COVER];
+
+// Field by field, never a spread: the snapshot is a frozen document and may carry keys that
+// have no place in a public response. Same order the management projection uses.
+const toMediaOutput = (media: SnapshotMediaRow[] | null, allowedTypes?: ProductMediaTypeValue[]) =>
+  (media ?? [])
+    .filter((item) => !allowedTypes || allowedTypes.includes(item.type as ProductMediaTypeValue))
+    .map((item) => ({
+      id: item.id,
+      staticId: item.staticId,
+      type: item.type as ProductMediaTypeValue,
+      sortOrder: item.sortOrder,
+      altText: item.altText,
+    }))
+    .sort(
+      (left, right) =>
+        left.type.localeCompare(right.type) ||
+        left.sortOrder - right.sortOrder ||
+        left.id.localeCompare(right.id),
+    );
 
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (character) => `\\${character}`);
 
@@ -191,6 +225,8 @@ export class MarketplaceProductRepo {
 
     return {
       ...this.toSummaryOutput(row),
+      // Detail widens the card projection to the full approved gallery.
+      media: toMediaOutput(row.media),
       description: row.description,
       usageInstructions: row.usageInstructions,
       offers,
@@ -218,6 +254,7 @@ export class MarketplaceProductRepo {
         priceAmount: row.minimumOfferPriceAmount,
         durationDays: row.minimumOfferDurationDays,
       },
+      media: toMediaOutput(row.media, CARD_MEDIA_TYPES),
     };
   }
 }

@@ -7,6 +7,7 @@ import { DEFAULT_LIMIT } from '../../shared/constants/system.constant.ts';
 import { PaginationQuerySchema } from '../../shared/models/request.model.ts';
 import { zBigIntAsString, zDate } from '../../shared/utils/zod.ts';
 import { ProductOfferOutput } from '../product-offer/product-offer.model.ts';
+import { ProductMediaTypeSchema } from './product.model.ts';
 
 export const PublicProductPublisherOutput = z.object({
   username: z.string(),
@@ -21,6 +22,16 @@ export const PublicProductReleaseOutput = z.object({
   publishedAt: zDate(),
   minimumLauncherVersion: z.string(),
   minimumRuntimeVersion: z.string(),
+});
+
+// Ordered image metadata frozen in the approved Submission snapshot. The Static ID is what
+// the client feeds to the public image route; no object key or private URL is exposed.
+export const PublicProductMediaOutput = z.object({
+  id: z.uuid(),
+  staticId: z.uuid(),
+  type: ProductMediaTypeSchema,
+  sortOrder: z.number().int(),
+  altText: z.string().nullable(),
 });
 
 export const PublicProductMinimumSubscriptionOffer = z.object({
@@ -38,6 +49,7 @@ export const PublicProductSummaryOutput = z.object({
   publisher: PublicProductPublisherOutput,
   currentRelease: PublicProductReleaseOutput,
   minimumSubscriptionOffer: PublicProductMinimumSubscriptionOffer,
+  media: z.array(PublicProductMediaOutput),
 });
 
 // Offers come from the live collection: commercial terms are managed outside review.
