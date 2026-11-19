@@ -49,3 +49,8 @@ export const PRODUCT_STATUS_REASON_MAX_LENGTH = 2_000;
 
 // Lowercase words joined by single hyphens. Input is lowercased before this runs.
 export const PRODUCT_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+// Public Marketplace reads share the default page size with every other list; only the
+// upper bound is specific to an unauthenticated route.
+export const PUBLIC_PRODUCT_LIST_MAX_LIMIT = 100;
+export const PUBLIC_PRODUCT_SEARCH_MAX_LENGTH = 100;
