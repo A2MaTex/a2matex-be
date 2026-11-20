@@ -13,7 +13,7 @@ model User {
   id                                                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   username                                            String                @db.VarChar(255)
   email                                               String
-  password                                            String                @db.VarChar(255)
+  password                                            String?               @db.VarChar(255)
   status                                              UserStatus            @default(INACTIVE)
   createdAt                                           DateTime              @default(now()) @db.Timestamptz(6)
   updatedAt                                           DateTime?             @db.Timestamptz(6)
@@ -34,6 +34,7 @@ model User {
   deletedProfiles                                     Profile[]             @relation("ProfileDeletedBy")
   updatedProfiles                                     Profile[]             @relation("ProfileUpdatedBy")
   profile                                             Profile?              @relation("ProfileUser")
+  identities                                          UserIdentity[]
   Project_Project_createdByIdToUser                   Project[]             @relation("Project_createdByIdToUser")
   Project_Project_deletedByIdToUser                   Project[]             @relation("Project_deletedByIdToUser")
   Project_Project_updatedByIdToUser                   Project[]             @relation("Project_updatedByIdToUser")
@@ -86,6 +87,24 @@ model Profile {
   deletedBy      User?     @relation("ProfileDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   updatedBy      User?     @relation("ProfileUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   user           User      @relation("ProfileUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// Links an account to an account at an OAuth provider. The pair
+/// (provider, providerUserId) is what identifies a returning user, not the email.
+model UserIdentity {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider       OAuthProvider
+  providerUserId String        @db.VarChar(255)
+  userId         String        @db.Uuid
+  /// Email the provider returned when the link was made. Kept for tracing only;
+  /// the account's own email stays the source of truth.
+  email          String?
+  createdAt      DateTime      @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime?     @db.Timestamptz(6)
+  user           User          @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([provider, providerUserId], map: "UserIdentity_provider_providerUserId_idx")
+  @@unique([userId, provider], map: "UserIdentity_userId_provider_idx")
 }
 
 model TopUpTransaction {
@@ -609,6 +628,11 @@ model ProductOffer {
   deletedBy    User?            @relation("ProductOfferDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([productId], map: "ProductOffer_productId_idx", where: raw("(\"deletedAt\" IS NULL)"))
+}
+
+enum OAuthProvider {
+  GOOGLE
+  GITHUB
 }
 
 enum UserStatus {

@@ -13,6 +13,7 @@ import {
 } from './profile.error.ts';
 import { ChangePasswordInputType, UpdatePersonalProfileInputType } from './profile.model.ts';
 import { ProfileRepo } from './profile.repo.ts';
+import { accountUsesSocialLoginException } from '../auth/auth.error.ts';
 
 @Injectable()
 export class ProfileService {
@@ -69,6 +70,14 @@ export class ProfileService {
       const user = await this.profileRepo.getUserPassword(userId);
       if (!user) {
         throw NotFoundRecordException;
+      }
+
+      // Provider-only accounts have no current password to confirm, and by decision D2
+      // they do not get a path to set one outside their provider.
+      if (user.password === null) {
+        throw accountUsesSocialLoginException(
+          user.identities.map((identity) => identity.provider),
+        );
       }
 
       const isCurrentPasswordValid = await this.hashingService.compare(

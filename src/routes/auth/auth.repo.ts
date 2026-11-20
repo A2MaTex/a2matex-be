@@ -2,10 +2,12 @@ import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
 import {
+  OAuthProviderType,
   RoleStatus,
   TypeOfVerificationCodeType,
   UserStatus,
 } from '../../shared/constants/auth.constant.ts';
+import { UserIdentityType } from '../../entities/user-identity.model.ts';
 import { UserType } from '../../entities/user.model.ts';
 import { ProfileType } from '../../entities/profile.model.ts';
 import { WhereUniqueUserType } from '../../shared/repositories/shared-user.repo.ts';
@@ -18,7 +20,7 @@ type RefreshTokenWithUserType = RefreshTokenType & {
   user: Pick<UserType, 'status' | 'deletedAt'>;
 };
 
-type ExistingRegisterAccountType = Pick<UserType, 'email' | 'username'>;
+type ExistingRegisterAccountType = Pick<UserType, 'id' | 'email' | 'username' | 'password'>;
 
 @Injectable()
 export class AuthRepository {
@@ -75,6 +77,105 @@ export class AuthRepository {
     });
   }
 
+  /**
+   * Existence check only: no role filter. Filtering by active role here would make an
+   * account whose roles were all deactivated look absent, send the caller down the
+   * create-account branch, and crash into the unique index on lower(email).
+   *
+   * Raw on purpose. Prisma's `mode: 'insensitive'` compiles to ILIKE, which treats `%`
+   * and `_` in the argument as wildcards — a provider address like `a_b@mail.com` would
+   * then match a different account and get linked to it. `lower(email) =` also matches
+   * User_email_idx, which ILIKE cannot use.
+   */
+  async findUserByEmailInsensitive(email: string): Promise<UserType | null> {
+    const rows = await this.prisma.$queryRaw<UserType[]>`
+      SELECT id, username, email, password, status, "createdAt", "updatedAt", "deletedAt"
+      FROM "User"
+      WHERE lower(email) = lower(${email}) AND "deletedAt" IS NULL
+      LIMIT 1
+    `;
+
+    return rows[0] ?? null;
+  }
+
+  async hasActiveRole(userId: string): Promise<boolean> {
+    const match = await this.prisma.userRole.findFirst({
+      where: {
+        userId,
+        deletedAt: null,
+        role: { status: RoleStatus.ACTIVE, deletedAt: null },
+      },
+      select: { userId: true },
+    });
+
+    return match !== null;
+  }
+
+  /**
+   * A link pointing at a soft-deleted account is treated as if it did not exist.
+   * Only the two columns the sign-in checks need are selected — pulling the whole user
+   * row would carry the password hash into memory on every social login for nothing.
+   */
+  findIdentity(
+    provider: OAuthProviderType,
+    providerUserId: string,
+  ): Promise<{ userId: string; user: Pick<UserType, 'id' | 'status'> } | null> {
+    return this.prisma.userIdentity.findFirst({
+      where: {
+        provider,
+        providerUserId,
+        user: { deletedAt: null },
+      },
+      select: {
+        userId: true,
+        user: { select: { id: true, status: true } },
+      },
+    });
+  }
+
+  createIdentity(data: {
+    provider: OAuthProviderType;
+    providerUserId: string;
+    userId: string;
+    email: string | null;
+  }): Promise<Pick<UserIdentityType, 'id'>> {
+    return this.prisma.userIdentity.create({
+      data,
+      select: { id: true },
+    });
+  }
+
+  createUserFromProvider(user: {
+    email: string;
+    username: string;
+    fullName: ProfileType['fullName'];
+    roleId: string;
+  }): Promise<Pick<UserType, 'id'>> {
+    const { fullName, roleId, ...userData } = user;
+    const userId = randomUUID();
+
+    return this.prisma.user.create({
+      data: {
+        id: userId,
+        ...userData,
+        // No password at all: this account signs in through its provider only.
+        password: null,
+        status: UserStatus.ACTIVE,
+        profile: {
+          create: {
+            fullName,
+            email: userData.email,
+            createdById: userId,
+          },
+        },
+        userRoles: {
+          create: { roleId },
+        },
+      },
+      select: { id: true },
+    });
+  }
+
   findExistingRegisterAccounts({
     email,
     username,
@@ -98,8 +199,10 @@ export class AuthRepository {
         ],
       },
       select: {
+        id: true,
         email: true,
         username: true,
+        password: true,
       },
     });
   }

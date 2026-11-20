@@ -5,9 +5,9 @@ import { z } from 'zod';
 export const RegisterInput = User.pick({
   username: true,
   email: true,
-  password: true,
 })
   .extend({
+    password: z.string().min(6).max(100),
     fullName: z.string().min(1).max(255),
     confirmPassword: z.string().min(6).max(100),
     code: z.string().length(6),
@@ -28,10 +28,9 @@ export const SendOTPInput = VerificationCode.pick({
   type: true,
 }).strict();
 
-export const LoginInput = User.pick({
-  password: true,
-})
-  .extend({
+export const LoginInput = z
+  .object({
+    password: z.string().min(6),
     account: z.string().min(1).max(500),
   })
   .strict();
@@ -42,6 +41,13 @@ export const LoginOutput = z.object({
 });
 
 export const RegisterOutput = LoginOutput;
+
+export const SocialLoginInput = z
+  .object({
+    code: z.string().min(1).max(2048),
+    redirectUri: z.string().min(1).max(2048),
+  })
+  .strict();
 
 export const RefreshTokenInput = z
   .object({
@@ -75,6 +81,7 @@ export const ForgotPasswordInput = z
     }
   });
 
+export type SocialLoginInputType = z.infer<typeof SocialLoginInput>;
 export type RegisterInputType = z.infer<typeof RegisterInput>;
 export type RegisterOutputType = z.infer<typeof RegisterOutput>;
 export type SendOTPInputType = z.infer<typeof SendOTPInput>;

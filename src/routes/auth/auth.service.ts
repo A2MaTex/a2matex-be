@@ -9,12 +9,15 @@ import ms, { StringValue } from 'ms';
 import envConfig from '../../shared/config.js';
 import {
   EmailSubject,
+  OAuthProvider,
+  OAuthProviderType,
   TypeOfVerificationCode,
   TypeOfVerificationCodeType,
   UserStatus,
 } from '../../shared/constants/auth.constant.js';
 import { EmailService } from '../../shared/services/email.service.js';
 import { AccessTokenPayloadCreate } from '../../shared/types/jwt.type.js';
+import { UserType } from '../../entities/user.model.ts';
 import {
   EmailAlreadyExistsException,
   EmailOrUsernameNotFoundException,
@@ -23,9 +26,17 @@ import {
   FailedToSendOTPException,
   InvalidOTPException,
   OTPExpiredException,
+  accountUsesSocialLoginException,
+  InvalidProviderEmailException,
+  ProviderAlreadyLinkedException,
+  ProviderEmailUnavailableException,
+  NoActiveRoleException,
+  ProviderEmailNotVerifiedException,
+  RedirectUriNotAllowedException,
   RefreshTokenAlreadyUsedException,
   UnauthorizedAccessException,
   UsernameAlreadyExistsException,
+  UsernameGenerationExhaustedException,
 } from './auth.error.js';
 import { SharedRoleRepository } from '../../shared/repositories/shared-role.repo.js';
 import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
@@ -34,12 +45,29 @@ import {
   LoginInputType,
   RegisterInputType,
   SendOTPInputType,
+  SocialLoginInputType,
 } from './auth.model.ts';
+import { GithubOauthClient } from './oauth/github-oauth.client.ts';
+import { GoogleOauthClient } from './oauth/google-oauth.client.ts';
+import type { OAuthIdentity } from './oauth/oauth.type.ts';
+import { buildUsernameBase, withSuffix } from './oauth/username-generator.ts';
+import { z } from 'zod';
 import { isNotFoundPrismaError, isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
 import { generateOTP } from '../../shared/utils/utils.ts';
 import { InvalidPasswordException } from '../../shared/errors/common.error.ts';
 import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
 import { TransactionService } from '../../shared/services/transaction.service.ts';
+
+type UniqueViolationMeta = {
+  target?: unknown;
+  driverAdapterError?: { cause?: { constraint?: { index?: string } } };
+};
+
+// Bounded so a pathological run of clashes fails loudly instead of looping.
+const MAX_USERNAME_ATTEMPTS = 5;
+// Profile.fullName is VarChar(255) and carries no schema-level max, so the cut has to
+// happen here. A long display name must not cost someone their sign-in.
+const MAX_FULL_NAME_LENGTH = 255;
 
 @Injectable()
 export class AuthService {
@@ -53,6 +81,8 @@ export class AuthService {
     @Inject(EmailService) private readonly emailService: EmailService,
     @Inject(TokenService) private readonly tokenService: TokenService,
     @Inject(TransactionService) private readonly transactionService: TransactionService,
+    @Inject(GoogleOauthClient) private readonly googleOauthClient: GoogleOauthClient,
+    @Inject(GithubOauthClient) private readonly githubOauthClient: GithubOauthClient,
   ) {}
 
   async validateVerificationCode({
@@ -171,9 +201,12 @@ export class AuthService {
 
   async sendOTP(body: SendOTPInputType) {
     try {
-      const user = await this.sharedUserRepository.findUnique({
-        email: body.email,
-      });
+      const user = await this.authRepository.findUserByEmailInsensitive(body.email);
+      // Both OTP types stop here for a provider-only account, before a code is created
+      // and before any mail goes out.
+      if (user && user.password === null) {
+        throw accountUsesSocialLoginException();
+      }
       if (body.type === TypeOfVerificationCode.REGISTER && user) {
         throw EmailAlreadyExistsException;
       }
@@ -233,6 +266,12 @@ export class AuthService {
         throw AccountBlockedException;
       }
 
+      // An account created through a provider has no password to compare against, and
+      // bcrypt would throw on a null hash. Say what is actually true instead.
+      if (user.password === null) {
+        throw accountUsesSocialLoginException();
+      }
+
       const isPasswordMatch = await this.hashingService.compare(body.password, user.password);
       if (!isPasswordMatch) {
         this.logger.error('invalid password');
@@ -271,6 +310,257 @@ export class AuthService {
     });
   }
 
+  async socialLogin(
+    provider: OAuthProviderType,
+    body: SocialLoginInputType & { userAgent: string; ip: string },
+  ) {
+    try {
+      this.assertRedirectUriAllowed(body.redirectUri);
+
+      // Everything that talks to the provider happens here, outside any transaction:
+      // a slow provider must never hold a database connection.
+      const client =
+        provider === OAuthProvider.GOOGLE ? this.googleOauthClient : this.githubOauthClient;
+      const identity = await client.exchangeCodeForIdentity({
+        code: body.code,
+        redirectUri: body.redirectUri,
+      });
+
+      // A matching link identifies a returning user on its own — their email is not
+      // consulted at all, so neither changing it at the provider nor losing access to
+      // it (revoked email scope, unverified primary address) can lock them out.
+      const existing = await this.authRepository.findIdentity(provider, identity.providerUserId);
+      if (existing) {
+        await this.assertUserCanSignIn(existing.user);
+        return await this.loginWithSession({
+          userId: existing.user.id,
+          userAgent: body.userAgent,
+          ip: body.ip,
+        });
+      }
+
+      // Everything below creates or claims an account, so now the email has to hold up.
+      if (!identity.email) {
+        throw ProviderEmailUnavailableException;
+      }
+      const email = this.parseProviderEmail(identity.email);
+      if (!identity.emailVerified) {
+        throw ProviderEmailNotVerifiedException;
+      }
+
+      return await this.resolveNewIdentity({ identity, email, body });
+    } catch (error) {
+      if (!(error instanceof HttpException)) {
+        this.logger.error(`failed to sign in with ${provider}`, error);
+      }
+      throw error;
+    }
+  }
+
+  private async resolveNewIdentity({
+    identity,
+    email,
+    body,
+  }: {
+    identity: OAuthIdentity;
+    email: string;
+    body: SocialLoginInputType & { userAgent: string; ip: string };
+  }) {
+    // Existence check deliberately ignores roles: an account whose roles were all
+    // deactivated still owns its email, and treating it as absent would send us down
+    // the create branch and into the unique index on lower(email).
+    const user = await this.authRepository.findUserByEmailInsensitive(email);
+    if (user) {
+      await this.assertUserCanSignIn(user);
+      return await this.linkIdentityWithSession({
+        identity,
+        email,
+        userId: user.id,
+        userAgent: body.userAgent,
+        ip: body.ip,
+      });
+    }
+
+    return await this.createAccountWithIdentity({ identity, email, body });
+  }
+
+  @Transactional()
+  private async linkIdentityWithSession({
+    identity,
+    email,
+    userId,
+    userAgent,
+    ip,
+  }: {
+    identity: OAuthIdentity;
+    email: string;
+    userId: string;
+    userAgent: string;
+    ip: string;
+  }) {
+    // Only the link row is written. Name, avatar and both email fields belong to the
+    // user, and signing in with Google is not consent to have them overwritten.
+    try {
+      await this.authRepository.createIdentity({
+        provider: identity.provider,
+        providerUserId: identity.providerUserId,
+        userId,
+        email,
+      });
+    } catch (error) {
+      // The account already holds a link for this provider — a second provider account
+      // on the same address, or two first-time logins racing. Without this the raw
+      // P2002 escapes as a bare 409 that says nothing.
+      if (isUniqueConstraintPrismaError(error)) {
+        throw ProviderAlreadyLinkedException;
+      }
+      throw error;
+    }
+
+    return this.loginWithSession({ userId, userAgent, ip });
+  }
+
+  private async createAccountWithIdentity({
+    identity,
+    email,
+    body,
+  }: {
+    identity: OAuthIdentity;
+    email: string;
+    body: SocialLoginInputType & { userAgent: string; ip: string };
+  }) {
+    const customerRoleId = await this.sharedRoleRepository.getCustomerRoleId();
+    const usernameBase = buildUsernameBase({
+      provider: identity.provider,
+      displayName: identity.displayName,
+      providerUsername: identity.providerUsername,
+      email,
+    });
+    // The profile needs a name and the provider may not supply one.
+    const fullName = this.truncateFullName(identity.displayName ?? usernameBase);
+
+    for (let attempt = 0; attempt <= MAX_USERNAME_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.createAccountWithSession({
+          identity,
+          email,
+          username: withSuffix(usernameBase, attempt),
+          fullName,
+          roleId: customerRoleId,
+          userAgent: body.userAgent,
+          ip: body.ip,
+        });
+      } catch (error) {
+        if (!isUniqueConstraintPrismaError(error)) {
+          throw error;
+        }
+
+        // A username clash is retried with a new suffix. Anything else means another
+        // request won the race for this email, so resolve against that account instead.
+        if (!this.isUsernameConflict(error)) {
+          const winner = await this.authRepository.findUserByEmailInsensitive(email);
+          if (!winner) {
+            throw error;
+          }
+          await this.assertUserCanSignIn(winner);
+          return await this.linkIdentityWithSession({
+            identity,
+            email,
+            userId: winner.id,
+            userAgent: body.userAgent,
+            ip: body.ip,
+          });
+        }
+      }
+    }
+
+    throw UsernameGenerationExhaustedException;
+  }
+
+  // Each attempt gets its own transaction: a failed statement aborts the surrounding
+  // one, so retrying inside it would only collect more errors.
+  @Transactional()
+  private async createAccountWithSession({
+    identity,
+    email,
+    username,
+    fullName,
+    roleId,
+    userAgent,
+    ip,
+  }: {
+    identity: OAuthIdentity;
+    email: string;
+    username: string;
+    fullName: string;
+    roleId: string;
+    userAgent: string;
+    ip: string;
+  }) {
+    const user = await this.authRepository.createUserFromProvider({
+      email,
+      username,
+      fullName,
+      roleId,
+    });
+
+    await this.authRepository.createIdentity({
+      provider: identity.provider,
+      providerUserId: identity.providerUserId,
+      userId: user.id,
+      email,
+    });
+
+    return this.loginWithSession({ userId: user.id, userAgent, ip });
+  }
+
+  private async assertUserCanSignIn(user: Pick<UserType, 'id' | 'status'>) {
+    if (user.status === UserStatus.BANNED) {
+      throw AccountBlockedException;
+    }
+
+    // Deactivating every role is how an account is locked out on the password door,
+    // so the provider door has to honour it too.
+    if (!(await this.authRepository.hasActiveRole(user.id))) {
+      throw NoActiveRoleException;
+    }
+  }
+
+  private assertRedirectUriAllowed(redirectUri: string) {
+    // Exact match only: a prefix match would accept any path under the same origin.
+    if (!envConfig.OAUTH_REDIRECT_URI_ALLOWLIST.includes(redirectUri)) {
+      throw RedirectUriNotAllowedException;
+    }
+  }
+
+  private parseProviderEmail(email: string): string {
+    const parsed = z.email().safeParse(email);
+    if (!parsed.success) {
+      throw InvalidProviderEmailException;
+    }
+
+    return parsed.data;
+  }
+
+  private truncateFullName(fullName: string): string {
+    return fullName.slice(0, MAX_FULL_NAME_LENGTH);
+  }
+
+  /**
+   * The driver adapter reports the violated index under `driverAdapterError`, not under
+   * `meta.target` — that one is undefined here, and reading it made every clash look
+   * like an email race. `meta.target` is kept as a fallback for other Prisma setups.
+   */
+  private isUsernameConflict(error: unknown): boolean {
+    const meta = (error as { meta?: UniqueViolationMeta }).meta;
+    const index = meta?.driverAdapterError?.cause?.constraint?.index;
+    if (typeof index === 'string') {
+      return index.includes('username');
+    }
+
+    return JSON.stringify(meta?.target ?? '').includes('username');
+  }
+
   private async validateRegisterAccountIsUnique({
     email,
     username,
@@ -282,7 +572,16 @@ export class AuthService {
     const normalizedEmail = email.toLowerCase();
     const normalizedUsername = username.toLowerCase();
 
-    if (existingAccounts.some((account) => account.email.toLowerCase() === normalizedEmail)) {
+    const emailOwner = existingAccounts.find(
+      (account) => account.email.toLowerCase() === normalizedEmail,
+    );
+    if (emailOwner) {
+      // A register OTP issued before this account existed stays valid until it expires,
+      // and this check runs before the code is validated — so the provider-only case is
+      // reachable here and must not answer with the generic duplicate-email message.
+      if (emailOwner.password === null) {
+        throw accountUsesSocialLoginException();
+      }
       throw EmailAlreadyExistsException;
     }
 
@@ -421,11 +720,13 @@ export class AuthService {
     try {
       const { email, code, newPassword } = body;
 
-      const user = await this.sharedUserRepository.findUnique({
-        email,
-      });
+      const user = await this.authRepository.findUserByEmailInsensitive(email);
       if (!user) {
         throw EmailNotFoundException;
+      }
+      // Second layer, for a caller that skips the OTP request step.
+      if (user.password === null) {
+        throw accountUsesSocialLoginException();
       }
 
       await this.validateVerificationCode({
