@@ -105,6 +105,25 @@ const configSchema = z
     CRON_MULTIPART_CLEAN_TIME: z.string().default('0 0 0 * * *'),
     UPLOAD_SESSION_TTL: z.coerce.number().int().positive().default(1),
     MASTER_KEY: z.string().optional().transform(emptyToUndefined),
+    // Social login. Each provider is optional so an unconfigured environment still boots;
+    // a half-configured one does not (see the superRefine below).
+    GOOGLE_CLIENT_ID: z.string().optional().transform(emptyToUndefined),
+    GOOGLE_CLIENT_SECRET: z.string().optional().transform(emptyToUndefined),
+    GITHUB_CLIENT_ID: z.string().optional().transform(emptyToUndefined),
+    GITHUB_CLIENT_SECRET: z.string().optional().transform(emptyToUndefined),
+    // Comma-separated redirect URIs the frontend may send. Matched exactly, never by prefix.
+    OAUTH_REDIRECT_URI_ALLOWLIST: z
+      .string()
+      .optional()
+      .transform((value) =>
+        value
+          ? value
+              .split(',')
+              .map((uri) => uri.trim())
+              .filter((uri) => uri.length > 0)
+          : [],
+      ),
+    OAUTH_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   })
   .superRefine((cfg, ctx) => {
     const hasAccessKey = cfg.OBJECT_STORAGE_ACCESS_KEY_ID !== undefined;
@@ -114,6 +133,36 @@ const configSchema = z
         code: 'custom',
         path: [hasAccessKey ? 'OBJECT_STORAGE_SECRET_ACCESS_KEY' : 'OBJECT_STORAGE_ACCESS_KEY_ID'],
         message: 'Object storage access key ID and secret access key must be configured together',
+      });
+    }
+
+    const hasGoogleId = cfg.GOOGLE_CLIENT_ID !== undefined;
+    const hasGoogleSecret = cfg.GOOGLE_CLIENT_SECRET !== undefined;
+    if (hasGoogleId !== hasGoogleSecret) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [hasGoogleId ? 'GOOGLE_CLIENT_SECRET' : 'GOOGLE_CLIENT_ID'],
+        message: 'Google client ID and client secret must be configured together',
+      });
+    }
+
+    const hasGithubId = cfg.GITHUB_CLIENT_ID !== undefined;
+    const hasGithubSecret = cfg.GITHUB_CLIENT_SECRET !== undefined;
+    if (hasGithubId !== hasGithubSecret) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [hasGithubId ? 'GITHUB_CLIENT_SECRET' : 'GITHUB_CLIENT_ID'],
+        message: 'GitHub client ID and client secret must be configured together',
+      });
+    }
+
+    // A configured provider with an empty allowlist boots clean and then rejects every
+    // request, which is the silent-broken state the pairing rules exist to prevent.
+    if ((hasGoogleId || hasGithubId) && cfg.OAUTH_REDIRECT_URI_ALLOWLIST.length === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['OAUTH_REDIRECT_URI_ALLOWLIST'],
+        message: 'OAUTH_REDIRECT_URI_ALLOWLIST is required when a social login provider is configured',
       });
     }
 

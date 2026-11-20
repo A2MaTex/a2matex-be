@@ -9,6 +9,7 @@ import {
   RegisterInput,
   RegisterOutput,
   SendOTPInput,
+  SocialLoginInput,
 } from './auth.model.ts';
 
 export class RegisterInputDTO extends createZodDto(RegisterInput) {}
@@ -28,3 +29,5 @@ export class RefreshTokenOutputDTO extends createZodDto(RefreshTokenOutput) {}
 export class LogoutInputDTO extends createZodDto(LogoutInput) {}
 
 export class ForgotPasswordInputDTO extends createZodDto(ForgotPasswordInput) {}
+
+export class SocialLoginInputDTO extends createZodDto(SocialLoginInput) {}

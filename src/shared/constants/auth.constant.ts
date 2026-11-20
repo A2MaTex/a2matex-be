@@ -42,6 +42,13 @@ export const TypeOfVerificationCode = {
 export type TypeOfVerificationCodeType =
   (typeof TypeOfVerificationCode)[keyof typeof TypeOfVerificationCode];
 
+export const OAuthProvider = {
+  GOOGLE: 'GOOGLE',
+  GITHUB: 'GITHUB',
+} as const;
+
+export type OAuthProviderType = (typeof OAuthProvider)[keyof typeof OAuthProvider];
+
 export const EmailSubject = {
   REGISTER: 'Mã OTP đăng ký',
   FORGOT_PASSWORD: 'Mã OTP quên mật khẩu',

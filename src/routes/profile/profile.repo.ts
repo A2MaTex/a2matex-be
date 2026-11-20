@@ -132,6 +132,10 @@ export class ProfileRepo {
         id: true,
         username: true,
         password: true,
+        identities: {
+          select: { provider: true },
+          orderBy: { createdAt: 'asc' },
+        },
       },
     });
   }

@@ -14,7 +14,7 @@ import type { Request, Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
 import { AuthService } from './auth.service.js';
-import { AuthCookieName } from '../../shared/constants/auth.constant.ts';
+import { AuthCookieName, OAuthProvider } from '../../shared/constants/auth.constant.ts';
 import { IsPublic } from '../../shared/decorators/auth.decorator.js';
 import { UserAgent } from '../../shared/decorators/user-agent.decorator.js';
 import { MessageResDTO } from '../../shared/dtos/response.dto.js';
@@ -33,6 +33,7 @@ import {
   RegisterInputDTO,
   RegisterOutputDTO,
   SendOTPInputDTO,
+  SocialLoginInputDTO,
 } from './auth.dto.ts';
 
 @ApiTags('Auth')
@@ -76,6 +77,44 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response,
   ) {
     const tokens = await this.authService.login({
+      ...body,
+      userAgent,
+      ip,
+    });
+    setAuthCookies(response, tokens);
+
+    return tokens;
+  }
+
+  @Post('google')
+  @IsPublic()
+  @ZodResponse({ type: LoginOutputDTO })
+  async loginWithGoogle(
+    @Body() body: SocialLoginInputDTO,
+    @UserAgent() userAgent: string,
+    @Ip() ip: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const tokens = await this.authService.socialLogin(OAuthProvider.GOOGLE, {
+      ...body,
+      userAgent,
+      ip,
+    });
+    setAuthCookies(response, tokens);
+
+    return tokens;
+  }
+
+  @Post('github')
+  @IsPublic()
+  @ZodResponse({ type: LoginOutputDTO })
+  async loginWithGithub(
+    @Body() body: SocialLoginInputDTO,
+    @UserAgent() userAgent: string,
+    @Ip() ip: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const tokens = await this.authService.socialLogin(OAuthProvider.GITHUB, {
       ...body,
       userAgent,
       ip,

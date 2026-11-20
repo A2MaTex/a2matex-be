@@ -35,7 +35,9 @@ export type AdminUserAuditHistoryEntryType = z.infer<typeof AdminUserAuditHistor
 export const User = Base.extend({
   username: z.string().min(1).max(100),
   email: z.email(),
-  password: z.string().min(6),
+  // Null for accounts created through a social provider: they never set one.
+  // Request schemas that need a real password override this.
+  password: z.string().min(6).nullable(),
   status: z.enum([UserStatus.ACTIVE, UserStatus.INACTIVE, UserStatus.BANNED]),
 });
 
