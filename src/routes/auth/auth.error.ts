@@ -47,8 +47,7 @@ export const EmailNotFoundException = new UnprocessableEntityException([
   },
 ]);
 
-// BR-06: unknown account and wrong password answer the same key and field, so the response
-// does not reveal whether an account exists (MSG10).
+// DEF-002
 export const InvalidCredentialsException = new UnprocessableEntityException([
   {
     message: 'Error.InvalidCredentials',

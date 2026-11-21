@@ -393,8 +393,7 @@ export class AuthRepository {
     });
   }
 
-  // BR-04: a password reset ends every session of the user. Refresh tokens are removed the
-  // same way logout removes one, and every device session is marked inactive.
+  // DEF-003
   async revokeAllSessions(userId: string): Promise<void> {
     await this.prisma.refreshToken.deleteMany({ where: { userId } });
     await this.prisma.device.updateMany({ where: { userId }, data: { isActive: false } });

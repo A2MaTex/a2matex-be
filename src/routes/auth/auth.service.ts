@@ -771,7 +771,7 @@ export class AuthService {
         type: TypeOfVerificationCode.FORGOT_PASSWORD,
       },
     });
-    // BR-04 / UC-09: tokens issued before the reset must stop working.
+    // DEF-003
     await this.authRepository.revokeAllSessions(userId);
   }
 }
