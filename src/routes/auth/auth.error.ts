@@ -47,6 +47,14 @@ export const EmailNotFoundException = new UnprocessableEntityException([
   },
 ]);
 
+// DEF-002
+export const InvalidCredentialsException = new UnprocessableEntityException([
+  {
+    message: 'Error.InvalidCredentials',
+    path: 'password',
+  },
+]);
+
 export const EmailOrUsernameNotFoundException = new UnprocessableEntityException([
   {
     message: 'Error.EmailOrUsernameNotFound',
