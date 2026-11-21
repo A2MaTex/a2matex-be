@@ -28,6 +28,9 @@ model User {
   Product_Product_suspendedByIdToUser                 Product[]             @relation("Product_suspendedByIdToUser")
   Product_Product_updatedByIdToUser                   Product[]             @relation("Product_updatedByIdToUser")
   createdProductOffers                                ProductOffer[]        @relation("ProductOfferCreatedBy")
+  entitlements                                        Entitlement[]         @relation("EntitlementCustomer")
+  grantedEntitlements                                 Entitlement[]         @relation("EntitlementGrantedBy")
+  revokedEntitlements                                 Entitlement[]         @relation("EntitlementRevokedBy")
   updatedProductOffers                                ProductOffer[]        @relation("ProductOfferUpdatedBy")
   deletedProductOffers                                ProductOffer[]        @relation("ProductOfferDeletedBy")
   createdProfiles                                     Profile[]             @relation("ProfileCreatedBy")
@@ -482,6 +485,7 @@ model Product {
   User_Product_updatedByIdToUser     User?            @relation("Product_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   ProductMedia                       ProductMedia[]
   ProductOffer                       ProductOffer[]
+  Entitlement                        Entitlement[]
   releases                           ProductRelease[] @relation("ProductReleases")
   Submission                         Submission[]
 
@@ -626,6 +630,7 @@ model ProductOffer {
   createdBy    User             @relation("ProductOfferCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   updatedBy    User?            @relation("ProductOfferUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   deletedBy    User?            @relation("ProductOfferDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Entitlement  Entitlement[]
 
   @@index([productId], map: "ProductOffer_productId_idx", where: raw("(\"deletedAt\" IS NULL)"))
 }
@@ -737,4 +742,47 @@ enum SubmissionScanStatus {
   PASSED
   FAILED
   ERROR
+}
+
+/// One durable row per customer and Product: the current access period and its latest
+/// source. Stored status is ACTIVE or REVOKED; EXPIRED is derived from "expiresAt" at read
+/// time. "latestOrderItemId" gains its foreign key when the Order spec adds OrderItem.
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Entitlement {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId           String                 @db.Uuid
+  productId            String                 @db.Uuid
+  status               EntitlementStatus      @default(ACTIVE)
+  grantSource          EntitlementGrantSource
+  grantedById          String?                @db.Uuid
+  startsAt             DateTime               @db.Timestamptz(6)
+  expiresAt            DateTime?              @db.Timestamptz(6)
+  latestProductOfferId String?                @db.Uuid
+  latestOrderItemId    String?                @db.Uuid
+  oneTimePurchasedAt   DateTime?              @db.Timestamptz(6)
+  grantSnapshot        Json
+  revokedAt            DateTime?              @db.Timestamptz(6)
+  revokedById          String?                @db.Uuid
+  revokedReason        String?
+  auditHistory         Json                   @default("[]")
+  createdAt            DateTime               @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime?              @db.Timestamptz(6)
+  customer             User                   @relation("EntitlementCustomer", fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grantedBy            User?                  @relation("EntitlementGrantedBy", fields: [grantedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  revokedBy            User?                  @relation("EntitlementRevokedBy", fields: [revokedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Product              Product                @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  latestProductOffer   ProductOffer?          @relation(fields: [latestProductOfferId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([customerId, productId], map: "Entitlement_customerId_productId_key")
+  @@index([productId], map: "Entitlement_productId_idx")
+}
+
+enum EntitlementStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum EntitlementGrantSource {
+  ORDER
+  ADMIN_GRANT
 }
