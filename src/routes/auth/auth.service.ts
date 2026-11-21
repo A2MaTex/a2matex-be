@@ -20,7 +20,7 @@ import { AccessTokenPayloadCreate } from '../../shared/types/jwt.type.js';
 import { UserType } from '../../entities/user.model.ts';
 import {
   EmailAlreadyExistsException,
-  EmailOrUsernameNotFoundException,
+  InvalidCredentialsException,
   EmailNotFoundException,
   AccountBlockedException,
   FailedToSendOTPException,
@@ -54,7 +54,6 @@ import { buildUsernameBase, withSuffix } from './oauth/username-generator.ts';
 import { z } from 'zod';
 import { isNotFoundPrismaError, isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
 import { generateOTP } from '../../shared/utils/utils.ts';
-import { InvalidPasswordException } from '../../shared/errors/common.error.ts';
 import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
 import { TransactionService } from '../../shared/services/transaction.service.ts';
 
@@ -259,7 +258,7 @@ export class AuthService {
       });
       if (!user) {
         this.logger.error('email or username not found');
-        throw EmailOrUsernameNotFoundException;
+        throw InvalidCredentialsException;
       }
       if (user.status === UserStatus.BANNED) {
         this.logger.error('account blocked');
@@ -275,7 +274,7 @@ export class AuthService {
       const isPasswordMatch = await this.hashingService.compare(body.password, user.password);
       if (!isPasswordMatch) {
         this.logger.error('invalid password');
-        throw InvalidPasswordException;
+        throw InvalidCredentialsException;
       }
 
       return await this.loginWithSession({
@@ -772,5 +771,7 @@ export class AuthService {
         type: TypeOfVerificationCode.FORGOT_PASSWORD,
       },
     });
+    // BR-04 / UC-09: tokens issued before the reset must stop working.
+    await this.authRepository.revokeAllSessions(userId);
   }
 }
