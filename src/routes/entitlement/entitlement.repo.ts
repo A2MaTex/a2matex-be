@@ -279,6 +279,22 @@ export class EntitlementRepo {
     return this.prisma.entitlement.findUniqueOrThrow({ where: { id }, select: adminSelect });
   }
 
+  // Read-only lookup used by the Order module for its response (spec 007 R8).
+  findForOrderSummary(
+    customerId: string,
+    productId: string,
+  ): Promise<{
+    id: string;
+    status: EntitlementStatusValue;
+    startsAt: Date;
+    expiresAt: Date | null;
+  } | null> {
+    return this.prisma.entitlement.findUnique({
+      where: { customerId_productId: { customerId, productId } },
+      select: { id: true, status: true, startsAt: true, expiresAt: true },
+    });
+  }
+
   async listAdmin(input: {
     customerId?: string;
     productId?: string;

@@ -52,7 +52,7 @@ khi mâu thuẫn, theo research/data-model/contracts.
 **⚠️ CRITICAL**: không story nào bắt đầu trước khi phase này xong.
 
 - [X] T003 Sửa `prisma/schema.prisma`: thêm `enum EntitlementStatus { ACTIVE REVOKED }`, `enum EntitlementGrantSource { ORDER ADMIN_GRANT }` và `model Entitlement` với đúng các cột trong data-model.md (`@db.Uuid`, `@db.Timestamptz(6)`, `grantSnapshot Json`, `auditHistory Json @default("[]")`, `status @default(ACTIVE)`, `createdAt @default(now())`); `@@unique([customerId, productId])`, `@@index([productId])`; relation có tên tới `User` cho `customerId` / `grantedById` / `revokedById` (thêm 3 back-relation trên `model User`), tới `Product` và `ProductOffer` (`latestProductOfferId`, thêm back-relation); `latestOrderItemId String? @db.Uuid` **không relation** (research R8); thêm comment `/// This table contains check constraints...` như các model khác có CHECK
-- [ ] T004 Tạo migration bằng `npm run prisma:migrate:create -- --name add_entitlement`, rồi viết tay `prisma/migrations/<timestamp>_add_entitlement/migration.sql` theo data-model.md: header comment mô tả quyết định (theo mẫu `20261117173000_add_product_offer/migration.sql`); 2 `CREATE TYPE`; `CREATE TABLE "Entitlement"` với FK `ON DELETE NO ACTION ON UPDATE NO ACTION`; đủ 6 CHECK: `Entitlement_customerId_productId_key` (UNIQUE), `Entitlement_period_check` (`"expiresAt" IS NULL OR "expiresAt" > "startsAt"`), `Entitlement_revoke_fields_check` (hai chiều: REVOKED ⇔ cả `revokedAt`, `revokedById`, `revokedReason` NOT NULL; không REVOKED ⇒ cả ba NULL), `Entitlement_granted_by_check` (`("grantSource" = 'ADMIN_GRANT') = ("grantedById" IS NOT NULL)`), `Entitlement_grantSnapshot_object_check`, `Entitlement_auditHistory_array_check`; `CREATE INDEX "Entitlement_productId_idx"`. Apply trên DB rỗng bằng `npm run prisma:migrate:deploy` (Constitution III) (phụ thuộc T003)
+- [X] T004 Tạo migration bằng `npm run prisma:migrate:create -- --name add_entitlement`, rồi viết tay `prisma/migrations/<timestamp>_add_entitlement/migration.sql` theo data-model.md: header comment mô tả quyết định (theo mẫu `20261117173000_add_product_offer/migration.sql`); 2 `CREATE TYPE`; `CREATE TABLE "Entitlement"` với FK `ON DELETE NO ACTION ON UPDATE NO ACTION`; đủ 6 CHECK: `Entitlement_customerId_productId_key` (UNIQUE), `Entitlement_period_check` (`"expiresAt" IS NULL OR "expiresAt" > "startsAt"`), `Entitlement_revoke_fields_check` (hai chiều: REVOKED ⇔ cả `revokedAt`, `revokedById`, `revokedReason` NOT NULL; không REVOKED ⇒ cả ba NULL), `Entitlement_granted_by_check` (`("grantSource" = 'ADMIN_GRANT') = ("grantedById" IS NOT NULL)`), `Entitlement_grantSnapshot_object_check`, `Entitlement_auditHistory_array_check`; `CREATE INDEX "Entitlement_productId_idx"`. Apply trên DB rỗng bằng `npm run prisma:migrate:deploy` (Constitution III) (phụ thuộc T003)
 - [X] T005 Chạy `npm run prisma:generate` và xác nhận `src/generated/prisma` có model `Entitlement` (phụ thuộc T004)
 - [X] T006 [P] Tạo `src/routes/entitlement/entitlement.error.ts` với đúng 6 exception của contract: `EntitlementProductNotActiveException = new ConflictException('Error.EntitlementProductNotActive')`, `EntitlementCustomerNotFoundException = new NotFoundException('Error.EntitlementCustomerNotFound')`, `EntitlementInvalidExpiresAtException = new UnprocessableEntityException('Error.EntitlementInvalidExpiresAt')`, `EntitlementNotFoundException = new NotFoundException('Error.EntitlementNotFound')`, `EntitlementAlreadyRevokedException = new ConflictException('Error.EntitlementAlreadyRevoked')`, `EntitlementOperationTimeoutException = new ServiceUnavailableException('Error.EntitlementOperationTimeout')`; dùng lại `ProductNotFoundException` từ `src/routes/product/product.error.ts` cho Product không tồn tại (không tạo mới)
 - [X] T007 [P] Tạo `src/routes/entitlement/entitlement.model.ts` phần dùng chung: `EntitlementStateSnapshotSchema` (`status`, `grantSource`, `startsAt`, `expiresAt` nullable, và optional `revokedAt`, `revokedById`, `revokedReason`); `EntitlementAuditEntrySchema` (`action: 'GRANT' | 'REVOKE'`, `reason`, `actedAt`, `actedById`, `before: snapshot | null`, `after: snapshot`); `AdminEntitlementOutput` đúng shape `AdminEntitlement` trong contracts/entitlement-api.md (thời gian là ISO string qua `z.iso.datetime()` hoặc pattern date đang dùng trong `src/routes/user/user.model.ts`; `status` = effective, thêm `storedStatus`); `EntitlementIdParam` (`entitlementId: z.uuid()`) (phụ thuộc T001)
@@ -156,12 +156,12 @@ caller trong 006. Không có story label vì không thuộc user story nào củ
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T035 Chạy `npm run seed:permissions` và xác nhận có 4 permission mới (`GET /api/v1/entitlements/me`, `GET /api/v1/admin/entitlements`, `POST /api/v1/admin/entitlements/grant`, `POST /api/v1/admin/entitlements/:entitlementId/revoke`) được gán cho ADMIN và cache role-permission đã bị xoá (Constitution II)
-- [ ] T036 Gán permission `GET /api/v1/entitlements/me` cho role `CUSTOMER` theo quickstart §1 (lấy danh sách hiện có rồi `PUT /roles/:id/permissions` với danh sách cũ **+** id mới — API thay toàn bộ tập); ghi bước này vào mô tả PR như bước vận hành bắt buộc khi deploy
-- [ ] T037 Chạy toàn bộ kịch bản quickstart S1–S8 trên môi trường dev, ghi kết quả từng kịch bản vào mô tả PR
-- [ ] T038 Chạy các câu SQL ở quickstart §3 và xác nhận cả 4 câu đều bị DB từ chối (FR-005, SC-003, SC-004)
-- [ ] T039 Chạy kịch bản đồng thời quickstart §4 (10 grant song song) và xác nhận đúng 1 row, `jsonb_array_length("auditHistory")` bằng số request `200`
-- [ ] T040 Chạy `npm run lint && npm test && npm run build`, sửa mọi lỗi (Constitution IV)
+- [X] T035 Chạy `npm run seed:permissions` và xác nhận có 4 permission mới (`GET /api/v1/entitlements/me`, `GET /api/v1/admin/entitlements`, `POST /api/v1/admin/entitlements/grant`, `POST /api/v1/admin/entitlements/:entitlementId/revoke`) được gán cho ADMIN và cache role-permission đã bị xoá (Constitution II)
+- [X] T036 Gán permission `GET /api/v1/entitlements/me` cho role `CUSTOMER` theo quickstart §1 (lấy danh sách hiện có rồi `PUT /roles/:id/permissions` với danh sách cũ **+** id mới — API thay toàn bộ tập); ghi bước này vào mô tả PR như bước vận hành bắt buộc khi deploy
+- [X] T037 Chạy toàn bộ kịch bản quickstart S1–S8 trên môi trường dev, ghi kết quả từng kịch bản vào mô tả PR
+- [X] T038 Chạy các câu SQL ở quickstart §3 và xác nhận cả 4 câu đều bị DB từ chối (FR-005, SC-003, SC-004)
+- [X] T039 Chạy kịch bản đồng thời quickstart §4 (10 grant song song) và xác nhận đúng 1 row, `jsonb_array_length("auditHistory")` bằng số request `200`
+- [X] T040 Chạy `npm run lint && npm test && npm run build`, sửa mọi lỗi (Constitution IV)
 
 ---
 
@@ -234,19 +234,66 @@ Task: "T019 [P] [US1] Viết entitlement.service.spec.ts"
 
 ## Implementation Status (2026-11-21)
 
-Môi trường khi triển khai: không có Docker/PostgreSQL và `.env` trên máy, nên các task cần DB thật
-còn mở.
+Toàn bộ T001–T040 đã xong. Phase 8 kiểm chứng trên máy local: Postgres 17 trong container
+(`npm run compose-up`), API chạy bằng **`npm run start:prod` (dist)** — không dùng `start:dev`, vì
+`tsx` không emit decorator metadata nên DTO không được validate và các case `422` của S2/S8 sẽ không
+đúng.
 
-- **T004**: `prisma/migrations/20261121090000_add_entitlement/migration.sql` đã viết tay theo
-  data-model.md (tên FK/index theo convention Prisma). **Chưa apply** — cần chạy
-  `npm run prisma:migrate:deploy` trên DB rỗng, rồi `npx prisma migrate diff` để xác nhận không drift.
-- **T035–T039**: cần DB + API đang chạy; chưa thực hiện.
-- **T040**: `npm run lint` pass (0 error, không warning ở file mới); `npm test` pass 24 file / 245
-  test (41 test mới). `npm run build` **fail** ở `src/cron/cron-runner.service.ts` vì npm cài hai bản
-  `cron` (4.4.1 ở root, 4.4.0 trong `@nestjs/schedule`) do repo không có lockfile — không liên quan
-  tới feature này; không có lỗi type nào trong file entitlement.
+### Phase 2 — migration (T004, T005)
 
-Điểm lệch nhỏ so với plan/tasks (cùng ngữ nghĩa):
+- Áp dụng `20261121090000_add_entitlement` bằng `npm run prisma:migrate:deploy`.
+- DB rỗng: tạo database mới, chạy lại **toàn bộ** chuỗi migration từ đầu → tất cả apply sạch, và
+  `prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma` trả
+  **"No difference detected"** (DB dev local còn drift cũ ở bảng `Static`, không liên quan feature).
+- `pg_constraint` / `pg_indexes` trên `Entitlement`: đủ 5 CHECK (`period`, `revoke_fields`,
+  `granted_by`, `grantSnapshot_object`, `auditHistory_array`), unique index
+  `Entitlement_customerId_productId_key`, index `Entitlement_productId_idx`, 5 FK.
+- Lưu ý: `src/generated/prisma` trong working tree bị cũ (chưa có model `Entitlement`) làm
+  `npm run build` fail — phải chạy lại `npm run prisma:generate` sau khi đổi schema.
+
+### Phase 8 — kết quả từng kịch bản
+
+| Task | Kịch bản | Kết quả |
+| ---- | -------- | ------- |
+| T035 | `npm run seed:permissions` | Added 8 permission (gồm đủ 4 route entitlement), gán ADMIN, "Cleared role permission cache" |
+| T036 | Gán `GET /api/v1/entitlements/me` cho `CUSTOMER` | `PUT /roles/:id/permissions` với 5 id cũ + 1 id mới → role còn đủ 6 permission |
+| T037 S1 | Admin grant lần đầu | `200`, `ACTIVE` / `ADMIN_GRANT`, `grantedById` = admin, 1 audit entry `before=null`; `GET /entitlements/me` thấy Product, không có field revoke/audit |
+| T037 S2 | 5 request bị từ chối | DRAFT → `409 EntitlementProductNotActive`; `expiresAt` quá khứ → `422 EntitlementInvalidExpiresAt`; thiếu `expiresAt` → `422` validation; `reason="   "` → `422` validation; customer lạ → `404 EntitlementCustomerNotFound`; `count(*)` không đổi (1) |
+| T037 S3 | Ghi đè rút ngắn | `200`, cùng `id`, `expiresAt` mới, `startsAt` = lúc cấp, 2 audit entry, entry 2 có `before.expiresAt` = giá trị S1 |
+| T037 S4 | `expiresAt: null` | `200`, `expiresAt=null`, My Products `ACTIVE` |
+| T037 S5 | Hết hạn suy ra lúc đọc | SQL đẩy `expiresAt` về quá khứ → My Products `EXPIRED`, admin thấy `status=EXPIRED` / `storedStatus=ACTIVE` |
+| T037 S6 | Thu hồi và cấp lại | revoke → `200` `REVOKED` + đủ 3 revoke fields, `startsAt`/`expiresAt` giữ nguyên; revoke lần 2 → `409 EntitlementAlreadyRevoked`; My Products → `REVOKED` không lộ lý do; grant lại → `ACTIVE`, 3 revoke fields `null`, audit còn entry `REVOKE` (reason "vi pham") và entry cuối có `before.status=REVOKED`; revoke id lạ → `404 EntitlementNotFound` |
+| T037 S7 | Cô lập dữ liệu | `$C2` không thấy quyền của `$C1` (`totalItems=0`); `$C1` gọi `GET /admin/entitlements` và `POST /admin/entitlements/grant` → `403` |
+| T037 S8 | Admin tra cứu | `?customerId=` trả quyền với đủ field quản trị (gồm `auditHistory`, `storedStatus`); `?productId=` lọc đúng; `?productId=not-a-uuid` → `422 Invalid UUID` |
+| T038 | 4 câu SQL quickstart §3 | Cả 4 đều bị từ chối (`revoke_fields_check` ×2, unique `customerId_productId_key`, `period_check`). Kiểm thêm 3 câu: `granted_by_check`, `grantSnapshot_object_check`, `auditHistory_array_check` cũng từ chối |
+| T039 | 10 grant song song | 10/10 `200`, đúng **1** row, `jsonb_array_length("auditHistory") = 10` |
+| T040 | `npm run lint && npm test && npm run build` | lint exit 0 (0 finding ở file entitlement, chỉ warning cũ nơi khác); test 24 file / 245 test pass; build pass sau khi `prisma:generate` |
+
+### Việc vận hành bắt buộc khi deploy (ghi vào mô tả PR)
+
+1. `npm run prisma:migrate:deploy` — migration `20261121090000_add_entitlement`.
+2. `npm run seed:permissions` — tạo các permission route còn thiếu (gồm đủ 4 route entitlement) và
+   gán cho `ADMIN`. Trên local lệnh này thêm 8 permission: 4 route entitlement + `POST /auth/google`,
+   `POST /auth/github`, `GET /marketplace/products`, `GET /marketplace/products/:productId` chưa
+   từng được seed. Bốn route sau đều `@IsPublic()` nên `AuthenticationGuard` bỏ qua bước kiểm
+   permission — seed chúng vào ADMIN không chặn người dùng ẩn danh (đã thử lại: marketplace `200`,
+   `/auth/google` trả `422` validation chứ không phải `401/403`). Số lượng mỗi môi trường tuỳ trạng
+   thái hiện có.
+3. Gán thủ công `GET /api/v1/entitlements/me` cho role `CUSTOMER`: lấy danh sách permission hiện có
+   của role rồi `PUT /roles/:id/permissions` với **danh sách cũ + id mới** (API thay toàn bộ tập —
+   thiếu id cũ là customer mất quyền).
+
+### Bẫy để lại cho spec 007 (Order)
+
+`upsertFromOrder` cố tình **không** xoá `revokedAt`/`revokedById`/`revokedReason`. Nếu Order gọi
+`activateFromOrder` trên một quyền đang `REVOKED`, câu `ON CONFLICT DO UPDATE` sẽ đặt
+`status='ACTIVE'` mà vẫn còn revoke fields → `Entitlement_revoke_fields_check` chặn, transaction
+mua hàng abort (lỗi 500). Đây là lớp phòng vệ đúng theo Clarification "quyền bị thu hồi chặn mọi lần
+mua mới", không phải bug của 006 — nhưng Order **phải** tự chặn trước: `lockForPurchase` đã trả
+`status`, nên 007 chỉ cần kiểm tra `status === 'REVOKED'` và trả lỗi nghiệp vụ trước khi gọi
+`activateFromOrder`. Đã kiểm chứng bằng SQL mô phỏng trong một transaction rollback.
+
+### Điểm lệch nhỏ so với plan/tasks (cùng ngữ nghĩa)
 
 - T008/research R3: trạng thái hiển thị tính bằng hàm thuần `toEffectiveStatus(status, expiresAt,
   now)` với `now` lấy từ `now()` của DB (`getDatabaseNow()` hoặc `transactionNow`), thay cho

@@ -19,6 +19,7 @@ import { SubmissionReviewModule } from './routes/submission-review/submission-re
 import { ProductModule } from './routes/product/product.module.ts';
 import { ProductOfferModule } from './routes/product-offer/product-offer.module.ts';
 import { EntitlementModule } from './routes/entitlement/entitlement.module.ts';
+import { OrderModule } from './routes/order/order.module.ts';
 import { WorkflowValidationModule } from './routes/workflow-validation/workflow-validation.module.ts';
 import { WorkflowCompilerModule } from './routes/workflow-compiler/workflow-compiler.module.ts';
 import { UserModule } from './routes/user/user.module.ts';
@@ -50,6 +51,7 @@ import { ProductReleaseModule } from './routes/product-release/product-release.m
     ProductModule,
     ProductOfferModule,
     EntitlementModule,
+    OrderModule,
     SubmissionModule,
     SubmissionReviewModule,
     WorkflowValidationModule,

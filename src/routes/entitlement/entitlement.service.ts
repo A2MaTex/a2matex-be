@@ -33,6 +33,7 @@ import {
 import type {
   AdminEntitlementOutputType,
   EntitlementAuditEntryType,
+  EntitlementSummaryForOrderType,
   EntitlementStateSnapshotType,
   GetAdminEntitlementsInputType,
   GetAdminEntitlementsOutputType,
@@ -340,6 +341,32 @@ export class EntitlementService {
     }
     // ARCHIVED only stops discovery and new purchases; existing access keeps working.
     return { usable: true, entitlementId: row.id };
+  }
+
+  /**
+   * The customer's current access to one Product, for the Order module's response.
+   * Read-only and unlocked: it runs after the purchase has committed its changes, or on a
+   * replay where nothing is written at all.
+   */
+  async findSummaryForOrder({
+    customerId,
+    productId,
+  }: {
+    customerId: string;
+    productId: string;
+  }): Promise<EntitlementSummaryForOrderType | null> {
+    const row = await this.entitlementRepo.findForOrderSummary(customerId, productId);
+    if (!row) {
+      return null;
+    }
+
+    const now = await this.entitlementRepo.getDatabaseNow();
+    return {
+      id: row.id,
+      status: toEffectiveStatus(row.status, row.expiresAt, now),
+      startsAt: row.startsAt,
+      expiresAt: row.expiresAt,
+    };
   }
 
   // ---- Order contract (FR-011) ----

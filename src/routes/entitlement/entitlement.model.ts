@@ -166,6 +166,16 @@ export type UsageCheck =
   | { usable: true; entitlementId: string }
   | { usable: false; reason: EntitlementUsageDenyReasonValue };
 
+// What Order shows after a purchase, and after a replay of one. Read-only.
+export const EntitlementSummaryForOrder = z.object({
+  id: z.uuid(),
+  status: EntitlementEffectiveStatusSchema,
+  startsAt: zDate(),
+  expiresAt: zDate().nullable(),
+});
+
+export type EntitlementSummaryForOrderType = z.infer<typeof EntitlementSummaryForOrder>;
+
 export type LockedPurchaseEntitlement = {
   id: string;
   status: z.infer<typeof EntitlementStatusSchema>;
