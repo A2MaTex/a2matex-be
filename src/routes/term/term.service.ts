@@ -186,9 +186,8 @@ export class TermService {
       this.logger.log(
         `Term status changed termId=${term.id} status=${data.status} actorId=${userId}`,
       );
-      if (data.status === TermStatus.ACTIVE) {
-        await this.cacheProvider.RemoveState(CURRENT_TERM_CACHE_PREFIX, term.type);
-      }
+      // DEF-015
+      await this.cacheProvider.RemoveState(CURRENT_TERM_CACHE_PREFIX, term.type);
     });
     return SUCCESS_RESPONSE;
   }
