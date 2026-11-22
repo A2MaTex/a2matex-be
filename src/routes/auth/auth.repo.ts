@@ -393,6 +393,12 @@ export class AuthRepository {
     });
   }
 
+  // DEF-003
+  async revokeAllSessions(userId: string): Promise<void> {
+    await this.prisma.refreshToken.deleteMany({ where: { userId } });
+    await this.prisma.device.updateMany({ where: { userId }, data: { isActive: false } });
+  }
+
   deleteVerificationCode(
     uniqueValue:
       | { id: string }

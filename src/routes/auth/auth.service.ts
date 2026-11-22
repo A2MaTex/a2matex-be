@@ -771,5 +771,7 @@ export class AuthService {
         type: TypeOfVerificationCode.FORGOT_PASSWORD,
       },
     });
+    // DEF-003
+    await this.authRepository.revokeAllSessions(userId);
   }
 }
