@@ -501,7 +501,7 @@ model Product {
   ProductMedia                       ProductMedia[]
   ProductOffer                       ProductOffer[]
   Entitlement                        Entitlement[]
-  OrderItem                          OrderItem[]
+  Order                              Order[]
   releases                           ProductRelease[] @relation("ProductReleases")
   Submission                         Submission[]
 
@@ -647,7 +647,7 @@ model ProductOffer {
   updatedBy    User?            @relation("ProductOfferUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   deletedBy    User?            @relation("ProductOfferDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   Entitlement  Entitlement[]
-  OrderItem    OrderItem[]
+  Order        Order[]
 
   @@index([productId], map: "ProductOffer_productId_idx", where: raw("(\"deletedAt\" IS NULL)"))
 }
@@ -775,7 +775,7 @@ model Entitlement {
   startsAt             DateTime               @db.Timestamptz(6)
   expiresAt            DateTime?              @db.Timestamptz(6)
   latestProductOfferId String?                @db.Uuid
-  latestOrderItemId    String?                @db.Uuid
+  latestOrderId        String?                @db.Uuid
   oneTimePurchasedAt   DateTime?              @db.Timestamptz(6)
   grantSnapshot        Json
   revokedAt            DateTime?              @db.Timestamptz(6)
@@ -789,7 +789,7 @@ model Entitlement {
   revokedBy            User?                  @relation("EntitlementRevokedBy", fields: [revokedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   Product              Product                @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   latestProductOffer   ProductOffer?          @relation(fields: [latestProductOfferId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  latestOrderItem      OrderItem?             @relation(fields: [latestOrderItemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  latestOrder          Order?                 @relation(fields: [latestOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([customerId, productId], map: "Entitlement_customerId_productId_key")
   @@index([productId], map: "Entitlement_productId_idx")
@@ -805,43 +805,30 @@ enum EntitlementGrantSource {
   ADMIN_GRANT
 }
 
-/// One purchase paid from the customer's balance. Immutable once written: there is no
-/// update path, no soft delete, and the customer is the creator.
+/// One purchase of one Product paid from the customer's balance. Immutable once written:
+/// there is no update path, no soft delete, and the customer is the creator.
+/// "offerSnapshot" keeps the commercial terms as they were when the customer paid, so later
+/// price edits and offer removals cannot rewrite history.
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model Order {
-  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  customerId     String      @db.Uuid
-  status         OrderStatus @default(PAID)
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId     String        @db.Uuid
+  productId      String        @db.Uuid
+  productOfferId String        @db.Uuid
+  status         OrderStatus   @default(PAID)
   totalAmount    BigInt
-  paidAt         DateTime    @db.Timestamptz(6)
-  idempotencyKey String      @db.Uuid
-  createdAt      DateTime    @default(now()) @db.Timestamptz(6)
-  customer       User        @relation("OrderCustomer", fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  OrderItem      OrderItem[]
+  offerSnapshot  Json
+  paidAt         DateTime      @db.Timestamptz(6)
+  idempotencyKey String        @db.Uuid
+  createdAt      DateTime      @default(now()) @db.Timestamptz(6)
+  customer       User          @relation("OrderCustomer", fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Product        Product       @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ProductOffer   ProductOffer  @relation(fields: [productOfferId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Entitlement    Entitlement[]
 
   @@unique([customerId, idempotencyKey], map: "Order_customerId_idempotencyKey_key")
   @@index([customerId, createdAt(sort: Desc)], map: "Order_customerId_createdAt_idx")
-}
-
-/// The immutable line of an Order. "offerSnapshot" keeps the commercial terms as they were
-/// when the customer paid, so later price edits and offer removals cannot rewrite history.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model OrderItem {
-  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orderId         String        @db.Uuid
-  productId       String        @db.Uuid
-  productOfferId  String        @db.Uuid
-  unitPriceAmount BigInt
-  offerSnapshot   Json
-  createdAt       DateTime      @default(now()) @db.Timestamptz(6)
-  Order           Order         @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  Product         Product       @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  ProductOffer    ProductOffer  @relation(fields: [productOfferId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  Entitlement     Entitlement[]
-
-  @@unique([orderId, productId], map: "OrderItem_orderId_productId_key")
-  @@index([orderId], map: "OrderItem_orderId_idx")
-  @@index([productId], map: "OrderItem_productId_idx")
+  @@index([productId], map: "Order_productId_idx")
 }
 
 enum OrderStatus {

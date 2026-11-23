@@ -51,7 +51,7 @@ const adminSelect = {
   startsAt: true,
   expiresAt: true,
   latestProductOfferId: true,
-  latestOrderItemId: true,
+  latestOrderId: true,
   oneTimePurchasedAt: true,
   revokedAt: true,
   revokedById: true,
@@ -363,7 +363,7 @@ export class EntitlementRepo {
   async upsertFromOrder(input: {
     customerId: string;
     productId: string;
-    orderItemId: string;
+    orderId: string;
     productOfferId: string;
     isOneTime: boolean;
     startsAt: Date;
@@ -376,12 +376,12 @@ export class EntitlementRepo {
     >`
       INSERT INTO "Entitlement" (
         "customerId", "productId", status, "grantSource", "grantedById", "startsAt", "expiresAt",
-        "latestOrderItemId", "latestProductOfferId", "oneTimePurchasedAt", "grantSnapshot"
+        "latestOrderId", "latestProductOfferId", "oneTimePurchasedAt", "grantSnapshot"
       )
       VALUES (
         ${input.customerId}::uuid, ${input.productId}::uuid, 'ACTIVE', 'ORDER', NULL,
         ${input.startsAt}::timestamptz, ${input.expiresAt}::timestamptz,
-        ${input.orderItemId}::uuid, ${input.productOfferId}::uuid,
+        ${input.orderId}::uuid, ${input.productOfferId}::uuid,
         ${oneTimePurchasedAt}::timestamptz, ${grantSnapshot}::jsonb
       )
       ON CONFLICT ("customerId", "productId") DO UPDATE
@@ -390,7 +390,7 @@ export class EntitlementRepo {
           "grantedById" = NULL,
           "startsAt" = EXCLUDED."startsAt",
           "expiresAt" = EXCLUDED."expiresAt",
-          "latestOrderItemId" = EXCLUDED."latestOrderItemId",
+          "latestOrderId" = EXCLUDED."latestOrderId",
           "latestProductOfferId" = EXCLUDED."latestProductOfferId",
           "oneTimePurchasedAt" = COALESCE("Entitlement"."oneTimePurchasedAt", EXCLUDED."oneTimePurchasedAt"),
           "grantSnapshot" = EXCLUDED."grantSnapshot",

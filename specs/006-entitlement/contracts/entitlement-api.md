@@ -38,7 +38,7 @@ Page<{
 ```
 
 Không trả: `revokedAt`, `revokedById`, `revokedReason`, `grantedById`, `auditHistory`,
-`latestOrderItemId`, `latestProductOfferId`, `oneTimePurchasedAt`, `grantSnapshot`.
+`latestOrderId`, `latestProductOfferId`, `oneTimePurchasedAt`, `grantSnapshot`.
 
 `publisher.displayName` = `Profile.fullName` của chủ Publisher (giống Marketplace).
 
@@ -65,7 +65,7 @@ type AdminEntitlement = {
   startsAt: string;
   expiresAt: string | null;
   latestProductOfferId: string | null;
-  latestOrderItemId: string | null;
+  latestOrderId: string | null;   // 2026-11-23: đổi tên từ latestOrderItemId (spec 007 bỏ OrderItem)
   oneTimePurchasedAt: string | null;
   revokedAt: string | null;
   revokedById: string | null;

@@ -7,7 +7,7 @@ export const OrderStatus = {
 
 export type OrderStatusValue = (typeof OrderStatus)[keyof typeof OrderStatus];
 
-// Version of the commercial terms copied onto every OrderItem.
+// Version of the commercial terms copied onto every Order.
 export const ORDER_OFFER_SNAPSHOT_SCHEMA_VERSION = '1.0';
 
 export const ORDER_PAGE_SIZE_MAX = 100;

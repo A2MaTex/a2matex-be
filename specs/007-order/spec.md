@@ -259,12 +259,11 @@ hiển thị 50.000 và thời lượng cũ.
 
 ### Key Entities *(include if feature involves data)*
 
-- **Đơn hàng (Order)** (mới): một lần mua bằng số dư của một customer — chủ đơn, trạng thái, tổng
-  tiền, thời điểm thanh toán, mã chống trùng (duy nhất theo customer), thời điểm tạo. Không sửa sau
-  khi tạo.
-- **Dòng hàng (OrderItem)** (mới): phần bất biến của đơn hàng — Product đã mua, gói đã mua, đơn giá
-  và bản sao điều khoản thương mại. Mỗi đơn hàng trong MVP có đúng một dòng hàng. Tham chiếu tới gói
-  vẫn còn giá trị kể cả khi Publisher đã bỏ gói đó khỏi bảng giá (gói được xoá mềm).
+- **Đơn hàng (Order)** (mới): một lần mua bằng số dư của một customer — chủ đơn, Product đã mua,
+  gói đã mua, trạng thái, số tiền, bản sao điều khoản thương mại, thời điểm thanh toán, mã chống
+  trùng (duy nhất theo customer), thời điểm tạo. Không sửa sau khi tạo. Tham chiếu tới gói vẫn còn
+  giá trị kể cả khi Publisher đã bỏ gói đó khỏi bảng giá (gói được xoá mềm). *(2026-11-23: dòng hàng
+  riêng — `OrderItem` — đã bị bỏ, vì MVP mua trực tiếp từng Product, không có giỏ hàng.)*
 - **Số dư ví** (đã có, trong hồ sơ customer): nguồn tiền duy nhất của tính năng này; được cộng bởi
   tính năng nạp tiền và bị trừ bởi đơn hàng.
 - **Quyền dùng (Entitlement)** (spec 006): được tạo mới hoặc kích hoạt lại trong cùng lần mua, và
@@ -295,7 +294,8 @@ hiển thị 50.000 và thời lượng cũ.
   đa tiền tệ.
 - Đơn hàng chính là bản ghi ghi nợ số dư; MVP không thêm sổ cái ví riêng cho chiều trừ tiền
   (Constitution VI — không thêm trừu tượng cho nhu cầu giả định).
-- Mỗi đơn hàng chỉ có một dòng hàng; không có giỏ hàng nhiều Product trong MVP.
+- Mỗi đơn hàng là một lần mua một Product; không có giỏ hàng nhiều Product trong MVP, nên đơn hàng
+  không có bảng dòng hàng riêng.
 - Customer bình thường đều có hồ sơ chứa số dư; trường hợp thiếu hồ sơ được xử lý như một lý do
   từ chối riêng (xem Edge Cases), không phải lỗi hệ thống. Tài khoản bị cấm đã bị chặn ở bước
   đăng nhập.

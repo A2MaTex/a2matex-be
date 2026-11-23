@@ -27,11 +27,11 @@ type OrderOutput = {
   totalAmount: string;          // decimal string
   paidAt: string;
   createdAt: string;
-  item: {
-    id: string;
+  item: {                       // một đơn = một Product, nên block này đọc thẳng từ hàng Order
+    id: string;                 // = OrderOutput.id (không còn bảng dòng hàng riêng)
     productId: string;
     productOfferId: string;
-    unitPriceAmount: string;    // decimal string
+    unitPriceAmount: string;    // decimal string; = totalAmount
     offerSnapshot: OfferSnapshot;
     product: {
       id: string;

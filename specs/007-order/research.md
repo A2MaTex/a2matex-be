@@ -72,8 +72,8 @@ không tự mô tả và lệch Key Entities của spec.
 6. `EntitlementService.lockForPurchase` → áp quy tắc theo đúng thứ tự FR-003 (REVOKED → còn hiệu
    lực → suất một lần).
 7. Kiểm tra số dư, trừ số dư (R6).
-8. Tạo `Order` + `OrderItem` (nested create một câu).
-9. `EntitlementService.activateFromOrder` với `orderItemId` vừa tạo.
+8. Tạo `Order` (một câu `INSERT`; từ 2026-11-23 đơn hàng không còn dòng hàng riêng).
+9. `EntitlementService.activateFromOrder` với `orderId` vừa tạo.
 
 `now` dùng chung toàn bộ là `transactionNow` lấy ở bước 2 (`now()` cố định trong suốt transaction
 PostgreSQL), đúng FR-009 và pattern `product-offer.repo.ts` / `entitlement.repo.ts`.
@@ -112,7 +112,7 @@ transaction vô ích. Lần tra ở bước 3 trên đây (trong `catch`, sau kh
 gian chờ khoá. Phải có bước 3; bước 5 của R4 là tuỳ chọn nhưng nên có.
 
 Không thêm cột `requestHash`: input của Order chỉ có đúng một trường (`productOfferId`) nên so trực
-tiếp với `OrderItem."productOfferId"` là đủ (Submission cần hash vì input là một object nhiều
+tiếp với `Order."productOfferId"` là đủ (Submission cần hash vì input là một object nhiều
 trường).
 
 **Rationale**: pattern đã chạy trong repo, đã xử lý đúng ba tình huống (replay sau thành công, hai
@@ -183,7 +183,7 @@ dùng `checkUsage` — trả `usable/reason`, không có `startsAt`/`expiresAt`.
 
 ## R9. Bảng `"Order"` là từ khoá SQL
 
-**Decision**: mọi thao tác trên `Order`/`OrderItem` dùng Prisma Client API (`prisma.order.*`), không
+**Decision**: mọi thao tác trên `Order` dùng Prisma Client API (`prisma.order.*`), không
 dùng `$queryRaw`. Raw SQL chỉ dùng cho ba câu khoá (`Product`, `ProductOffer`, `Profile`) vì Prisma
 không có `FOR UPDATE`. Trong migration viết tay, tên bảng luôn đặt trong nháy kép `"Order"`.
 
@@ -228,7 +228,7 @@ không có trường tiền nào (FR-001).
 
 ## R12. Snapshot điều khoản thương mại (FR-006)
 
-**Decision**: `OrderItem."offerSnapshot" JSONB NOT NULL`, có version:
+**Decision**: `Order."offerSnapshot" JSONB NOT NULL`, có version:
 
 ```json
 { "schemaVersion": "1.0", "offerType": "SUBSCRIPTION", "priceAmount": "50000", "durationDays": 30 }
@@ -254,16 +254,17 @@ CHECK `jsonb_typeof("offerSnapshot") = 'object'` ở DB (giống `Entitlement."g
 định khi hai đơn cùng `createdAt`. Tên Product lấy hiện tại theo Assumption của spec, chỉ điều khoản
 thương mại mới snapshot.
 
-## R14. Khoá ngoại `Entitlement.latestOrderItemId` (FR-040)
+## R14. Khoá ngoại `Entitlement.latestOrderId` (FR-040)
 
-**Decision**: migration của 007 thêm
-`ALTER TABLE "Entitlement" ADD CONSTRAINT "Entitlement_latestOrderItemId_fkey"
-FOREIGN KEY ("latestOrderItemId") REFERENCES "OrderItem"(id) ON DELETE NO ACTION ON UPDATE NO ACTION;`
-và `schema.prisma` đổi `latestOrderItemId` thành relation thật tới `OrderItem`.
+**Decision**: migration `add_order` thêm FK từ `latestOrderItemId` sang `OrderItem`; migration
+`flatten_order_item` (2026-11-23) đổi cột thành `latestOrderId` và trỏ FK sang `"Order"`:
+`ALTER TABLE "Entitlement" ADD CONSTRAINT "Entitlement_latestOrderId_fkey"
+FOREIGN KEY ("latestOrderId") REFERENCES "Order"(id) ON DELETE NO ACTION ON UPDATE NO ACTION;`
+`schema.prisma` giữ relation thật (`latestOrder Order?`).
 
-**Rationale**: 006 R8 cố ý để cột không FK vì `OrderItem` chưa tồn tại; đây là migration đầu tiên có
-thể đóng lại. Dữ liệu hiện tại của cột luôn `NULL` (006 không ghi vào) nên thêm FK không cần backfill
-và không fail trên DB đang chạy.
+**Rationale**: 006 R8 cố ý để cột không FK vì bảng đích chưa tồn tại; 007 là migration đầu tiên đóng
+lại được. Sau khi bỏ `OrderItem`, giá trị cột trỏ thẳng tới đơn hàng — cũng là giá trị duy nhất có
+endpoint tra được (`GET /orders/:orderId`).
 
 **Alternatives considered**: để mãi không FK — mất toàn vẹn tham chiếu cho chính cột nối hai feature.
 

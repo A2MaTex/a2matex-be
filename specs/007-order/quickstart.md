@@ -9,7 +9,7 @@ Tham chiếu: [contracts/order-api.md](./contracts/order-api.md), [data-model.md
 ```bash
 npm install
 npm run compose-up
-npm run prisma:migrate:deploy      # gồm migration add_order (+ FK Entitlement.latestOrderItemId)
+npm run prisma:migrate:deploy      # gồm add_order và flatten_order_item (FK Entitlement.latestOrderId)
 npm run prisma:generate            # BẮT BUỘC sau khi đổi schema, nếu không build sẽ fail
 npm run seed:roles
 npm run seed:permissions           # quét 3 route mới, gán ADMIN, tự xoá cache role-permission
@@ -70,8 +70,8 @@ Kỳ vọng `200`: `status=PAID`, `totalAmount="50000"`, `item.offerSnapshot` đ
 
 - `SELECT balance FROM "Profile" WHERE "userId" = '<C1_ID>'` → `50000`.
 - `GET $API/entitlements/me` bằng `$C1` → thấy Product, `ACTIVE`.
-- `SELECT "latestOrderItemId", "latestProductOfferId", "grantSource" FROM "Entitlement" WHERE
-  "customerId" = '<C1_ID>'` → trỏ đúng OrderItem/Offer vừa tạo, `grantSource = ORDER`.
+- `SELECT "latestOrderId", "latestProductOfferId", "grantSource" FROM "Entitlement" WHERE
+  "customerId" = '<C1_ID>'` → trỏ đúng đơn/gói vừa tạo, `grantSource = ORDER`.
 
 ### S2 — Các trường hợp bị từ chối (Story 1, AS2–AS3, AS6; Edge Cases)
 
@@ -172,25 +172,23 @@ Chạy trực tiếp trên DB, mỗi lệnh phải **bị từ chối**:
 
 ```sql
 -- trùng mã chống trùng của cùng customer
-INSERT INTO "Order" ("customerId","totalAmount","paidAt","idempotencyKey")
-SELECT "customerId", 0, now(), "idempotencyKey" FROM "Order" LIMIT 1;
+INSERT INTO "Order" ("customerId","productId","productOfferId","totalAmount","offerSnapshot","paidAt","idempotencyKey")
+SELECT "customerId","productId","productOfferId",0,'{}'::jsonb,now(),"idempotencyKey" FROM "Order" LIMIT 1;
 -- tổng tiền âm
 UPDATE "Order" SET "totalAmount" = -1;
--- đơn giá âm
-UPDATE "OrderItem" SET "unitPriceAmount" = -1;
 -- snapshot không phải object
-UPDATE "OrderItem" SET "offerSnapshot" = '[]'::jsonb;
--- trùng Product trong cùng một đơn
-INSERT INTO "OrderItem" ("orderId","productId","productOfferId","unitPriceAmount","offerSnapshot")
-SELECT "orderId","productId","productOfferId",0,'{}'::jsonb FROM "OrderItem" LIMIT 1;
--- FK mới: quyền trỏ tới OrderItem không tồn tại
-UPDATE "Entitlement" SET "latestOrderItemId" = gen_random_uuid();
+UPDATE "Order" SET "offerSnapshot" = '[]'::jsonb;
+-- FK: đơn trỏ tới Product/gói không tồn tại
+UPDATE "Order" SET "productId" = gen_random_uuid();
+UPDATE "Order" SET "productOfferId" = gen_random_uuid();
+-- FK: quyền trỏ tới đơn không tồn tại
+UPDATE "Entitlement" SET "latestOrderId" = gen_random_uuid();
 ```
 
 Và kiểm tra FK đã tồn tại:
 
 ```sql
-SELECT conname FROM pg_constraint WHERE conname = 'Entitlement_latestOrderItemId_fkey';
+SELECT conname FROM pg_constraint WHERE conname = 'Entitlement_latestOrderId_fkey';
 ```
 
 ## 4. Đồng thời (SC-001, SC-002, SC-007)

@@ -70,7 +70,7 @@ export const AdminEntitlementOutput = z.object({
   startsAt: zDate(),
   expiresAt: zDate().nullable(),
   latestProductOfferId: z.uuid().nullable(),
-  latestOrderItemId: z.uuid().nullable(),
+  latestOrderId: z.uuid().nullable(),
   oneTimePurchasedAt: zDate().nullable(),
   revokedAt: zDate().nullable(),
   revokedById: z.uuid().nullable(),
