@@ -25,7 +25,7 @@ export const Entitlement = z.object({
   startsAt: zDate(),
   expiresAt: zDate().nullable(),
   latestProductOfferId: z.uuid().nullable(),
-  latestOrderItemId: z.uuid().nullable(),
+  latestOrderId: z.uuid().nullable(),
   oneTimePurchasedAt: zDate().nullable(),
   grantSnapshot: zJsonObject(),
   revokedAt: zDate().nullable(),

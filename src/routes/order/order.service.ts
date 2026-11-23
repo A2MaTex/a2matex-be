@@ -96,8 +96,8 @@ export class OrderService {
     }
   }
 
-  // Everything a purchase touches lives in this one transaction: the balance, the Order,
-  // its line and the Entitlement either all commit or none do (FR-002).
+  // Everything a purchase touches lives in this one transaction: the balance, the Order
+  // and the Entitlement either all commit or none do (FR-002).
   @Transactional()
   private async createInTransaction({
     data,
@@ -191,21 +191,20 @@ export class OrderService {
       durationDays: offer.durationDays,
     };
 
-    const { orderId, orderItemId } = await this.orderRepo.createOrderWithItem({
+    const orderId = await this.orderRepo.createOrder({
       customerId,
       idempotencyKey,
       paidAt: now,
       totalAmount: offer.priceAmount,
       productId,
       productOfferId,
-      unitPriceAmount: offer.priceAmount,
       offerSnapshot,
     });
 
     await this.entitlementService.activateFromOrder({
       customerId,
       productId,
-      orderItemId,
+      orderId,
       productOfferId,
       offerType: offer.type,
       durationDays: offer.durationDays,
@@ -271,7 +270,7 @@ export class OrderService {
     productOfferId: string,
     customerId: string,
   ): Promise<CreateOrderOutputType> {
-    if (order.OrderItem[0]!.productOfferId !== productOfferId) {
+    if (order.productOfferId !== productOfferId) {
       this.logger.warn(`Idempotency key reused with a different offer orderId=${order.id}`);
       throw OrderIdempotencyKeyReusedException;
     }
@@ -284,7 +283,7 @@ export class OrderService {
     row: OrderRow,
     customerId: string,
   ): Promise<CreateOrderOutputType> {
-    const productId = row.OrderItem[0]!.productId;
+    const productId = row.productId;
     const entitlement = await this.entitlementService.findSummaryForOrder({
       customerId,
       productId,
@@ -299,9 +298,10 @@ export class OrderService {
     return { ...this.toOrderOutput(row), entitlement };
   }
 
-  // An Order holds exactly one line in the MVP, so the list relation collapses to "item".
+  // The purchase lives on the Order row itself; "item" is kept in the response because the
+  // clients read it. "item.id" is the Order's own id and "unitPriceAmount" its total: one
+  // Product per Order means nothing else they could hold.
   private toOrderOutput(row: OrderRow): OrderOutputType {
-    const item = row.OrderItem[0]!;
     return {
       id: row.id,
       status: row.status,
@@ -309,12 +309,12 @@ export class OrderService {
       paidAt: row.paidAt,
       createdAt: row.createdAt,
       item: {
-        id: item.id,
-        productId: item.productId,
-        productOfferId: item.productOfferId,
-        unitPriceAmount: item.unitPriceAmount,
-        offerSnapshot: item.offerSnapshot,
-        product: item.Product,
+        id: row.id,
+        productId: row.productId,
+        productOfferId: row.productOfferId,
+        unitPriceAmount: row.totalAmount,
+        offerSnapshot: row.offerSnapshot,
+        product: row.Product,
       },
     };
   }

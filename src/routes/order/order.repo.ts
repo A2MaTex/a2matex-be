@@ -22,25 +22,19 @@ export type LockedProfile = {
   balance: bigint;
 };
 
-// The relation is a list in Prisma even though an Order holds exactly one line in the MVP;
-// the API field "item" is built from OrderItem[0].
+// An Order carries the purchase itself: one Product, one offer, one frozen snapshot. The
+// API field "item" is built from these columns (see OrderService.toOrderOutput).
 const orderSelect = {
   id: true,
   status: true,
   totalAmount: true,
   paidAt: true,
   createdAt: true,
-  OrderItem: {
-    select: {
-      id: true,
-      productId: true,
-      productOfferId: true,
-      unitPriceAmount: true,
-      offerSnapshot: true,
-      Product: {
-        select: { id: true, name: true, slug: true, status: true },
-      },
-    },
+  productId: true,
+  productOfferId: true,
+  offerSnapshot: true,
+  Product: {
+    select: { id: true, name: true, slug: true, status: true },
   },
 } satisfies Prisma.OrderSelect;
 
@@ -155,16 +149,15 @@ export class OrderRepo {
     return result.count;
   }
 
-  async createOrderWithItem(input: {
+  async createOrder(input: {
     customerId: string;
     idempotencyKey: string;
     paidAt: Date;
     totalAmount: bigint;
     productId: string;
     productOfferId: string;
-    unitPriceAmount: bigint;
     offerSnapshot: OfferSnapshotType;
-  }): Promise<{ orderId: string; orderItemId: string }> {
+  }): Promise<string> {
     const offerSnapshot: Prisma.InputJsonObject = input.offerSnapshot;
     const order = await this.prisma.order.create({
       data: {
@@ -172,24 +165,19 @@ export class OrderRepo {
         idempotencyKey: input.idempotencyKey,
         paidAt: input.paidAt,
         totalAmount: input.totalAmount,
-        OrderItem: {
-          create: {
-            productId: input.productId,
-            productOfferId: input.productOfferId,
-            unitPriceAmount: input.unitPriceAmount,
-            offerSnapshot,
-          },
-        },
+        productId: input.productId,
+        productOfferId: input.productOfferId,
+        offerSnapshot,
       },
-      select: { id: true, OrderItem: { select: { id: true } } },
+      select: { id: true },
     });
-    return { orderId: order.id, orderItemId: order.OrderItem[0]!.id };
+    return order.id;
   }
 
   // ---- Reads ----
 
   // The unique (customerId, idempotencyKey) index answers this in one lookup; the select
-  // carries the line's productOfferId so a replay can be told from a reused key.
+  // carries productOfferId so a replay can be told from a reused key.
   findByIdempotencyKey({
     customerId,
     idempotencyKey,

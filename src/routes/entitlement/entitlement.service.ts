@@ -395,14 +395,14 @@ export class EntitlementService {
   }
 
   /**
-   * Creates or reactivates the Entitlement for a paid Order item. The period starts at the
+   * Creates or reactivates the Entitlement for a paid Order. The period starts at the
    * Order's transaction time and never extends an earlier one. Purchase-blocking rules
    * (revoked, still active, one-time already used) belong to the Order module.
    */
   async activateFromOrder(input: {
     customerId: string;
     productId: string;
-    orderItemId: string;
+    orderId: string;
     productOfferId: string;
     offerType: ProductOfferTypeValue;
     durationDays: number | null;
@@ -416,7 +416,7 @@ export class EntitlementService {
     return this.entitlementRepo.upsertFromOrder({
       customerId: input.customerId,
       productId: input.productId,
-      orderItemId: input.orderItemId,
+      orderId: input.orderId,
       productOfferId: input.productOfferId,
       isOneTime: input.offerType === ProductOfferType.ONE_TIME,
       startsAt: input.now,
@@ -438,7 +438,7 @@ export class EntitlementService {
       startsAt: row.startsAt,
       expiresAt: row.expiresAt,
       latestProductOfferId: row.latestProductOfferId,
-      latestOrderItemId: row.latestOrderItemId,
+      latestOrderId: row.latestOrderId,
       oneTimePurchasedAt: row.oneTimePurchasedAt,
       revokedAt: row.revokedAt,
       revokedById: row.revokedById,

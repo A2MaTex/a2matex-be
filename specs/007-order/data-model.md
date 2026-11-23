@@ -1,9 +1,17 @@
 # Data Model: 007-order
 
 Nguồn: spec FR-005, FR-006, FR-021, FR-033, FR-040; quyết định ở [research.md](./research.md)
-R2, R3, R9, R11, R12, R14. Một migration mới:
-`prisma/migrations/<timestamp>_add_order/migration.sql` (tạo bằng `npm run prisma:migrate:create`,
-viết tay nội dung, rồi `npm run prisma:generate`).
+R2, R3, R9, R11, R12, R14. Hai migration:
+`prisma/migrations/20261121150000_add_order/migration.sql` (bản đầu, có bảng `OrderItem`) và
+`prisma/migrations/20261123150000_flatten_order_item/migration.sql` (gộp dòng hàng vào `"Order"`).
+
+> **Cập nhật 2026-11-23 — bỏ bảng `OrderItem`.** MVP không có giỏ hàng: customer bấm vào một
+> Product rồi mua thẳng, nên một đơn luôn đúng một dòng. Ràng buộc "đúng một" vốn chỉ nằm ở code
+> (`OrderItem[0]`), không ở DB. Các cột `productId`, `productOfferId`, `offerSnapshot` chuyển thẳng
+> lên `"Order"`; `unitPriceAmount` biến mất vì luôn bằng `totalAmount`; `Entitlement.latestOrderItemId`
+> đổi thành `latestOrderId`. **Response API không đổi**: block `item` vẫn còn, `item.id` nay chính là
+> id của đơn và `item.unitPriceAmount` là `totalAmount`. Tài liệu dưới đây mô tả trạng thái **sau**
+> thay đổi.
 
 ## Enum
 
@@ -19,13 +27,16 @@ CREATE TYPE "OrderStatus" AS ENUM ('PAID');   -- R3: MVP không bao giờ ghi PE
 
 | Cột              | Kiểu               | Null | Ghi chú                                                      |
 | ---------------- | ------------------ | ---- | ------------------------------------------------------------ |
-| `id`             | UUID PK            | no   | `gen_random_uuid()`                                          |
-| `customerId`     | UUID FK → `User`   | no   | chủ đơn; không bao giờ đổi                                   |
-| `status`         | `OrderStatus`      | no   | default `'PAID'` (R3)                                        |
-| `totalAmount`    | BIGINT             | no   | tổng tiền đã trừ; bằng `OrderItem."unitPriceAmount"` ở MVP   |
-| `paidAt`         | TIMESTAMPTZ(6)     | no   | `transactionNow` của lần mua (FR-009)                        |
-| `idempotencyKey` | UUID               | no   | mã chống trùng do client sinh (R2)                           |
-| `createdAt`      | TIMESTAMPTZ(6)     | no   | default `now()`                                              |
+| `id`             | UUID PK                  | no   | `gen_random_uuid()`                                    |
+| `customerId`     | UUID FK → `User`         | no   | chủ đơn; không bao giờ đổi                             |
+| `productId`      | UUID FK → `Product`      | no   | Product đã mua                                         |
+| `productOfferId` | UUID FK → `ProductOffer` | no   | gói đã mua; vẫn hợp lệ khi gói bị xoá mềm              |
+| `status`         | `OrderStatus`            | no   | default `'PAID'` (R3)                                  |
+| `totalAmount`    | BIGINT                   | no   | số tiền đã trừ khỏi số dư                              |
+| `offerSnapshot`  | JSONB                    | no   | bản sao bất biến điều khoản (R12)                      |
+| `paidAt`         | TIMESTAMPTZ(6)           | no   | `transactionNow` của lần mua (FR-009)                  |
+| `idempotencyKey` | UUID                     | no   | mã chống trùng do client sinh (R2)                     |
+| `createdAt`      | TIMESTAMPTZ(6)           | no   | default `now()`                                        |
 
 Không có `updatedAt`, `deletedAt`, `createdById`: đơn hàng bất biến, không xoá, và `customerId`
 chính là người tạo. Hoàn tiền/huỷ đơn ngoài phạm vi (spec Assumptions) — khi làm sẽ thêm cột và giá
@@ -39,40 +50,19 @@ CONSTRAINT "Order_customerId_idempotencyKey_key"
 
 CONSTRAINT "Order_totalAmount_check" CHECK ("totalAmount" >= 0)  -- FR-007: giá 0 hợp lệ, âm thì không
 
+CONSTRAINT "Order_offerSnapshot_object_check"
+    CHECK (jsonb_typeof("offerSnapshot") = 'object')             -- FR-006
+
 CREATE INDEX "Order_customerId_createdAt_idx"
     ON "Order" ("customerId", "createdAt" DESC);                 -- FR-030: lịch sử của một customer
-```
 
-Unique `(customerId, idempotencyKey)` cũng phục vụ luôn truy vấn tra key (R5) nên không cần index
-riêng cho nó.
-
-## Bảng `OrderItem`
-
-| Cột               | Kiểu                     | Null | Ghi chú                                                   |
-| ----------------- | ------------------------ | ---- | --------------------------------------------------------- |
-| `id`              | UUID PK                  | no   | `gen_random_uuid()`                                       |
-| `orderId`         | UUID FK → `Order`        | no   |                                                           |
-| `productId`       | UUID FK → `Product`      | no   | Product đã mua                                            |
-| `productOfferId`  | UUID FK → `ProductOffer` | no   | gói đã mua; vẫn hợp lệ khi gói bị xoá mềm                 |
-| `unitPriceAmount` | BIGINT                   | no   | giá tại thời điểm mua                                     |
-| `offerSnapshot`   | JSONB                    | no   | bản sao bất biến điều khoản (R12)                         |
-| `createdAt`       | TIMESTAMPTZ(6)           | no   | default `now()`                                           |
-
-### Constraint
-
-```sql
-CONSTRAINT "OrderItem_orderId_productId_key" UNIQUE ("orderId", "productId")   -- db_design/04 §3
-
-CONSTRAINT "OrderItem_unitPriceAmount_check" CHECK ("unitPriceAmount" >= 0)
-
-CONSTRAINT "OrderItem_offerSnapshot_object_check"
-    CHECK (jsonb_typeof("offerSnapshot") = 'object')                            -- FR-006
-
-CREATE INDEX "OrderItem_orderId_idx"   ON "OrderItem" ("orderId");
-CREATE INDEX "OrderItem_productId_idx" ON "OrderItem" ("productId");
+CREATE INDEX "Order_productId_idx" ON "Order" ("productId");     -- ai đã mua Product này
 ```
 
 Mọi FK dùng `ON DELETE NO ACTION ON UPDATE NO ACTION`, đúng convention các bảng hiện có.
+
+Unique `(customerId, idempotencyKey)` cũng phục vụ luôn truy vấn tra key (R5) nên không cần index
+riêng cho nó.
 
 ### `offerSnapshot` (R12)
 
@@ -94,30 +84,30 @@ Mọi FK dùng `ON DELETE NO ACTION ON UPDATE NO ACTION`, đúng convention các
 
 ```sql
 ALTER TABLE "Entitlement"
-    ADD CONSTRAINT "Entitlement_latestOrderItemId_fkey"
-    FOREIGN KEY ("latestOrderItemId") REFERENCES "OrderItem" (id)
+    ADD CONSTRAINT "Entitlement_latestOrderId_fkey"
+    FOREIGN KEY ("latestOrderId") REFERENCES "Order" (id)
     ON DELETE NO ACTION ON UPDATE NO ACTION;
 ```
 
-Cột đã tồn tại từ migration `add_entitlement` và hiện luôn `NULL` (006 không ghi vào) nên thêm FK
-không cần backfill. `schema.prisma` đổi `latestOrderItemId` từ cột trần thành relation tới
-`OrderItem`, và thêm back-relation `OrderItem.Entitlement Entitlement[]`.
+Cột `latestOrderItemId` đã tồn tại từ migration `add_entitlement` và luôn `NULL` khi 007 thêm FK
+nên không cần backfill. Migration `flatten_order_item` đổi tên cột thành `latestOrderId` và trỏ FK
+sang `"Order"`, backfill qua `OrderItem."orderId"` trước khi bỏ bảng. `schema.prisma` giữ relation
+`latestOrder Order?` và back-relation `Order.Entitlement Entitlement[]`.
 
 ## Quan hệ
 
 ```text
-User (customer) ─1───n─ Order ─1───1─ OrderItem ─n───1─ Product
-                                         │
-                                         ├─ n───1 ProductOffer (xoá mềm vẫn tham chiếu được)
-                                         │
-Entitlement.latestOrderItemId ───n───1───┘   (FK thêm ở migration này)
+User (customer) ─1───n─ Order ─n───1─ Product
+                          │
+                          ├─ n───1 ProductOffer (xoá mềm vẫn tham chiếu được)
+                          │
+Entitlement.latestOrderId ─n───1──┘
 Entitlement.latestProductOfferId ─n───1─ ProductOffer
 Profile.balance ← bị trừ bởi Order (không có FK; quan hệ qua "userId")
 ```
 
-MVP: một `Order` có đúng **một** `OrderItem` (spec Assumptions). Ràng buộc "đúng một" không mã hoá
-được ở DB bằng cách rẻ; code là nơi giữ, và unique `(orderId, productId)` đã chặn trùng Product
-trong cùng đơn.
+MVP: một `Order` là **một** lần mua một Product (spec Assumptions). Không có giỏ hàng nên không có
+dòng hàng riêng; muốn mua Product thứ hai thì tạo đơn thứ hai.
 
 ## Bất biến dữ liệu (ai giữ, giữ bằng gì)
 
@@ -130,6 +120,7 @@ trong cùng đơn.
 | Suất một lần không bị dùng lại                             | `oneTimePurchasedAt` của 006 + kiểm tra ở bước 6 của R4         |
 | Quyền `REVOKED` không bị kích hoạt lại khi mua             | kiểm tra ở bước 6 (FR-010) + `Entitlement_revoke_fields_check`  |
 | Lịch sử giá không đổi khi Publisher sửa gói                | `offerSnapshot` bất biến + xoá mềm `ProductOffer`               |
+| Một đơn chỉ mua một Product                                | một hàng `"Order"` chỉ có một `productId`                       |
 
 ## Trạng thái
 

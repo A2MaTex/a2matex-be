@@ -34,6 +34,9 @@ export const OrderIdParam = z
   })
   .strict();
 
+// Kept as a nested block because the clients read it, though the purchase now lives on the
+// Order row: "id" repeats the Order id and "unitPriceAmount" the total (one Product per
+// Order).
 export const OrderItemOutput = z.object({
   id: z.uuid(),
   productId: z.uuid(),

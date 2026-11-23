@@ -2,6 +2,11 @@
 
 **Branch**: `007-order` | **Date**: 2026-11-21 | **Spec**: [spec.md](./spec.md)
 
+> **Cập nhật 2026-11-23**: bảng `OrderItem` đã được gộp vào `"Order"` (migration
+> `flatten_order_item`) và `Entitlement.latestOrderItemId` đổi thành `latestOrderId`; response API
+> giữ nguyên. Phần dưới của tài liệu này là bản kế hoạch gốc — trạng thái hiện tại xem
+> [data-model.md](./data-model.md).
+
 **Input**: Feature specification from `/specs/007-order/spec.md`
 
 ## Summary
