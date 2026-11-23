@@ -33,6 +33,7 @@ model User {
   grantedEntitlements                                 Entitlement[]         @relation("EntitlementGrantedBy")
   revokedEntitlements                                 Entitlement[]         @relation("EntitlementRevokedBy")
   updatedProductOffers                                ProductOffer[]        @relation("ProductOfferUpdatedBy")
+  updatedSystemSettings                               SystemSetting[]       @relation("SystemSettingUpdatedBy")
   deletedProductOffers                                ProductOffer[]        @relation("ProductOfferDeletedBy")
   createdProfiles                                     Profile[]             @relation("ProfileCreatedBy")
   deletedProfiles                                     Profile[]             @relation("ProfileDeletedBy")
@@ -319,6 +320,20 @@ model StudioRelease {
   updatedAt    DateTime? @db.Timestamptz(6)
   deletedAt    DateTime? @db.Timestamptz(6)
   static       Static    @relation(fields: [staticId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+/// Operational values an Admin changes without a deployment. The set of valid keys lives
+/// in a code-side registry; this table only holds their current values and history.
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model SystemSetting {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key          String    @unique @db.VarChar(100)
+  value        Json
+  createdAt    DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime? @db.Timestamptz(6)
+  updatedById  String?   @db.Uuid
+  auditHistory Json      @default("[]")
+  updatedBy    User?     @relation("SystemSettingUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model Capability {
