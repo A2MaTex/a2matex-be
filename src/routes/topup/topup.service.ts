@@ -1,12 +1,12 @@
 import { randomInt } from 'node:crypto';
 import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import envConfig from '../../shared/config.ts';
 import { DistributedLock } from '../../shared/decorators/distributed-lock.decorator.ts';
 import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
 import { CACHE_PROVIDER } from '../../shared/infrastructure/cache/cache.interface.ts';
 import type { CacheProvider } from '../../shared/infrastructure/cache/cache.interface.ts';
 import { TransactionService } from '../../shared/services/transaction.service.ts';
 import { isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
+import { SystemSettingService } from '../system-setting/system-setting.service.ts';
 import type { SepayWebhookPayloadType } from './topup.model.ts';
 import { TopUpRepo } from './topup.repo.ts';
 
@@ -23,10 +23,11 @@ export class TopUpService {
     @Inject(TopUpRepo) private readonly topUpRepo: TopUpRepo,
     @Inject(CACHE_PROVIDER) private readonly cacheProvider: CacheProvider,
     @Inject(TransactionService) private readonly transactionService: TransactionService,
+    @Inject(SystemSettingService) private readonly systemSettingService: SystemSettingService,
   ) {}
 
   async createTopUpRequest({ userId, amount }: { userId: string; amount: number }) {
-    const bankTransferConfig = this.getBankTransferConfig();
+    const bankTransferConfig = await this.getBankTransferConfig();
     const referenceCode = await this.createPendingRequestWithUniqueCode({
       userId,
       requestedAmount: BigInt(amount),
@@ -40,11 +41,20 @@ export class TopUpService {
     };
   }
 
-  private getBankTransferConfig() {
-    const bankAccountNumber = envConfig.SEPAY_BANK_ACCOUNT_NUMBER;
-    const bankName = envConfig.SEPAY_BANK_NAME;
-    const accountHolderName = envConfig.SEPAY_BANK_ACCOUNT_HOLDER;
+  // Read per request rather than at boot: an Admin changing the account must take effect
+  // without a restart, which is the whole point of moving these out of the environment.
+  private async getBankTransferConfig() {
+    const [account, bank, holder] = await Promise.all([
+      this.systemSettingService.get('SEPAY_BANK_ACCOUNT_NUMBER'),
+      this.systemSettingService.get('SEPAY_BANK_NAME'),
+      this.systemSettingService.get('SEPAY_BANK_ACCOUNT_HOLDER'),
+    ]);
+    const bankAccountNumber = account.value;
+    const bankName = bank.value;
+    const accountHolderName = holder.value;
 
+    // The rows exist from the migration but start empty, so an unconfigured deployment is
+    // a real state and must say so instead of handing the customer a blank account.
     if (!bankAccountNumber || !bankName || !accountHolderName) {
       this.logger.error('Sepay bank transfer configuration is incomplete');
       throw new ServiceUnavailableException('Error.SepayBankTransferNotConfigured');

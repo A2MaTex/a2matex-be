@@ -318,6 +318,21 @@ services:
       - backend
       - edge
 
+  # One-off bridge for spec 009: copies the three SePay bank values out of
+  # .env.production into the SystemSetting table. Only fills rows that are still empty,
+  # so re-running it never overwrites what an Admin set through the API. Must run while
+  # those variables are still present; the follow-up release removes them.
+  seed-settings:
+    image: *app-image
+    profiles: ['seed']
+    restart: 'no'
+    command: ['npx', 'tsx', 'src/seed/seed-system-settings.ts']
+    env_file:
+      - ../.env.production
+    networks:
+      - backend
+      - edge
+
 volumes:
   redis-data:
   caddy-data:

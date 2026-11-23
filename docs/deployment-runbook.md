@@ -587,6 +587,55 @@ Mỗi lần deploy thay ba container chạy từ cùng một image: `a2matex-app
 `a2matex-consumer` (Kafka handler). Script chờ cả ba báo healthy; container nào không lên được
 thì deploy thất bại và in 50 dòng log cuối của đúng container đó.
 
+### Chuyển 3 giá trị ngân hàng SePay sang SystemSetting (làm một lần)
+
+Spec: `specs/009-system-setting/`. Ba giá trị `SEPAY_BANK_ACCOUNT_NUMBER`, `SEPAY_BANK_NAME`,
+`SEPAY_BANK_ACCOUNT_HOLDER` chuyển từ `.env.production` vào bảng `SystemSetting` để sửa được từ
+Admin Portal. **Phải làm hai lần deploy riêng, không gộp.**
+
+Migration tạo sẵn ba dòng nhưng để rỗng, vì SQL không đọc được biến môi trường. Script
+`seed:settings` là chỗ duy nhất thấy được cả hai bên, nên nó phải chạy khi `.env.production` vẫn
+còn ba biến đó.
+
+**Deploy bước 1** — merge nhánh có migration và module. `.env.production` giữ nguyên ba biến.
+Sau khi deploy xong, nạp giá trị vào bảng:
+
+```bash
+a2c --profile seed run --rm seed-settings
+```
+
+(`a2c` là alias ở mục A8. Nếu chạy từ xa qua `ssh ... 'bash -s' < script` thì thêm `< /dev/null`.)
+
+Script in ra từng khóa kèm `filled from the environment` hoặc `already set, left alone`. Nó chỉ ghi
+vào dòng đang rỗng nên chạy lại nhiều lần vô hại.
+
+Xác minh trước khi đi tiếp — cả ba khóa phải có giá trị thật:
+
+```bash
+curl -s https://<domain>/api/v1/admin/system-settings \
+  -H "Authorization: Bearer <access token admin>" | jq '.data.items[] | {key, value}'
+```
+
+Đạt khi ba khóa `SEPAY_BANK_*` đều có giá trị thật, không phải chuỗi rỗng:
+
+```jsonc
+{ "key": "SEPAY_BANK_ACCOUNT_NUMBER", "value": { "value": "0002031736402" } }
+{ "key": "SEPAY_BANK_NAME",           "value": { "value": "MBBank" } }
+{ "key": "SEPAY_BANK_ACCOUNT_HOLDER", "value": { "value": "TRAN XUAN DONG" } }
+``` Nếu còn rỗng thì **dừng lại**, đừng làm bước 2.
+
+**Deploy bước 2** — merge nhánh gỡ ba biến khỏi `src/shared/config.ts` và các file `.env*.example`,
+rồi gỡ chúng khỏi `.env.production` trên VPS và dựng lại container.
+
+Gộp hai bước lại thì lúc `seed:settings` chạy, ba biến đã bị gỡ khỏi `config.ts` và không còn gì để
+đọc: ba dòng cấu hình sẽ vĩnh viễn rỗng và màn hình nạp tiền trả `503
+Error.SepayBankTransferNotConfigured`.
+
+Lưu ý thêm: từ bản này, **cả `a2matex-app` lẫn `a2matex-cron` đều từ chối khởi động** nếu một khóa
+cấu hình đã khai báo bị thiếu dòng hoặc có giá trị không hợp lệ. Đây là cố ý — nó thay cho việc
+`config.ts` fail lúc khởi động khi các giá trị này còn nằm trong biến môi trường. Nếu container
+không lên sau một thay đổi cấu hình, xem log tìm dòng `System settings are missing or invalid`.
+
 ### Trước khi merge một migration vào staging
 
 Chạy thử toàn bộ thư mục `prisma/migrations` trên một Postgres 17 tạm, vì migration viết tay có thể sai cú pháp mà Prisma không kiểm tra lúc tạo file. Ngày 2026-10-06 một dấu phẩy thừa đã làm deploy thất bại:
