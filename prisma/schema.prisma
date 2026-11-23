@@ -289,6 +289,7 @@ model Static {
   updatedAt          DateTime?            @db.Timestamptz(6)
   deletedAt          DateTime?            @db.Timestamptz(6)
   launcherReleases   LauncherRelease[]
+  studioReleases     StudioRelease[]
   ProductMedia       ProductMedia[]
   Profile            Profile[]
   StaticImageVariant StaticImageVariant[]
@@ -300,6 +301,19 @@ model LauncherRelease {
   staticId     String    @db.Uuid
   releaseNotes String?
   isActive     Boolean   @default(false)
+  publishedAt  DateTime? @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime? @db.Timestamptz(6)
+  deletedAt    DateTime? @db.Timestamptz(6)
+  static       Static    @relation(fields: [staticId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model StudioRelease {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  version      String    @unique @db.VarChar(100)
+  staticId     String    @db.Uuid
+  releaseNotes String?
+  isActive     Boolean   @default(false) @unique(map: "StudioRelease_isActive_idx", where: raw("(\"isActive\" AND \"deletedAt\" IS NULL)"))
   publishedAt  DateTime? @db.Timestamptz(6)
   createdAt    DateTime  @default(now()) @db.Timestamptz(6)
   updatedAt    DateTime? @db.Timestamptz(6)
