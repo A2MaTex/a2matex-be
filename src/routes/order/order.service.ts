@@ -4,15 +4,22 @@ import { ORDER_OFFER_SNAPSHOT_SCHEMA_VERSION } from '../../shared/constants/orde
 import { ProductOfferType } from '../../shared/constants/product-offer.constant.ts';
 import { ProductStatus } from '../../shared/constants/product.constant.ts';
 import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
+import { ProductLockRepository } from '../../shared/repositories/product-lock.repo.ts';
 import { TransactionService } from '../../shared/services/transaction.service.ts';
 import { getPagination } from '../../shared/utils/pagination.ts';
 import {
+  isPrismaError,
   isTransactionTimeoutPrismaError,
   isUniqueConstraintPrismaError,
 } from '../../shared/utils/prisma.ts';
 import { EntitlementService } from '../entitlement/entitlement.service.ts';
 import { ProductNotFoundException } from '../product/product.error.ts';
+import { SystemSettingKey } from '../../shared/constants/system-setting.constant.ts';
+import { SystemSettingService } from '../system-setting/system-setting.service.ts';
+import { splitAmount } from './order-split.ts';
 import {
+  CannotPurchaseOwnProductException,
+  CommissionRateUnavailableException,
   EntitlementRevokedException,
   EntitlementStillActiveException,
   InsufficientBalanceException,
@@ -23,6 +30,7 @@ import {
   OrderOperationTimeoutException,
   ProductNotPurchasableException,
   ProductOfferNotFoundException,
+  PublisherProfileNotFoundException,
 } from './order.error.ts';
 import type {
   CreateOrderInputType,
@@ -43,7 +51,32 @@ export class OrderService {
     @Inject(OrderRepo) private readonly orderRepo: OrderRepo,
     @Inject(EntitlementService) private readonly entitlementService: EntitlementService,
     @Inject(TransactionService) private readonly transactionService: TransactionService,
+    @Inject(SystemSettingService) private readonly systemSettingService: SystemSettingService,
+    @Inject(ProductLockRepository) private readonly productLockRepo: ProductLockRepository,
   ) {}
+
+  // ---- Commission ----
+
+  private async readCommissionRateBps(): Promise<number> {
+    try {
+      const { rateBps } = await this.systemSettingService.get(
+        SystemSettingKey.COMMISSION_RATE_BPS,
+      );
+      return rateBps;
+    } catch (error) {
+      // Only an unconfigured or unparseable setting becomes 503. A lock timeout or a
+      // dropped connection has to keep its own shape: create() maps those, and turning
+      // one into an HttpException here short-circuits that mapping and points the
+      // operator at a SystemSetting row that is perfectly fine.
+      if (isPrismaError(error)) {
+        throw error;
+      }
+      this.logger.error(
+        `Commission rate unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw CommissionRateUnavailableException;
+    }
+  }
 
   // ---- Buy (US1, US2) ----
 
@@ -117,7 +150,7 @@ export class OrderService {
       throw ProductOfferNotFoundException;
     }
 
-    const product = await this.orderRepo.lockProduct(productId);
+    const product = await this.productLockRepo.lockProduct(productId);
     if (!product) {
       throw ProductNotFoundException;
     }
@@ -128,15 +161,52 @@ export class OrderService {
       throw ProductNotPurchasableException;
     }
 
+    // Blocking a Publisher never moves their Products off ACTIVE, so without this a
+    // customer holding an old productOfferId could still buy and the sale would credit a
+    // blocked seller's wallet. The Marketplace already hides these Products
+    // (marketplace-product.repo.ts), so this only closes the direct-purchase path.
+    if (!product.publisherActive) {
+      this.logger.warn(
+        `Order rejected: publisher not active productId=${productId} publisherUserId=${product.publisherUserId}`,
+      );
+      throw ProductNotPurchasableException;
+    }
+
+    // Rejected before any wallet is locked: a purchase that cannot succeed should not hold
+    // locks. The Publisher is only known once the Product is locked, so this is the
+    // earliest point it can run. It is also what guarantees the two wallets below are
+    // always distinct rows.
+    if (product.publisherUserId === customerId) {
+      throw CannotPurchaseOwnProductException;
+    }
+
     // Re-read under lock: the publisher may have replaced the price list in between.
     const offer = await this.orderRepo.lockOfferForUpdate(productOfferId, productId);
     if (!offer) {
       throw ProductOfferNotFoundException;
     }
 
-    const profile = await this.orderRepo.lockCustomerProfile(customerId);
+    // Read inside the transaction and never cached: a cache would let a purchase settle at
+    // a rate the Admin has already retired. A missing setting rejects the order; falling
+    // back to a constant would reintroduce the code-level rate spec 009 removed.
+    const rateBps = await this.readCommissionRateBps();
+    const { commissionAmount, publisherAmount } = splitAmount(offer.priceAmount, rateBps);
+
+    // The Publisher's row joins the lock only when they are owed something; skipping a
+    // lock inside an agreed order cannot deadlock. publisherUserId is still written to the
+    // Order either way, because the column is NOT NULL.
+    const { customer: profile, publisherExists } = await this.orderRepo.lockPurchaseProfiles({
+      customerId,
+      publisherUserId: publisherAmount > 0n ? product.publisherUserId : undefined,
+    });
     if (!profile) {
       throw OrderCustomerProfileNotFoundException;
+    }
+    if (!publisherExists) {
+      this.logger.error(
+        `Order rejected: publisher has no Profile publisherUserId=${product.publisherUserId}`,
+      );
+      throw PublisherProfileNotFoundException;
     }
 
     // The Profile lock serializes this customer's purchases, so a request that lost the
@@ -184,6 +254,24 @@ export class OrderService {
       throw new Error('Order balance debit affected no row');
     }
 
+    // After the balance check and the debit, never before: a purchase that fails because
+    // the customer is short must not have touched the Publisher's wallet first.
+    if (publisherAmount > 0n) {
+      // The row was locked above under a stricter predicate, so a guard that still
+      // matches nothing means the invariant is broken, not that the Publisher is
+      // missing. Same shape as the debit guard above.
+      const credited = await this.orderRepo.creditPublisherBalance({
+        publisherUserId: product.publisherUserId,
+        amount: publisherAmount,
+      });
+      if (credited === 0) {
+        this.logger.error(
+          `Order publisher credit affected no row publisherUserId=${product.publisherUserId} amount=${publisherAmount}`,
+        );
+        throw new Error('Order publisher credit affected no row');
+      }
+    }
+
     const offerSnapshot: OfferSnapshotType = {
       schemaVersion: ORDER_OFFER_SNAPSHOT_SCHEMA_VERSION,
       offerType: offer.type,
@@ -199,6 +287,10 @@ export class OrderService {
       productId,
       productOfferId,
       offerSnapshot,
+      publisherUserId: product.publisherUserId,
+      commissionRateBps: rateBps,
+      commissionAmount,
+      publisherAmount,
     });
 
     await this.entitlementService.activateFromOrder({
@@ -308,6 +400,9 @@ export class OrderService {
       totalAmount: row.totalAmount,
       paidAt: row.paidAt,
       createdAt: row.createdAt,
+      commissionRateBps: row.commissionRateBps,
+      commissionAmount: row.commissionAmount,
+      publisherAmount: row.publisherAmount,
       item: {
         id: row.id,
         productId: row.productId,

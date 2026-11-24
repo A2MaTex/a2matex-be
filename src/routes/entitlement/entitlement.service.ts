@@ -15,6 +15,7 @@ import { ProductOfferType } from '../../shared/constants/product-offer.constant.
 import type { ProductOfferTypeValue } from '../../shared/constants/product-offer.constant.ts';
 import { ProductStatus } from '../../shared/constants/product.constant.ts';
 import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
+import { ProductLockRepository } from '../../shared/repositories/product-lock.repo.ts';
 import { TransactionService } from '../../shared/services/transaction.service.ts';
 import { getPagination } from '../../shared/utils/pagination.ts';
 import {
@@ -85,6 +86,7 @@ export class EntitlementService {
   constructor(
     @Inject(EntitlementRepo) private readonly entitlementRepo: EntitlementRepo,
     @Inject(TransactionService) private readonly transactionService: TransactionService,
+    @Inject(ProductLockRepository) private readonly productLockRepo: ProductLockRepository,
   ) {}
 
   // ---- Admin grant (US1) ----
@@ -110,7 +112,11 @@ export class EntitlementService {
   }): Promise<AdminEntitlementOutputType> {
     const { customerId, productId, expiresAt, reason } = data;
 
-    const product = await this.entitlementRepo.lockProduct(productId);
+    // Does not consult product.publisherActive on purpose: an Admin grant moves no money
+    // and is a deliberate override, so it must stay possible to compensate a customer for
+    // a Product whose Publisher has since been blocked. The purchase path, where money
+    // does move, refuses that case.
+    const product = await this.productLockRepo.lockProduct(productId);
     if (!product) {
       throw ProductNotFoundException;
     }

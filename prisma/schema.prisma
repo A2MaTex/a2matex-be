@@ -30,6 +30,7 @@ model User {
   createdProductOffers                                ProductOffer[]        @relation("ProductOfferCreatedBy")
   entitlements                                        Entitlement[]         @relation("EntitlementCustomer")
   orders                                              Order[]               @relation("OrderCustomer")
+  publisherOrders                                     Order[]               @relation("OrderPublisher")
   grantedEntitlements                                 Entitlement[]         @relation("EntitlementGrantedBy")
   revokedEntitlements                                 Entitlement[]         @relation("EntitlementRevokedBy")
   updatedProductOffers                                ProductOffer[]        @relation("ProductOfferUpdatedBy")
@@ -826,16 +827,23 @@ enum EntitlementGrantSource {
 /// price edits and offer removals cannot rewrite history.
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model Order {
-  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  customerId     String        @db.Uuid
-  productId      String        @db.Uuid
-  productOfferId String        @db.Uuid
-  status         OrderStatus   @default(PAID)
-  totalAmount    BigInt
-  offerSnapshot  Json
-  paidAt         DateTime      @db.Timestamptz(6)
-  idempotencyKey String        @db.Uuid
-  createdAt      DateTime      @default(now()) @db.Timestamptz(6)
+  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId        String      @db.Uuid
+  productId         String      @db.Uuid
+  productOfferId    String      @db.Uuid
+  status            OrderStatus @default(PAID)
+  totalAmount       BigInt
+  offerSnapshot     Json
+  paidAt            DateTime    @db.Timestamptz(6)
+  idempotencyKey    String      @db.Uuid
+  createdAt         DateTime    @default(now()) @db.Timestamptz(6)
+  /// Who received the money, denormalised: product ownership can change but a sale must
+  /// stay attributable to whoever actually took it.
+  publisherUserId   String      @db.Uuid
+  commissionRateBps Int
+  commissionAmount  BigInt
+  publisherAmount   BigInt
+  publisher         User        @relation("OrderPublisher", fields: [publisherUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   customer       User          @relation("OrderCustomer", fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   Product        Product       @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   ProductOffer   ProductOffer  @relation(fields: [productOfferId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -843,6 +851,7 @@ model Order {
 
   @@unique([customerId, idempotencyKey], map: "Order_customerId_idempotencyKey_key")
   @@index([customerId, createdAt(sort: Desc)], map: "Order_customerId_createdAt_idx")
+  @@index([publisherUserId, createdAt(sort: Desc)], map: "Order_publisherUserId_createdAt_idx")
   @@index([productId], map: "Order_productId_idx")
 }
 

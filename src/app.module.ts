@@ -13,6 +13,7 @@ import { TopUpModule } from './routes/topup/topup.module.ts';
 import { LauncherReleaseModule } from './routes/launcher-release/launcher-release.module.ts';
 import { StudioReleaseModule } from './routes/studio-release/studio-release.module.ts';
 import { SystemSettingModule } from './routes/system-setting/system-setting.module.ts';
+import { PublisherEarningModule } from './routes/publisher-earning/publisher-earning.module.ts';
 import { NodeCatalogModule } from './routes/node-catalog/node-catalog.module.ts';
 import { ProjectModule } from './routes/project/project.module.ts';
 import { ProjectDraftModule } from './routes/project-draft/project-draft.module.ts';
@@ -49,6 +50,7 @@ import { ProductReleaseModule } from './routes/product-release/product-release.m
     LauncherReleaseModule,
     StudioReleaseModule,
     SystemSettingModule,
+    PublisherEarningModule,
     NodeCatalogModule,
     ProjectModule,
     ProjectDraftModule,
