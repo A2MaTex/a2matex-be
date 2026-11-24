@@ -587,6 +587,50 @@ Mỗi lần deploy thay ba container chạy từ cùng một image: `a2matex-app
 `a2matex-consumer` (Kafka handler). Script chờ cả ba báo healthy; container nào không lên được
 thì deploy thất bại và in 50 dòng log cuối của đúng container đó.
 
+### Deploy phần chia hoa hồng cho nhà phát hành
+
+Spec: `specs/010-commission-split/`. Từ bản này, mỗi đơn hàng chia tiền giữa sàn và nhà phát hành,
+và **tiền được cộng thẳng vào ví nhà phát hành** ngay trong giao dịch mua.
+
+**Không cần chạy `seed-permissions` cho lần deploy này.** Hai route mới
+(`GET /api/v1/publisher-earnings` và `.../summary`) gắn `@SkipPermissionCheck()`, và
+`AccessTokenGuard` thoát trước bước kiểm quyền với những route như vậy, nên chúng chạy được mà
+không cần bản ghi `Permission` nào. Lần deploy này cũng không gỡ route nào, nên bảng không bị lệch.
+
+Chạy thừa còn **có rủi ro**: `seed-permissions` kết thúc bằng xoá cache role-permission, mà cache
+đó không có hạn dùng nên đang che mọi grant đã mất của CUSTOMER/PUBLISHER. Ngày 2026-11-23 việc xoá
+cache đã làm `POST /topups` trả 403 cho toàn bộ khách, vì grant của CUSTOMER biến mất từ trước mà
+không ai biết.
+
+Nếu vì lý do khác mà **phải** chạy nó trên production, kiểm trước xem có grant nào của role không
+phải ADMIN đang bị xoá mềm mà không có bản `scope = OWN` thay thế:
+
+```sql
+SELECT r.name, p.method, p.path
+FROM "RolePermission" rp
+JOIN "Role" r ON r.id = rp."roleId"
+JOIN "Permission" p ON p.id = rp."permissionId"
+WHERE rp."deletedAt" IS NOT NULL AND r.name <> 'ADMIN' AND p."deletedAt" IS NULL;
+```
+
+Dòng nào hiện ra mà không có bản `scope = OWN` tương ứng thì phải khôi phục **trước**, nếu không
+xoá cache xong là 403.
+
+**Migration không đụng tới ví.** Nó điền 4 cột cho các đơn hàng cũ và ghi toàn bộ về phía sàn
+(`publisherAmount = 0`), vì chưa đồng nào từng chạy vào ví nhà phát hành cho những đơn đó. Không có
+câu `UPDATE "Profile"` nào, nên **không cần thao tác tiền nào trên production**. Kiểm tra sau khi
+deploy nếu muốn chắc:
+
+```sql
+SELECT count(*) FROM "Order" WHERE "publisherUserId" IS NULL;          -- phải 0
+SELECT count(*) FROM "Order"
+ WHERE "commissionAmount" + "publisherAmount" <> "totalAmount";        -- phải 0
+```
+
+**Tỉ lệ hoa hồng** lấy từ `SystemSetting.COMMISSION_RATE_BPS` (mặc định 3000 = 30%), đổi được từ
+Admin Portal mà không cần deploy. Nếu khóa đó hỏng thì **mọi đơn hàng mới sẽ bị từ chối** với
+`503 Error.CommissionRateUnavailable` — cố ý, để không bao giờ chia sai tỉ lệ.
+
 ### Chuyển 3 giá trị ngân hàng SePay sang SystemSetting (làm một lần)
 
 Spec: `specs/009-system-setting/`. Ba giá trị `SEPAY_BANK_ACCOUNT_NUMBER`, `SEPAY_BANK_NAME`,
