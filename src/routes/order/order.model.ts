@@ -55,6 +55,11 @@ export const OrderOutput = z.object({
   paidAt: zDate(),
   createdAt: zDate(),
   item: OrderItemOutput,
+  // The split as it was settled. "publisherUserId" is deliberately absent: the customer
+  // does not need to know who received the money, and exposing it would leak ownership.
+  commissionRateBps: z.number().int().min(0).max(10000),
+  commissionAmount: zBigIntAsString(),
+  publisherAmount: zBigIntAsString(),
 });
 
 // z.input, not z.infer: the amounts leave Prisma as bigint and only become decimal

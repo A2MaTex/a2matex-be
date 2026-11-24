@@ -1,15 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Prisma } from '../../generated/prisma/client.ts';
 import type { ProductOfferTypeValue } from '../../shared/constants/product-offer.constant.ts';
-import type { ProductStatusType } from '../../shared/constants/product.constant.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
 import type { OfferSnapshotType } from './order.model.ts';
-
-export type LockedProduct = {
-  id: string;
-  status: ProductStatusType;
-  transactionNow: Date;
-};
 
 export type LockedOffer = {
   id: string;
@@ -33,6 +26,9 @@ const orderSelect = {
   productId: true,
   productOfferId: true,
   offerSnapshot: true,
+  commissionRateBps: true,
+  commissionAmount: true,
+  publisherAmount: true,
   Product: {
     select: { id: true, name: true, slug: true, status: true },
   },
@@ -65,22 +61,6 @@ export class OrderRepo {
       select: { productId: true },
     });
     return row?.productId ?? null;
-  }
-
-  async lockProduct(productId: string): Promise<LockedProduct | null> {
-    const rows = await this.prisma.$queryRaw<
-      { id: string; status: ProductStatusType; transactionNowMs: bigint | number | string }[]
-    >`
-      SELECT id, status, (EXTRACT(EPOCH FROM now()) * 1000)::bigint AS "transactionNowMs"
-      FROM "Product"
-      WHERE id = ${productId}::uuid
-        AND "deletedAt" IS NULL
-      FOR UPDATE
-    `;
-    const row = rows[0];
-    return row
-      ? { id: row.id, status: row.status, transactionNow: fromEpochMs(row.transactionNowMs) }
-      : null;
   }
 
   // Re-reads the offer under lock: the publisher may have replaced the price list between
@@ -117,18 +97,39 @@ export class OrderRepo {
 
   // Serializes every purchase of one customer, which is what makes the idempotency probe
   // and the balance arithmetic safe.
-  async lockCustomerProfile(customerId: string): Promise<LockedProfile | null> {
-    const rows = await this.prisma.$queryRaw<{ balance: bigint | number | string }[]>`
-      SELECT p.balance
+  //
+  // Locks the Publisher's row in the same statement, ORDER BY "userId": a purchase now
+  // holds two Profile rows, and two transactions taking them in opposite directions is
+  // exactly what deadlocks. Every transaction agrees on ascending userId, so they queue.
+  // Self-purchase is rejected before this runs, so the two ids are never equal.
+  //
+  // publisherUserId is omitted when the Publisher receives nothing (free product, or a
+  // 100% rate): taking a subset of an agreed lock order cannot deadlock.
+  async lockPurchaseProfiles(input: {
+    customerId: string;
+    publisherUserId?: string;
+  }): Promise<{ customer: LockedProfile | null; publisherExists: boolean }> {
+    const userIds = input.publisherUserId
+      ? [input.customerId, input.publisherUserId]
+      : [input.customerId];
+    const rows = await this.prisma.$queryRaw<
+      { userId: string; balance: bigint | number | string }[]
+    >`
+      SELECT p."userId", p.balance
       FROM "Profile" p
       JOIN "User" u ON u.id = p."userId"
-      WHERE p."userId" = ${customerId}::uuid
+      WHERE p."userId" = ANY(${userIds}::uuid[])
         AND p."deletedAt" IS NULL
         AND u."deletedAt" IS NULL
+      ORDER BY p."userId"
       FOR UPDATE OF p
     `;
-    const row = rows[0];
-    return row ? { balance: toBigInt(row.balance) } : null;
+    const customerRow = rows.find((row) => row.userId === input.customerId);
+    return {
+      customer: customerRow ? { balance: toBigInt(customerRow.balance) } : null,
+      publisherExists:
+        !input.publisherUserId || rows.some((row) => row.userId === input.publisherUserId),
+    };
   }
 
   // ---- Writes ----
@@ -149,6 +150,22 @@ export class OrderRepo {
     return result.count;
   }
 
+  // Unconditional, unlike the customer debit: a credit has no lower bound to violate.
+  // Returns the number of rows actually updated, same shape as debitBalance above.
+  async creditPublisherBalance({
+    publisherUserId,
+    amount,
+  }: {
+    publisherUserId: string;
+    amount: bigint;
+  }): Promise<number> {
+    const result = await this.prisma.profile.updateMany({
+      where: { userId: publisherUserId, deletedAt: null },
+      data: { balance: { increment: amount } },
+    });
+    return result.count;
+  }
+
   async createOrder(input: {
     customerId: string;
     idempotencyKey: string;
@@ -157,6 +174,10 @@ export class OrderRepo {
     productId: string;
     productOfferId: string;
     offerSnapshot: OfferSnapshotType;
+    publisherUserId: string;
+    commissionRateBps: number;
+    commissionAmount: bigint;
+    publisherAmount: bigint;
   }): Promise<string> {
     const offerSnapshot: Prisma.InputJsonObject = input.offerSnapshot;
     const order = await this.prisma.order.create({
@@ -168,6 +189,10 @@ export class OrderRepo {
         productId: input.productId,
         productOfferId: input.productOfferId,
         offerSnapshot,
+        publisherUserId: input.publisherUserId,
+        commissionRateBps: input.commissionRateBps,
+        commissionAmount: input.commissionAmount,
+        publisherAmount: input.publisherAmount,
       },
       select: { id: true },
     });

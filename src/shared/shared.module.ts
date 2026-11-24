@@ -21,6 +21,7 @@ import { ProjectAccessPolicy } from './services/project-access.policy.ts';
 import { QueueModule } from './infrastructure/queue/queue.ts';
 import { UploadSessionRepository } from './repositories/upload-session.repo.ts';
 import { KeyService } from './services/key.service.ts';
+import { ProductLockRepository } from './repositories/product-lock.repo.ts';
 import { ProductReleaseRepository } from './repositories/product-release.repo.ts';
 import { SubmissionRepository } from './repositories/submission.repo.ts';
 
@@ -45,6 +46,7 @@ const sharedServices = [
   UploadSessionRepository,
   KeyService,
   ProductReleaseRepository,
+  ProductLockRepository,
   SubmissionRepository,
 ];
 
