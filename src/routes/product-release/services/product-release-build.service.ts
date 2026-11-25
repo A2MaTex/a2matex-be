@@ -6,7 +6,16 @@ import { randomUUID } from 'crypto';
 import { StaticService } from '../../../shared/services/static.service.ts';
 import { TransactionService } from '../../../shared/services/transaction.service.ts';
 import { ProductReleaseBuildRequestedPayloadType } from '../product-release-build.model.ts';
-import { ProductReleaseStatus } from '../../../shared/constants/product-release.constant.ts';
+import {
+  BuildFailureCode,
+  BuildOutcome,
+  PRODUCT_RELEASE_ENCRYPTION_ALGORITHM,
+  ProductReleaseStatus,
+} from '../../../shared/constants/product-release.constant.ts';
+import {
+  AES_GCM_NONCE_BYTES,
+  WRAPPED_CONTENT_KEY_BYTES,
+} from '../../../shared/constants/key.constant.ts';
 import { ProductStatus } from '../../../shared/constants/product.constant.ts';
 import { PublisherAccountStatus } from '../../../shared/constants/publisher.constant.ts';
 import { PRODUCT_RELEASE_STATIC_PREFIX } from '../../../shared/constants/storage.constant.ts';
@@ -14,31 +23,8 @@ import {
   SubmissionScanStatus,
   SubmissionStatus,
 } from '../../../shared/constants/submission.constant.ts';
-import { ProductRepo } from '../../product/product.repo.ts';
-import { generateRandomFilename } from '../../../shared/utils/utils.ts';
-
-// COMPLETED: the release is PUBLISHED (also when it already was, so a redelivery is a no-op).
-// INVALID:   permanent, retrying cannot help (missing/unapproved Submission, disabled release).
-// RETRY:     the build failed part-way and left the release BUILD_FAILED; building again may work.
-export const BuildOutcome = {
-  COMPLETED: 'COMPLETED',
-  RETRY: 'RETRY',
-  INVALID: 'INVALID',
-} as const;
-
-const BuildFailureCode = {
-  NO_LONGER_ELIGIBLE: 'NO_LONGER_ELIGIBLE',
-  SUBMISSION_NOT_FOUND: 'SUBMISSION_NOT_FOUND',
-  NOT_APPROVE_YET: 'NOT_APPROVE_YET',
-  DISABLE_SUBMISSION: 'DISABLE_SUBMISSION',
-  NOT_PASS_SCAN: 'NOT_PASS_SCAN',
-  MISSING_RUNTIMEIR_CONTENTHASH: 'MISSING_RUNTIMEIR_CONTENTHASH',
-  ALREADY_PUBLISHED: 'ALREADY_PUBLISHED',
-  FAILED: 'FAILED',
-  DISABLE_RELEASE: 'DISABLE_RELEASE'
-} as const;
-
-export type BuildOutcomeType = (typeof BuildOutcome)[keyof typeof BuildOutcome];
+import { isUniqueConstraintPrismaError } from '../../../shared/utils/prisma.ts';
+import type { CreateProductReleaseInput } from '../../../shared/repositories/product-release.repo.ts';
 
 @Injectable()
 export class ProjectReleaseService {
@@ -50,12 +36,13 @@ export class ProjectReleaseService {
     @Inject(SubmissionRepository) private readonly submissionRepo: SubmissionRepository,
     @Inject(ProductReleaseRepository) private readonly productReleaseRepo: ProductReleaseRepository,
     @Inject(StaticService) private readonly staticService: StaticService,
-    @Inject(ProductRepo) private readonly productRepo: ProductRepo,
     @Inject(TransactionService) private readonly transactionService: TransactionService,
   ) {}
   async build(body: ProductReleaseBuildRequestedPayloadType) {
     let productReleaseId: string | undefined;
+    let operation = 'load_submission';
     let buildFailureCode: string | undefined;
+    let candidate: { staticId: string; objectKey: string } | undefined;
     try {
       const submission = await this.submissionRepo.findById(body.submissionId);
       if (!submission) {
@@ -96,11 +83,10 @@ export class ProjectReleaseService {
         return BuildOutcome.INVALID;
       }
 
-      // No release yet: create it. BUILDING (crashed mid-build) or BUILD_FAILED: reuse it and
-      // build again. A rebuild generates a new content key and replaces the package fields.
+      operation = 'claim_release';
       const productRelease =
         existing ??
-        (await this.productReleaseRepo.create({
+        (await this.createRelease({
           id: randomUUID(),
           productId: submission.productId,
           submissionId: submission.id,
@@ -110,6 +96,7 @@ export class ProjectReleaseService {
 
       productReleaseId = productRelease.id;
 
+      operation = 'build_package';
       const { packageBuffer, packageHash, packageSize, contentNonce, wrappedKey, contentKeyNonce } =
         await this.productReleasePackageService.buildPackage({
           productId: submission?.productId,
@@ -121,6 +108,7 @@ export class ProjectReleaseService {
           inputSchema: submission.inputSchema,
         });
 
+      operation = 'reserve_candidate';
       const packageStatic = await this.reservePackageStatic({
         productReleaseId: productRelease.id,
         packageSize,
@@ -134,8 +122,14 @@ export class ProjectReleaseService {
         return BuildOutcome.INVALID;
       }
 
-      // Upload to the reserved object key. A failure leaves the reservation in place so
-      // the next attempt overwrites the same object and reuses the same Static record.
+      candidate = packageStatic;
+      this.logger.debug(
+        `Product release build candidate claimed submissionId=${body.submissionId} ` +
+          `releaseId=${productRelease.id} staticId=${candidate.staticId}`,
+      );
+
+      // Every attempt owns a fresh object. A superseded upload cannot overwrite a winner.
+      operation = 'upload_candidate';
       await this.staticService.uploadReservedFile({
         objectKey: packageStatic.objectKey,
         body: packageBuffer,
@@ -143,18 +137,16 @@ export class ProjectReleaseService {
         size: packageSize,
       });
 
-      // Step 8: verify the uploaded object landed with the expected size and content type,
-      // outside the publication transaction. A mismatch is a retryable build failure; the
-      // retry overwrites the same reserved object key.
+      // Verify this candidate outside database transactions; retries use another object.
+      operation = 'verify_candidate';
       await this.staticService.verifyUploadedObject(packageStatic.objectKey, {
         size: packageSize,
         contentType: 'application/zip',
       });
 
-      // Step 9: publication. One short transaction follows the Product-first lock order,
-      // rechecks Product/Publisher eligibility, guards against a stale older build
-      // replacing a newer current release, and atomically sets the release PUBLISHED and
-      // the Product current pointer (DRAFT -> ACTIVE on the first current release).
+      // Publish only while this attempt still owns packageStaticId. Product selection
+      // and lifecycle remain the Publisher's responsibility.
+      operation = 'publish_candidate';
       const publication = await this.runPublicationTransaction({
         productId: submission.productId,
         releaseId: productRelease.id,
@@ -167,44 +159,60 @@ export class ProjectReleaseService {
         contentKeyNonce,
       });
 
-      if (publication.outcome === 'ineligible' || publication.outcome === 'disabled') {
-        // The Product or release is no longer eligible for publication. Mark the attempt
-        // failed and clean the uncommitted package (object + Static metadata) so no private
-        // artifact is left behind. This is a terminal failure: the handler dead-letters it.
-        await this.cleanUncommittedPackage({
-          releaseId: productRelease.id,
-          staticId: packageStatic.staticId,
-          objectKey: packageStatic.objectKey,
-          buildFailureCode: publication.outcome === 'disabled' ? 'DISABLED' : 'INELIGIBLE',
-        });
-        buildFailureCode = BuildFailureCode.NO_LONGER_ELIGIBLE;
-        return BuildOutcome.INVALID;
+      if (publication.outcome === 'published') {
+        return BuildOutcome.COMPLETED;
       }
 
-      // 'published' or 'alreadyTerminal' (a concurrent worker published first): success.
-      return BuildOutcome.COMPLETED;
+      const published = await this.cleanUncommittedPackage({
+        releaseId: productRelease.id,
+        ...candidate,
+        buildFailureCode: BuildFailureCode.NO_LONGER_ELIGIBLE,
+      });
+      if (published) {
+        return BuildOutcome.COMPLETED;
+      }
+      return publication.outcome === 'superseded' || publication.outcome === 'alreadyTerminal'
+        ? BuildOutcome.RETRY
+        : BuildOutcome.INVALID;
     } catch (error) {
-      this.logger.error(`Error when building product release: ${error instanceof Error ? error.message : 'unknown'}`);
-      // Best effort: if even this write fails the release stays BUILDING, which the next
-      // attempt treats the same as BUILD_FAILED.
-      if (productReleaseId) {
-        try {
-          await this.productReleaseRepo.update(
-            { buildFailureCode: buildFailureCode || BuildFailureCode.FAILED, status: ProductReleaseStatus.BUILD_FAILED },
-            productReleaseId,
-          );
-        } catch (updateError) {
-          this.logger.error(`Error when update buildFailureCode: ${updateError instanceof Error ? updateError.message : 'unknown'}`);
+      this.logger.error(
+        `Product release build failed operation=${operation} submissionId=${body.submissionId} ` +
+          `releaseId=${productReleaseId ?? 'unclaimed'} staticId=${candidate?.staticId ?? 'unclaimed'} ` +
+          `reason=${error instanceof Error ? error.name : 'UnknownError'}`,
+      );
+      // Without a claimed candidate there is no ownership proof for a failure write.
+      // After an uncertain publication, cleanup rechecks the committed row first.
+      if (productReleaseId && candidate) {
+        const published = await this.cleanUncommittedPackage({
+          releaseId: productReleaseId,
+          ...candidate,
+          buildFailureCode: buildFailureCode ?? BuildFailureCode.FAILED,
+        });
+        if (published) {
+          return BuildOutcome.COMPLETED;
         }
       }
       return BuildOutcome.RETRY;
     }
   }
 
-  // Reserves one private Static record for the package before any R2 I/O, in a short
-  // transaction that locks the BUILDING ProductRelease. A retry reuses the existing
-  // reservation (same UUID-sharded object key) instead of creating a new Static record,
-  // and refreshes the pre-publication metadata when the rebuilt package differs in size.
+  private async createRelease(input: CreateProductReleaseInput) {
+    try {
+      return await this.productReleaseRepo.create(input);
+    } catch (error) {
+      if (isUniqueConstraintPrismaError(error)) {
+        // Only join the same Submission. A different Submission claiming the same
+        // Product/version is still a real conflict, not permission to reuse its row.
+        const existing = await this.productReleaseRepo.findBySubmissionId(input.submissionId);
+        if (existing) {
+          return existing;
+        }
+      }
+      throw error;
+    }
+  }
+
+  // The latest reservation owns publication. Never reuse an earlier attempt's object.
   private async reservePackageStatic({
     productReleaseId,
     packageSize,
@@ -230,50 +238,26 @@ export class ProjectReleaseService {
         return { outcome: 'disabled' };
       }
 
-      // BUILDING (first build or crashed mid-build) or BUILD_FAILED (retry): clear any
-      // prior failure and (re)claim the row as BUILDING so a redelivery stays honest.
-      if (release.status === ProductReleaseStatus.BUILD_FAILED) {
-        await this.productReleaseRepo.update(
-          { status: ProductReleaseStatus.BUILDING, buildFailureCode: null },
-          productReleaseId,
-        );
-      }
-
-      if (release.packageStaticId) {
-        // Retry: reuse the existing reservation and its object key.
-        const reserved = await this.staticService.getReservedFile(release.packageStaticId);
-        if (reserved) {
-          if (
-            reserved.size !== BigInt(packageSize) ||
-            reserved.contentType !== 'application/zip' ||
-            reserved.originalFileName !== originalFileName
-          ) {
-            await this.staticService.updateReservedFileMetadata(reserved.id, {
-              size: BigInt(packageSize),
-              contentType: 'application/zip',
-              originalFileName,
-            });
-          }
-          return { outcome: 'reserved', staticId: reserved.id, objectKey: reserved.objectKey };
-        }
-        // The reserved id points at nothing (metadata was cleaned up): fall through and
-        // allocate a fresh reservation under a new id.
-      }
-
       const created = await this.staticService.reserveFile({
         originalFileName,
         contentType: 'application/zip',
         size: packageSize,
         prefix: PRODUCT_RELEASE_STATIC_PREFIX,
       });
-      await this.productReleaseRepo.update({ packageStaticId: created.id }, productReleaseId);
+      await this.productReleaseRepo.update(
+        {
+          packageStaticId: created.id,
+          status: ProductReleaseStatus.BUILDING,
+          buildFailureCode: null,
+        },
+        productReleaseId,
+      );
       return { outcome: 'reserved', staticId: created.id, objectKey: created.objectKey };
     });
   }
 
-  // Step 9: the publication transaction. Holds the Product then the ProductRelease lock,
-  // rechecks eligibility, applies the stale-release guard, and commits the PUBLISHED
-  // release together with the Product current pointer/status change atomically.
+  // Short Product-first transaction: check candidate ownership and commit its exact
+  // bytes/hash/key metadata together, without R2 calls or Product mutations.
   private async runPublicationTransaction(args: {
     productId: string;
     releaseId: string;
@@ -289,18 +273,19 @@ export class ProjectReleaseService {
     | { outcome: 'alreadyTerminal' }
     | { outcome: 'ineligible' }
     | { outcome: 'disabled' }
+    | { outcome: 'superseded' }
   > {
     return this.transactionService.runInTransaction(async () => {
-      // 9.1 Lock the Product first (shared Product-first lock order).
+      // Lock the Product first (shared Product-first lock order).
       const product = await this.productReleaseRepo.lockProductForPublication(args.productId);
       if (!product) {
-        this.logger.warn(
+        this.logger.error(
           `Publication rejected: product not found/deleted productId=${args.productId}`,
         );
         return { outcome: 'ineligible' };
       }
 
-      // 9.4 Recheck mutable Product status and Publisher eligibility. Only a DRAFT (first
+      // Recheck mutable Product status and Publisher eligibility. Only a DRAFT (first
       // release) or ACTIVE (update) Product with an active, non-deleted Publisher may
       // publish; a Product suspended/archived/blocked during build must not publish.
       const productEligible =
@@ -309,20 +294,20 @@ export class ProjectReleaseService {
         product.publisherStatus === PublisherAccountStatus.ACTIVE &&
         product.publisherDeletedAt === null;
       if (!productEligible) {
-        this.logger.warn(
+        this.logger.error(
           `Publication rejected: ineligible product status=${product.productStatus} ` +
             `publisherStatus=${product.publisherStatus} productId=${args.productId}`,
         );
         return { outcome: 'ineligible' };
       }
 
-      // 9.2 Lock the ProductRelease and require BUILDING (or succeed if already terminal).
+      // Lock the ProductRelease and require BUILDING (or succeed if already terminal).
       const release = await this.productReleaseRepo.lockBuildingForPublication(
         args.releaseId,
         args.productId,
       );
       if (!release) {
-        this.logger.warn(`Publication rejected: release not found releaseId=${args.releaseId}`);
+        this.logger.error(`Publication rejected: release not found releaseId=${args.releaseId}`);
         return { outcome: 'ineligible' };
       }
       if (release.status === ProductReleaseStatus.PUBLISHED) {
@@ -331,23 +316,22 @@ export class ProjectReleaseService {
       if (release.status !== ProductReleaseStatus.BUILDING) {
         // DISABLED (Admin disabled it mid-build) or otherwise non-BUILDING: the build
         // cannot publish into this release.
-        this.logger.warn(
+        this.logger.error(
           `Publication rejected: release status=${release.status} releaseId=${args.releaseId}`,
         );
         return { outcome: 'disabled' };
       }
 
-      // 9.3 The release must still belong to the locked Product and point at the Static
-      // record that was actually uploaded.
+      // A newer reservation fences this attempt without failing the newer owner.
       if (release.packageStaticId !== args.staticId) {
-        this.logger.warn(
-          `Publication rejected: static id mismatch releaseId=${args.releaseId} ` +
+        this.logger.debug(
+          `Publication superseded releaseId=${args.releaseId} ` +
             `stored=${release.packageStaticId} reserved=${args.staticId}`,
         );
-        return { outcome: 'ineligible' };
+        return { outcome: 'superseded' };
       }
 
-      // 9.5 Verify the reserved Static metadata still matches the uploaded package.
+      // Verify the reserved Static metadata still matches the uploaded package.
       const reserved = await this.staticService.getReservedFile(args.staticId);
       if (
         !reserved ||
@@ -355,33 +339,32 @@ export class ProjectReleaseService {
         reserved.contentType !== 'application/zip' ||
         Number(reserved.size) !== args.packageSize
       ) {
-        this.logger.warn(
+        this.logger.error(
           `Publication rejected: reserved static mismatch staticId=${args.staticId}`,
         );
         return { outcome: 'ineligible' };
       }
 
-      // 9.6 Require a complete wrapped key / key-wrap nonce pair with the documented byte
-      // lengths (wrappedKey = 32-byte ciphertext || 16-byte tag; keyNonce = 12 bytes).
+      // Validate the wrapped key and its wrapping nonce against the shared crypto contract.
       if (
         !Buffer.isBuffer(args.wrappedKey) ||
-        args.wrappedKey.length !== 48 ||
+        args.wrappedKey.length !== WRAPPED_CONTENT_KEY_BYTES ||
         !Buffer.isBuffer(args.contentKeyNonce) ||
-        args.contentKeyNonce.length !== 12
+        args.contentKeyNonce.length !== AES_GCM_NONCE_BYTES
       ) {
         throw new Error('Incomplete release key material');
       }
 
       const publishedAt = new Date();
 
-      // 9.8 Publish the release, conditional on BUILDING so a concurrent terminal
+      // Publish the release, conditional on BUILDING so a concurrent terminal
       // transition can never be overwritten. Clears the failure code on success.
       const published = await this.productReleaseRepo.markPublished(args.releaseId, {
         packageHash: args.packageHash,
         wrappedKey: args.wrappedKey,
         nonce: args.contentNonce,
         contentKeyNonce: args.contentKeyNonce,
-        algorithm: 'AES-256-GCM',
+        algorithm: PRODUCT_RELEASE_ENCRYPTION_ALGORITHM,
         packageStaticId: args.staticId,
         publishedAt,
       });
@@ -392,9 +375,8 @@ export class ProjectReleaseService {
     });
   }
 
-  // Permanent-failure cleanup for a publication that could not commit (Product or release
-  // no longer eligible). Drops the ProductRelease Static pointer, marks a still-BUILDING
-  // release failed, removes the Static metadata, and deletes the uploaded object.
+  // Lock before cleanup so an uncertain commit, Admin disable or newer attempt
+  // cannot make us delete the published object or clear another attempt's pointer.
   private async cleanUncommittedPackage({
     releaseId,
     staticId,
@@ -405,37 +387,50 @@ export class ProjectReleaseService {
     staticId: string;
     objectKey: string;
     buildFailureCode: string;
-  }): Promise<void> {
-    // DB cleanup in one transaction: clear the FK before deleting the Static row.
+  }): Promise<boolean> {
+    let cleanup: { deleteObject: boolean; published: boolean };
     try {
-      await this.transactionService.runInTransaction(async () => {
-        const cleared = await this.productReleaseRepo.markBuildFailedAndClearStatic(
-          releaseId,
-          buildFailureCode,
-        );
-        if (cleared === 0) {
-          // The release is no longer BUILDING (e.g. Admin disabled it mid-build); still
-          // drop the Static pointer so the row is not left referencing cleaned-up metadata.
-          await this.productReleaseRepo.clearPackageStatic(releaseId);
+      cleanup = await this.transactionService.runInTransaction(async () => {
+        const release = await this.productReleaseRepo.lockForReservation(releaseId);
+        const published = release?.status === ProductReleaseStatus.PUBLISHED;
+        if (release?.packageStaticId === staticId && (published || release.publishedAt !== null)) {
+          // Admin may have disabled a committed publication before reconciliation.
+          return { deleteObject: false, published };
+        }
+        if (release?.packageStaticId === staticId) {
+          const failed = release.status === ProductReleaseStatus.BUILDING;
+          const cleared = await this.productReleaseRepo.clearPackageStatic({
+            releaseId,
+            staticId,
+            status: failed ? ProductReleaseStatus.BUILD_FAILED : undefined,
+            buildFailureCode: failed ? buildFailureCode : undefined,
+          });
+          if (cleared !== 1) {
+            throw new Error('Build candidate ownership changed during cleanup');
+          }
         }
         await this.staticService.removeReservedFile(staticId);
+        return { deleteObject: true, published };
       });
     } catch (error) {
       this.logger.error(
-        `Uncommitted package metadata cleanup failed releaseId=${releaseId}: ` +
-          `${error instanceof Error ? error.message : String(error)}`,
+        `Build candidate cleanup deferred releaseId=${releaseId} staticId=${staticId} ` +
+          `reason=${error instanceof Error ? error.name : 'UnknownError'}`,
       );
+      // A transaction/commit failure is not proof that the object is unreferenced.
+      return false;
     }
 
-    // Object cleanup is best effort: a leftover private object is never served without an
-    // entitlement check and is overwritten by a future build under a new key.
-    try {
-      await this.staticService.deleteReservedObject(objectKey);
-    } catch (error) {
-      this.logger.error(
-        `Uncommitted object cleanup failed objectKey=${objectKey}: ` +
-          `${error instanceof Error ? error.message : String(error)}`,
-      );
+    if (cleanup.deleteObject) {
+      try {
+        await this.staticService.deleteReservedObject(objectKey);
+      } catch (error) {
+        this.logger.error(
+          `Build candidate object cleanup deferred releaseId=${releaseId} staticId=${staticId} ` +
+            `reason=${error instanceof Error ? error.name : 'UnknownError'}`,
+        );
+      }
     }
+    return cleanup.published;
   }
 }
