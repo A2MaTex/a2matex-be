@@ -9,23 +9,23 @@ export type CreateWorkflowRevisionInput = {
   access: ProjectAccess;
 };
 
+// No `contentHash`: a freshly created revision has none until the scan compiles it.
 export type CreateWorkflowRevisionOutput = {
   id: string;
   projectId: string;
   sourceDraftVersion: number;
   sourceDraftContentHash: string;
-  contentHash: string;
 };
 
 export type LockedWorkflowRevisionProject = {
   status: ProjectStatusType;
 };
 
+// `runtimeIr` is deliberately absent: an authoring cache the revision must not read.
 export type LockedWorkflowRevisionDraft = {
   version: number;
   editorGraph: Prisma.JsonValue;
   inputSchema: Prisma.JsonValue;
-  runtimeIr: Prisma.JsonValue | null;
   validationSummary: Prisma.JsonValue;
   contentHash: string;
 };
@@ -49,12 +49,11 @@ export type WorkflowRevisionNodeDefinition = {
   }>;
 };
 
-export type WorkflowRevisionSnapshot = {
+// What the HTTP transaction freezes; the scan writes `runtimeIr` and `contentHash` later.
+export type WorkflowRevisionSourceSnapshot = {
   editorGraph: Prisma.JsonObject;
-  runtimeIr: Prisma.JsonObject;
   inputSchema: Prisma.JsonObject;
   nodeDefinitionManifest: Prisma.JsonObject;
   capabilityManifest: Prisma.JsonObject;
   validationSummary: Prisma.JsonObject;
-  contentHash: string;
 };

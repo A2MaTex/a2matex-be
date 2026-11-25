@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.ts';
 import type {
   SubmissionScanStatusType,
+  SubmissionScanOutcomeStatus,
   SubmissionStatusType,
 } from '../../shared/constants/submission.constant.ts';
 import {
@@ -501,10 +502,10 @@ export class SubmissionRepo {
   }: {
     submissionId: string;
     scanAttempt: number;
-    scanStatus: typeof SubmissionScanStatus.PASSED | typeof SubmissionScanStatus.FAILED;
+    scanStatus: SubmissionScanOutcomeStatus;
     scanResult: SubmissionScanResultType;
     scannerVersion: string;
-  }): Promise<void> {
+  }): Promise<boolean> {
     const { count } = await this.prisma.submission.updateMany({
       where: { id: submissionId, scanAttempt },
       data: {
@@ -516,8 +517,9 @@ export class SubmissionRepo {
         scanResult: scanResult as Prisma.InputJsonValue,
       },
     });
+    // The attempt was superseded. The caller must not write the compiled revision either.
     if (count === 0) {
-      return;
+      return false;
     }
 
     // Conditional on PENDING_SCAN so a decision an Admin made meanwhile is never
@@ -526,6 +528,7 @@ export class SubmissionRepo {
       where: { id: submissionId, scanAttempt, status: SubmissionStatus.PENDING_SCAN },
       data: { status: SubmissionStatus.READY_FOR_REVIEW },
     });
+    return true;
   }
 
   // A technical failure keeps the Submission PENDING_SCAN: no business result exists,

@@ -3,6 +3,7 @@ import { KAFKA_TOPICS } from '../../shared/constants/kafka.constant.ts';
 import { RELEASABLE_PRODUCT_STATUSES } from '../../shared/constants/product.constant.ts';
 import { PublisherAccountStatus } from '../../shared/constants/publisher.constant.ts';
 import {
+  FAILED_SUBMISSION_SCAN_STATUSES,
   SubmissionScanStatus,
   SubmissionStatus,
 } from '../../shared/constants/submission.constant.ts';
@@ -15,6 +16,7 @@ import {
 import { SUCCESS_RESPONSE } from '../../shared/models/response.model.ts';
 import type { MessageResType } from '../../shared/models/response.model.ts';
 import { EmailService } from '../../shared/services/email.service.tsx';
+import { RequestLogContextService } from '../../shared/infrastructure/logging/request-log-context.service.ts';
 import { TransactionService } from '../../shared/services/transaction.service.ts';
 import { isTransactionTimeoutPrismaError } from '../../shared/utils/prisma.ts';
 import {
@@ -62,6 +64,7 @@ export class SubmissionReviewService {
     @Inject(SubmissionReviewRepo) private readonly submissionReviewRepo: SubmissionReviewRepo,
     @Inject(QUEUE_PROVIDER) private readonly queue: MessageProvider,
     @Inject(EmailService) private readonly emailService: EmailService,
+    @Inject(RequestLogContextService) private readonly requestLogContext: RequestLogContextService,
     @Inject(TransactionService) readonly transactionService: TransactionService,
   ) {}
 
@@ -262,6 +265,9 @@ export class SubmissionReviewService {
     reviewedById: string;
   }): Promise<void> {
     const messageId = `${PRODUCT_RELEASE_BUILD_MESSAGE_ID_PREFIX}:${submissionId}`;
+    // Same correlation contract as the scan request: the reviewer's request trace travels
+    // with the build message so a build failure points back at the approval.
+    const traceId = this.requestLogContext.current?.traceId;
     try {
       await this.queue.publish({
         topic: KAFKA_TOPICS.PRODUCT_RELEASE_BUILD_REQUESTED,
@@ -270,7 +276,8 @@ export class SubmissionReviewService {
           id: messageId,
           type: PRODUCT_RELEASE_BUILD_MESSAGE_TYPE,
           occurredAt: occurredAt.toISOString(),
-          payload: { submissionId, createdById: reviewedById },
+          ...(traceId ? { traceId } : {}),
+          payload: { submissionId },
         },
       });
     } catch (error) {
@@ -298,12 +305,18 @@ function assertScanEligible(
   decision: SubmissionReviewDecisionType,
 ): void {
   if (target.scanStatus === SubmissionScanStatus.PASSED) {
-    if (decision === SubmissionReviewDecision.APPROVE && !target.hasScanResult) {
+    // A passed scan finalizes the revision in the same transaction, so a passed scan without
+    // one means the row predates that rule or was altered. Approval must not hand Product
+    // Release a build source it would have to compile.
+    if (
+      decision === SubmissionReviewDecision.APPROVE &&
+      (!target.hasScanResult || !target.hasFinalizedRevision)
+    ) {
       throw SubmissionScanIncompleteException;
     }
     return;
   }
-  if (target.scanStatus === SubmissionScanStatus.FAILED) {
+  if (FAILED_SUBMISSION_SCAN_STATUSES.includes(target.scanStatus)) {
     if (decision === SubmissionReviewDecision.APPROVE) {
       throw SubmissionScanFailedException;
     }

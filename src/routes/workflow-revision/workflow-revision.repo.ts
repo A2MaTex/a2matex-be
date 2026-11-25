@@ -7,7 +7,7 @@ import type {
   LockedWorkflowRevisionDraft,
   LockedWorkflowRevisionProject,
   WorkflowRevisionNodeDefinition,
-  WorkflowRevisionSnapshot,
+  WorkflowRevisionSourceSnapshot,
 } from './workflow-revision.model.ts';
 
 const WORKFLOW_REVISION_CREATE_SELECT = {
@@ -15,7 +15,6 @@ const WORKFLOW_REVISION_CREATE_SELECT = {
   projectId: true,
   sourceDraftVersion: true,
   sourceDraftContentHash: true,
-  contentHash: true,
 } satisfies Prisma.WorkflowRevisionSelect;
 
 @Injectable()
@@ -50,7 +49,6 @@ export class WorkflowRevisionRepo {
         version,
         "editorGraph",
         "inputSchema",
-        "runtimeIr",
         "validationSummary",
         "contentHash"
       FROM "ProjectDraft"
@@ -111,7 +109,7 @@ export class WorkflowRevisionRepo {
     projectId: string;
     sourceDraftVersion: number;
     sourceDraftContentHash: string;
-    snapshot: WorkflowRevisionSnapshot;
+    snapshot: WorkflowRevisionSourceSnapshot;
     createdById: string;
   }): Promise<CreateWorkflowRevisionOutput> {
     return this.prisma.workflowRevision.create({
@@ -120,15 +118,33 @@ export class WorkflowRevisionRepo {
         sourceDraftVersion,
         sourceDraftContentHash,
         editorGraph: snapshot.editorGraph,
-        runtimeIr: snapshot.runtimeIr,
         inputSchema: snapshot.inputSchema,
         nodeDefinitionManifest: snapshot.nodeDefinitionManifest,
         capabilityManifest: snapshot.capabilityManifest,
         validationSummary: snapshot.validationSummary,
-        contentHash: snapshot.contentHash,
+        // Both stay null until a scan compiles the frozen source successfully.
+        runtimeIr: Prisma.DbNull,
+        contentHash: null,
         createdById,
       },
       select: WORKFLOW_REVISION_CREATE_SELECT,
+    });
+  }
+
+  // Null-to-value only, so an authoritative Runtime IR can never be overwritten; a second
+  // delivery legitimately writes nothing. `updatedById` stays null: the queue does this.
+  async finalizeCompilation({
+    workflowRevisionId,
+    runtimeIr,
+    contentHash,
+  }: {
+    workflowRevisionId: string;
+    runtimeIr: Prisma.InputJsonValue;
+    contentHash: string;
+  }): Promise<void> {
+    await this.prisma.workflowRevision.updateMany({
+      where: { id: workflowRevisionId, runtimeIr: { equals: Prisma.DbNull }, contentHash: null },
+      data: { runtimeIr, contentHash, updatedAt: new Date() },
     });
   }
 }

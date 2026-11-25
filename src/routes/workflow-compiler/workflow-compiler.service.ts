@@ -35,6 +35,8 @@ import {
   type RuntimeInputSourceType,
   type WorkflowCompileResult,
   type WorkflowInputSchemaType,
+  type ValidatedWorkflow,
+  type WorkflowSourceValidationResult,
 } from './workflow-compiler.model.ts';
 import type { NodeDefinitionType } from '../node-catalog/node-definition.model.ts';
 import { WorkflowCompilerRepo } from './workflow-compiler.repo.ts';
@@ -72,6 +74,25 @@ export class WorkflowCompilerService {
     inputSchema: unknown,
     nodeDefinitions: unknown,
   ): WorkflowCompileResult {
+    const validated = this.validateWorkflow(editorGraph, inputSchema, nodeDefinitions);
+    if (!validated.success) {
+      return { success: false, validation: validated.validation };
+    }
+
+    const compiled = this.compileValidatedWorkflow(validated);
+    const validation = buildValidationOutput({
+      errors: compiled.validation.errors,
+      warnings: [...validated.validation.warnings, ...compiled.validation.warnings],
+    });
+    validation.truncated ||= validated.validation.truncated || compiled.validation.truncated;
+    return { ...compiled, validation };
+  }
+
+  validateWorkflow(
+    editorGraph: unknown,
+    inputSchema: unknown,
+    nodeDefinitions: unknown,
+  ): WorkflowSourceValidationResult {
     const parsedGraph = EditorGraph.safeParse(editorGraph);
     const parsedInputSchema = WorkflowInputSchema.safeParse(inputSchema);
     const contractErrors = [
@@ -122,7 +143,27 @@ export class WorkflowCompilerService {
       return { success: false, validation };
     }
 
-    const runtimeIr = this.buildRuntimeIr(graph, parsedInputSchema.data, definitions);
+    return { success: true, graph, inputSchema: parsedInputSchema.data, definitions, validation };
+  }
+
+  compileValidatedWorkflow({
+    graph,
+    inputSchema,
+    definitions,
+  }: ValidatedWorkflow): WorkflowCompileResult {
+    const parsed = RuntimeIr.safeParse(this.buildRuntimeIr(graph, inputSchema, definitions));
+    if (!parsed.success) {
+      return {
+        success: false,
+        validation: buildValidationOutput({
+          errors: [
+            this.diagnostic(WorkflowValidationDiagnosticCode.RUNTIME_IR_CONTRACT_INVALID, []),
+          ],
+        }),
+      };
+    }
+
+    const runtimeIr = parsed.data;
     const serialized = JSON.stringify(runtimeIr);
     if (Buffer.byteLength(serialized, 'utf8') > RUNTIME_IR_MAX_CONTENT_BYTES) {
       return {
@@ -135,7 +176,7 @@ export class WorkflowCompilerService {
       };
     }
 
-    return { success: true, runtimeIr, validation };
+    return { success: true, runtimeIr, validation: buildValidationOutput({ errors: [] }) };
   }
 
   private buildRuntimeIr(
@@ -179,7 +220,7 @@ export class WorkflowCompilerService {
       };
     });
 
-    return RuntimeIr.parse({
+    return {
       formatVersion: RUNTIME_IR_FORMAT_VERSION,
       minimumRuntimeVersion: this.highestMinimumRuntimeVersion(definitions, graph),
       metadata: { sourceGraphSchemaVersion: graph.schemaVersion },
@@ -188,7 +229,7 @@ export class WorkflowCompilerService {
       nodes,
       edges: graph.edges,
       requiredCapabilities,
-    });
+    };
   }
 
   private compileBinding(binding: EditorGraphBindingType): RuntimeInputSourceType {

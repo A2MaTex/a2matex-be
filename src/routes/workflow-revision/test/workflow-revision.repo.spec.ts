@@ -1,3 +1,4 @@
+import { Prisma } from '../../../generated/prisma/client.ts';
 import { PrismaService } from '../../../shared/services/prisma.service.ts';
 import { WorkflowRevisionRepo } from '../workflow-revision.repo.ts';
 
@@ -9,10 +10,11 @@ describe('WorkflowRevisionRepo', () => {
   const queryRaw = vi.fn();
   const findMany = vi.fn();
   const create = vi.fn();
+  const updateMany = vi.fn();
   const getClient = vi.fn(() => ({
     $queryRaw: queryRaw,
     nodeDefinition: { findMany },
-    workflowRevision: { create },
+    workflowRevision: { create, updateMany },
   }));
   let repo: WorkflowRevisionRepo;
 
@@ -52,16 +54,14 @@ describe('WorkflowRevisionRepo', () => {
     expect(getClient).toHaveBeenCalledTimes(2);
   });
 
-  it('inserts only creation fields and the frozen snapshot', async () => {
+  it('inserts the frozen source with both compiled fields pending', async () => {
     create.mockResolvedValue({ id: 'revision-id' });
     const snapshot = {
       editorGraph: {},
-      runtimeIr: {},
       inputSchema: {},
       nodeDefinitionManifest: {},
       capabilityManifest: {},
       validationSummary: {},
-      contentHash: 'c'.repeat(64),
     };
 
     await repo.create({
@@ -78,6 +78,8 @@ describe('WorkflowRevisionRepo', () => {
         sourceDraftVersion: 2,
         sourceDraftContentHash: 'a'.repeat(64),
         ...snapshot,
+        runtimeIr: Prisma.DbNull,
+        contentHash: null,
         createdById: 'user-id',
       },
       select: {
@@ -85,7 +87,30 @@ describe('WorkflowRevisionRepo', () => {
         projectId: true,
         sourceDraftVersion: true,
         sourceDraftContentHash: true,
-        contentHash: true,
+      },
+    });
+  });
+
+  // Null-to-value, so a redelivery that recomputes the same result writes nothing.
+  it('finalizes compilation only while both compiled fields are still null', async () => {
+    updateMany.mockResolvedValue({ count: 1 });
+
+    await repo.finalizeCompilation({
+      workflowRevisionId: 'revision-id',
+      runtimeIr: { formatVersion: 1 },
+      contentHash: 'c'.repeat(64),
+    });
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'revision-id',
+        runtimeIr: { equals: Prisma.DbNull },
+        contentHash: null,
+      },
+      data: {
+        runtimeIr: { formatVersion: 1 },
+        contentHash: 'c'.repeat(64),
+        updatedAt: expect.any(Date),
       },
     });
   });
