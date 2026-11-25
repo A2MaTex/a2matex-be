@@ -10,6 +10,10 @@ import { WorkflowCompilerService } from '../../../workflow-compiler/workflow-com
 import type { ScanTarget } from '../../submission.repo.ts';
 import { SubmissionScannerService } from '../submission-scanner.service.ts';
 
+vi.mock('../../../workflow-compiler/workflow-compiler.repo.ts', () => ({
+  WorkflowCompilerRepo: class WorkflowCompilerRepo {},
+}));
+
 const PROJECT_ID = '11111111-1111-4111-8111-111111111111';
 const PRODUCT_ID = '22222222-2222-4222-8222-222222222222';
 const PUBLISHER_ID = '33333333-3333-4333-8333-333333333333';
@@ -146,11 +150,13 @@ function target(overrides: Partial<ScanTarget['WorkflowRevision']> = {}): ScanTa
 
 describe('SubmissionScannerService', () => {
   const compiler = new WorkflowCompilerService({} as never);
-  const compileWorkflow = vi.spyOn(compiler, 'compileWorkflow');
+  const validateWorkflow = vi.spyOn(compiler, 'validateWorkflow');
+  const compileValidatedWorkflow = vi.spyOn(compiler, 'compileValidatedWorkflow');
   let scanner: SubmissionScannerService;
 
   beforeEach(() => {
-    compileWorkflow.mockClear();
+    validateWorkflow.mockClear();
+    compileValidatedWorkflow.mockClear();
     scanner = new SubmissionScannerService(compiler);
   });
 
@@ -158,17 +164,18 @@ describe('SubmissionScannerService', () => {
     const outcome = scanner.scan(target());
 
     expect(outcome.result.summary.errors).toBe(0);
-    expect(outcome.result.summary.totalRules).toBe(6);
+    expect(outcome.result.summary.totalRules).toBe(5);
+    expect(outcome.scanStatus).toBe('PASSED');
     expect(outcome.compilation).not.toBeNull();
     expect(outcome.compilation?.contentHash).toMatch(/^[0-9a-f]{64}$/);
-    expect(compileWorkflow).toHaveBeenCalledTimes(1);
+    expect(compileValidatedWorkflow).toHaveBeenCalledTimes(1);
   });
 
   // A retry must not change its answer when a node type is deactivated afterwards.
   it('passes the frozen definitions to the compiler, converted to the catalog contract', () => {
     scanner.scan(target());
 
-    const [graph, schema, definitions] = compileWorkflow.mock.calls[0] as [
+    const [graph, schema, definitions] = validateWorkflow.mock.calls[0] as [
       unknown,
       unknown,
       { type: string; capabilities: string[] }[],
@@ -189,7 +196,7 @@ describe('SubmissionScannerService', () => {
 
   it('writes a hash that matches the one derived from the frozen source and compiled IR', () => {
     const outcome = scanner.scan(target());
-    const compiled = compileWorkflow.mock.results[0]?.value as { runtimeIr: unknown };
+    const compiled = compileValidatedWorkflow.mock.results[0]?.value as { runtimeIr: unknown };
 
     expect(outcome.compilation?.contentHash).toBe(
       finalizeWorkflowRevisionContentHash({
@@ -206,6 +213,9 @@ describe('SubmissionScannerService', () => {
     const outcome = scanner.scan(target({ ...source(broken) }));
 
     expect(outcome.result.summary.errors).toBeGreaterThan(0);
+    expect(outcome.scanStatus).toBe('FAILED_VALIDATION');
+    expect(outcome.result.summary.totalRules).toBe(4);
+    expect(compileValidatedWorkflow).not.toHaveBeenCalled();
     expect(outcome.compilation).toBeNull();
     expect(outcome.result.findings.some((finding) => finding.code === 'EDITOR_GRAPH_INVALID')).toBe(
       true,
@@ -215,13 +225,62 @@ describe('SubmissionScannerService', () => {
   it('does not call the compiler when a frozen document is not an object', () => {
     const outcome = scanner.scan(target({ inputSchema: [] as never }));
 
-    expect(compileWorkflow).not.toHaveBeenCalled();
+    expect(compileValidatedWorkflow).not.toHaveBeenCalled();
     expect(outcome.compilation).toBeNull();
     expect(
       outcome.result.findings.some(
         (finding) => finding.code === SubmissionFindingCode.REVISION_CONTENT_INVALID,
       ),
     ).toBe(true);
+  });
+
+  it('stops on snapshot errors before workflow validation or compilation', () => {
+    const submission = target();
+    submission.productSnapshot = { ...(submission.productSnapshot as object), name: '' };
+
+    const outcome = scanner.scan(submission);
+
+    expect(outcome.scanStatus).toBe('FAILED_VALIDATION');
+    expect(outcome.result.summary).toMatchObject({ totalRules: 3, passed: 2, errors: 1 });
+    expect(validateWorkflow).not.toHaveBeenCalled();
+    expect(compileValidatedWorkflow).not.toHaveBeenCalled();
+    expect(outcome.compilation).toBeNull();
+  });
+
+  it('retains earlier warnings when compilation returns deterministic diagnostics', () => {
+    const submission = target();
+    submission.productSnapshot = { ...(submission.productSnapshot as object), schemaVersion: 2 };
+    compileValidatedWorkflow.mockReturnValueOnce({
+      success: false,
+      validation: {
+        status: 'INVALID',
+        errors: [{ code: 'RUNTIME_IR_PAYLOAD_TOO_LARGE', message: 'IR is too large', path: [] }],
+        warnings: [],
+        truncated: false,
+      },
+    });
+
+    const outcome = scanner.scan(submission);
+
+    expect(outcome.scanStatus).toBe('FAILED_COMPILATION');
+    expect(outcome.result.summary).toMatchObject({
+      totalRules: 5,
+      passed: 4,
+      warnings: 1,
+      errors: 1,
+    });
+    expect(outcome.compilation).toBeNull();
+    expect(validateWorkflow).toHaveBeenCalledTimes(1);
+    expect(compileValidatedWorkflow).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates unexpected compiler exceptions for technical recovery', () => {
+    const failure = new TypeError('compiler defect');
+    compileValidatedWorkflow.mockImplementationOnce(() => {
+      throw failure;
+    });
+
+    expect(() => scanner.scan(target())).toThrow(failure);
   });
 
   it('flags a revision holding only one of its two compiled fields', () => {
@@ -281,7 +340,7 @@ describe('SubmissionScannerService', () => {
     });
 
     const outcome = scanner.scan(target({ ...frozen }));
-    const compiled = compileWorkflow.mock.results[0]?.value as {
+    const compiled = compileValidatedWorkflow.mock.results[0]?.value as {
       runtimeIr: { nodes: { id: string; timeoutMs: number }[] };
     };
 
@@ -324,6 +383,7 @@ describe('SubmissionScannerService', () => {
     const outcome = scanner.scan(target({ ...frozen }));
 
     expect(outcome.compilation).toBeNull();
+    expect(outcome.scanStatus).toBe('FAILED_COMPILATION');
     expect(
       outcome.result.findings.some(
         (finding) => finding.code === SubmissionFindingCode.RUNTIME_IR_COMPILATION_FAILED,
@@ -344,7 +404,7 @@ describe('SubmissionScannerService', () => {
 
     const outcome = scanner.scan(target({ ...source(padded) }));
 
-    expect(compileWorkflow).not.toHaveBeenCalled();
+    expect(compileValidatedWorkflow).not.toHaveBeenCalled();
     expect(outcome.compilation).toBeNull();
     expect(
       outcome.result.findings.some(
@@ -363,7 +423,7 @@ describe('SubmissionScannerService', () => {
       target({ nodeDefinitionManifest: { ...frozen.nodeDefinitionManifest, definitions } }),
     );
 
-    expect(compileWorkflow).not.toHaveBeenCalled();
+    expect(compileValidatedWorkflow).not.toHaveBeenCalled();
     expect(outcome.compilation).toBeNull();
     const finding = outcome.result.findings.find(
       (item) => item.code === SubmissionFindingCode.NODE_DEFINITION_MISSING,
@@ -378,7 +438,7 @@ describe('SubmissionScannerService', () => {
       target({ nodeDefinitionManifest: { ...frozen.nodeDefinitionManifest, definitions: [] } }),
     );
 
-    expect(compileWorkflow).not.toHaveBeenCalled();
+    expect(compileValidatedWorkflow).not.toHaveBeenCalled();
     expect(
       outcome.result.findings.some(
         (item) => item.code === SubmissionFindingCode.NODE_DEFINITION_MISSING,

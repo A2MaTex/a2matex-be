@@ -3,15 +3,20 @@ import type { ConsumedMessage } from '../../../shared/infrastructure/queue/queue
 import { SUBMISSION_SCAN_MESSAGE_TYPE } from '../../../shared/constants/submission.constant.ts';
 import {
   ScanOutcome,
-  SubmissionScanService,
+  type SubmissionScanService,
 } from '../../../routes/submission/scan/submission-scan.service.ts';
 import { SubmissionScanHandler } from '../submission-scan.handler.ts';
 
-vi.mock('../../../routes/submission/scan/submission-scan.service.ts', async (original) => {
-  const actual =
-    await original<typeof import('../../../routes/submission/scan/submission-scan.service.ts')>();
-  return { ...actual, SubmissionScanService: class SubmissionScanService {} };
-});
+// Importing the real service here would load Prisma and require runtime configuration.
+vi.mock('../../../routes/submission/scan/submission-scan.service.ts', () => ({
+  ScanOutcome: {
+    COMPLETED: 'COMPLETED',
+    ALREADY_DONE: 'ALREADY_DONE',
+    STALE: 'STALE',
+    INVALID: 'INVALID',
+  },
+  SubmissionScanService: class SubmissionScanService {},
+}));
 
 const SUBMISSION_ID = '11111111-1111-4111-8111-111111111111';
 const TRACE_ID = 'abcdef0123456789abcdef0123456789';

@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   SUBMISSION_SCANNER_VERSION,
-  SubmissionScanStatus,
+  TERMINAL_SUBMISSION_SCAN_STATUSES,
 } from '../../../shared/constants/submission.constant.ts';
 import { Transactional } from '../../../shared/decorators/transactional.decorator.ts';
 import { TransactionService } from '../../../shared/services/transaction.service.ts';
@@ -53,10 +53,7 @@ export class SubmissionScanService {
     if (scanAttempt < target.scanAttempt) {
       return ScanOutcome.STALE;
     }
-    if (
-      target.scanStatus === SubmissionScanStatus.PASSED ||
-      target.scanStatus === SubmissionScanStatus.FAILED
-    ) {
+    if (TERMINAL_SUBMISSION_SCAN_STATUSES.includes(target.scanStatus)) {
       return ScanOutcome.ALREADY_DONE;
     }
 
@@ -68,9 +65,7 @@ export class SubmissionScanService {
     }
 
     // Outside any transaction: this reads immutable content and writes nothing.
-    const { result: scanResult, compilation } = this.scanner.scan(target);
-    const scanStatus =
-      scanResult.summary.errors > 0 ? SubmissionScanStatus.FAILED : SubmissionScanStatus.PASSED;
+    const { scanStatus, result: scanResult, compilation } = this.scanner.scan(target);
 
     const persisted = await this.persistOutcome({
       submissionId,

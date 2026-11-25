@@ -20,6 +20,11 @@ model User {
   deletedAt                                           DateTime?             @db.Timestamptz(6)
   auditHistory                                        Json                  @default("[]")
   device                                              Device[]
+  entitlements                                        Entitlement[]         @relation("EntitlementCustomer")
+  grantedEntitlements                                 Entitlement[]         @relation("EntitlementGrantedBy")
+  revokedEntitlements                                 Entitlement[]         @relation("EntitlementRevokedBy")
+  orders                                              Order[]               @relation("OrderCustomer")
+  publisherOrders                                     Order[]               @relation("OrderPublisher")
   createdPermissions                                  Permission[]          @relation("PermissionCreatedBy")
   deletedPermissions                                  Permission[]          @relation("PermissionDeletedBy")
   updatedPermissions                                  Permission[]          @relation("PermissionUpdatedBy")
@@ -28,19 +33,12 @@ model User {
   Product_Product_suspendedByIdToUser                 Product[]             @relation("Product_suspendedByIdToUser")
   Product_Product_updatedByIdToUser                   Product[]             @relation("Product_updatedByIdToUser")
   createdProductOffers                                ProductOffer[]        @relation("ProductOfferCreatedBy")
-  entitlements                                        Entitlement[]         @relation("EntitlementCustomer")
-  orders                                              Order[]               @relation("OrderCustomer")
-  publisherOrders                                     Order[]               @relation("OrderPublisher")
-  grantedEntitlements                                 Entitlement[]         @relation("EntitlementGrantedBy")
-  revokedEntitlements                                 Entitlement[]         @relation("EntitlementRevokedBy")
-  updatedProductOffers                                ProductOffer[]        @relation("ProductOfferUpdatedBy")
-  updatedSystemSettings                               SystemSetting[]       @relation("SystemSettingUpdatedBy")
   deletedProductOffers                                ProductOffer[]        @relation("ProductOfferDeletedBy")
+  updatedProductOffers                                ProductOffer[]        @relation("ProductOfferUpdatedBy")
   createdProfiles                                     Profile[]             @relation("ProfileCreatedBy")
   deletedProfiles                                     Profile[]             @relation("ProfileDeletedBy")
   updatedProfiles                                     Profile[]             @relation("ProfileUpdatedBy")
   profile                                             Profile?              @relation("ProfileUser")
-  identities                                          UserIdentity[]
   Project_Project_createdByIdToUser                   Project[]             @relation("Project_createdByIdToUser")
   Project_Project_deletedByIdToUser                   Project[]             @relation("Project_deletedByIdToUser")
   Project_Project_updatedByIdToUser                   Project[]             @relation("Project_updatedByIdToUser")
@@ -57,11 +55,13 @@ model User {
   Submission_Submission_createdByIdToUser             Submission[]          @relation("Submission_createdByIdToUser")
   Submission_Submission_deletedByIdToUser             Submission[]          @relation("Submission_deletedByIdToUser")
   Submission_Submission_updatedByIdToUser             Submission[]          @relation("Submission_updatedByIdToUser")
+  updatedSystemSettings                               SystemSetting[]       @relation("SystemSettingUpdatedBy")
   createdTerms                                        Term[]                @relation("Term_createdByIdToUser")
   updatedTerms                                        Term[]                @relation("Term_updatedByIdToUser")
+  identities                                          UserIdentity[]
   userRoles                                           UserRole[]
-  walletTransactions                                  WalletTransaction[]   @relation("WalletTransactionAccount")
   recordedWalletTransactions                          WalletTransaction[]   @relation("WalletTransactionCreatedBy")
+  walletTransactions                                  WalletTransaction[]   @relation("WalletTransactionAccount")
   WorkflowRevision_WorkflowRevision_createdByIdToUser WorkflowRevision[]    @relation("WorkflowRevision_createdByIdToUser")
   WorkflowRevision_WorkflowRevision_deletedByIdToUser WorkflowRevision[]    @relation("WorkflowRevision_deletedByIdToUser")
   WorkflowRevision_WorkflowRevision_updatedByIdToUser WorkflowRevision[]    @relation("WorkflowRevision_updatedByIdToUser")
@@ -127,7 +127,7 @@ model TopUpTransaction {
   creditedAt            DateTime?              @db.Timestamptz(6)
   createdAt             DateTime               @default(now()) @db.Timestamptz(6)
   updatedAt             DateTime?              @db.Timestamptz(6)
-  walletTransactions    WalletTransaction[]
+  walletTransactions    WalletTransaction?
 }
 
 model VerificationCode {
@@ -294,10 +294,10 @@ model Static {
   updatedAt          DateTime?            @db.Timestamptz(6)
   deletedAt          DateTime?            @db.Timestamptz(6)
   launcherReleases   LauncherRelease[]
-  studioReleases     StudioRelease[]
   ProductMedia       ProductMedia[]
   Profile            Profile[]
   StaticImageVariant StaticImageVariant[]
+  studioReleases     StudioRelease[]
 }
 
 model LauncherRelease {
@@ -318,7 +318,7 @@ model StudioRelease {
   version      String    @unique @db.VarChar(100)
   staticId     String    @db.Uuid
   releaseNotes String?
-  isActive     Boolean   @default(false) @unique(map: "StudioRelease_isActive_idx", where: raw("(\"isActive\" AND \"deletedAt\" IS NULL)"))
+  isActive     Boolean   @unique(map: "StudioRelease_isActive_idx", where: raw("(\"isActive\" AND (\"deletedAt\" IS NULL))")) @default(false)
   publishedAt  DateTime? @db.Timestamptz(6)
   createdAt    DateTime  @default(now()) @db.Timestamptz(6)
   updatedAt    DateTime? @db.Timestamptz(6)
@@ -509,6 +509,8 @@ model Product {
   updatedById                        String?          @db.Uuid
   deletedById                        String?          @db.Uuid
   offerChangeTimestamps              DateTime[]       @default([]) @db.Timestamptz(6)
+  Entitlement                        Entitlement[]
+  Order                              Order[]
   User_Product_createdByIdToUser     User             @relation("Product_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   currentRelease                     ProductRelease?  @relation("CurrentProductRelease", fields: [currentReleaseId], references: [id])
   User_Product_deletedByIdToUser     User?            @relation("Product_deletedByIdToUser", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -519,8 +521,6 @@ model Product {
   User_Product_updatedByIdToUser     User?            @relation("Product_updatedByIdToUser", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   ProductMedia                       ProductMedia[]
   ProductOffer                       ProductOffer[]
-  Entitlement                        Entitlement[]
-  Order                              Order[]
   releases                           ProductRelease[] @relation("ProductReleases")
   Submission                         Submission[]
 
@@ -634,19 +634,6 @@ model ProductRelease {
   @@index([productId, publishedAt(sort: Desc), id(sort: Desc)])
 }
 
-enum ProductReleaseStatus {
-  BUILDING
-  PUBLISHED
-  BUILD_FAILED
-  DISABLED
-}
-
-enum SessionStatus {
-  UPLOADING
-  COMPLETED
-  ABORTED
-}
-
 /// The commercial terms a customer accepts to acquire a Product. Type and duration form
 /// the natural key; the replacement API owns every price/duration rule.
 model ProductOffer {
@@ -661,14 +648,142 @@ model ProductOffer {
   createdById  String           @db.Uuid
   updatedById  String?          @db.Uuid
   deletedById  String?          @db.Uuid
-  Product      Product          @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdBy    User             @relation("ProductOfferCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  updatedBy    User?            @relation("ProductOfferUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  deletedBy    User?            @relation("ProductOfferDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   Entitlement  Entitlement[]
   Order        Order[]
+  createdBy    User             @relation("ProductOfferCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  deletedBy    User?            @relation("ProductOfferDeletedBy", fields: [deletedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Product      Product          @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  updatedBy    User?            @relation("ProductOfferUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@index([productId], map: "ProductOffer_productId_idx", where: raw("(\"deletedAt\" IS NULL)"))
+  @@index([productId], where: raw("(\"deletedAt\" IS NULL)"))
+}
+
+/// One durable row per customer and Product: the current access period and its latest
+/// source. Stored status is ACTIVE or REVOKED; EXPIRED is derived from "expiresAt" at read
+/// time.
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Entitlement {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId           String                 @db.Uuid
+  productId            String                 @db.Uuid
+  status               EntitlementStatus      @default(ACTIVE)
+  grantSource          EntitlementGrantSource
+  grantedById          String?                @db.Uuid
+  startsAt             DateTime               @db.Timestamptz(6)
+  expiresAt            DateTime?              @db.Timestamptz(6)
+  latestProductOfferId String?                @db.Uuid
+  oneTimePurchasedAt   DateTime?              @db.Timestamptz(6)
+  grantSnapshot        Json
+  revokedAt            DateTime?              @db.Timestamptz(6)
+  revokedById          String?                @db.Uuid
+  revokedReason        String?
+  auditHistory         Json                   @default("[]")
+  createdAt            DateTime               @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime?              @db.Timestamptz(6)
+  latestOrderId        String?                @db.Uuid
+  customer             User                   @relation("EntitlementCustomer", fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grantedBy            User?                  @relation("EntitlementGrantedBy", fields: [grantedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  latestOrder          Order?                 @relation(fields: [latestOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  latestProductOffer   ProductOffer?          @relation(fields: [latestProductOfferId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Product              Product                @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  revokedBy            User?                  @relation("EntitlementRevokedBy", fields: [revokedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([customerId, productId])
+  @@index([productId])
+}
+
+/// One purchase of one Product paid from the customer's balance. Immutable once written:
+/// there is no update path, no soft delete, and the customer is the creator.
+/// "offerSnapshot" keeps the commercial terms as they were when the customer paid, so later
+/// price edits and offer removals cannot rewrite history.
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model Order {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId         String              @db.Uuid
+  status             OrderStatus         @default(PAID)
+  totalAmount        BigInt
+  paidAt             DateTime            @db.Timestamptz(6)
+  idempotencyKey     String              @db.Uuid
+  createdAt          DateTime            @default(now()) @db.Timestamptz(6)
+  productId          String              @db.Uuid
+  productOfferId     String              @db.Uuid
+  offerSnapshot      Json
+  /// Who received the money, denormalised: product ownership can change but a sale must
+  /// stay attributable to whoever actually took it.
+  publisherUserId    String              @db.Uuid
+  commissionRateBps  Int
+  commissionAmount   BigInt
+  publisherAmount    BigInt
+  Entitlement        Entitlement[]
+  customer           User                @relation("OrderCustomer", fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Product            Product             @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ProductOffer       ProductOffer        @relation(fields: [productOfferId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  publisher          User                @relation("OrderPublisher", fields: [publisherUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  walletTransactions WalletTransaction[]
+
+  @@unique([customerId, idempotencyKey])
+  @@index([customerId, createdAt(sort: Desc)])
+  @@index([publisherUserId, createdAt(sort: Desc)])
+  @@index([productId])
+}
+
+/// Tiền của sàn. Cố ý KHÔNG thuộc về một User nào: phép đối soát ví người dùng lọc theo
+/// "chưa bị xoá mềm", nên nếu đây là một tài khoản người dùng thì chỉ cần ai đó xoá mềm nó
+/// là nó rơi khỏi phép đối soát mà phép đối soát vẫn báo sạch.
+/// This table contains check constraints and requires additional setup for migrations.
+model SystemAccount {
+  type               SystemAccountType   @id
+  balance            BigInt              @default(0)
+  updatedAt          DateTime?           @db.Timestamptz(6)
+  walletTransactions WalletTransaction[]
+}
+
+/// Một lần số dư của một tài khoản thay đổi. Ghi một lần, không sửa, không xoá: đây là bản
+/// ghi lịch sử chứ không phải trạng thái — nên không có updatedAt và không có xoá mềm.
+/// Mỗi dòng thuộc về ĐÚNG MỘT tài khoản: hoặc userId, hoặc systemAccount, không bao giờ cả
+/// hai và không bao giờ không có. "direction" luôn nhìn từ tài khoản ghi trên chính dòng đó,
+/// nên một lần chuyển khoản để lại hai dòng ngược chiều nhau cùng một transferId.
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model WalletTransaction {
+  id                 String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String?               @db.Uuid
+  systemAccount      SystemAccountType?
+  type               WalletTransactionType
+  direction          WalletDirection
+  /// Luôn dương. Dấu nằm ở "direction", không nằm ở số tiền.
+  amount             BigInt
+  /// Số dư của tài khoản ngay sau bút toán này. Lấy từ chính thao tác đã đổi số dư.
+  balanceAfter       BigInt
+  orderId            String?               @db.Uuid
+  topUpTransactionId String?               @unique(map: "WalletTransaction_topUp_key", where: raw("(\"topUpTransactionId\" IS NOT NULL)")) @db.Uuid
+  /// Nối hai chân của một lần chuyển khoản. Chỉ và luôn có với ADMIN_GRANT.
+  transferId         String?               @db.Uuid
+  note               String?
+  createdById        String?               @db.Uuid
+  createdAt          DateTime              @default(now()) @db.Timestamptz(6)
+  createdBy          User?                 @relation("WalletTransactionCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  order              Order?                @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  account            SystemAccount?        @relation(fields: [systemAccount], references: [type], onDelete: NoAction, onUpdate: NoAction)
+  topUpTransaction   TopUpTransaction?     @relation(fields: [topUpTransactionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user               User?                 @relation("WalletTransactionAccount", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([orderId, type], map: "WalletTransaction_order_type_key", where: raw("(\"orderId\" IS NOT NULL)"))
+  @@unique([transferId, direction], map: "WalletTransaction_transfer_leg_key", where: raw("(\"transferId\" IS NOT NULL)"))
+  @@index([userId, createdAt(sort: Desc)], where: raw("(\"userId\" IS NOT NULL)"))
+  @@index([systemAccount, createdAt(sort: Desc)], where: raw("(\"systemAccount\" IS NOT NULL)"))
+}
+
+enum ProductReleaseStatus {
+  BUILDING
+  PUBLISHED
+  BUILD_FAILED
+  DISABLED
+}
+
+enum SessionStatus {
+  UPLOADING
+  COMPLETED
+  ABORTED
 }
 
 enum OAuthProvider {
@@ -776,42 +891,9 @@ enum SubmissionScanStatus {
   QUEUED
   RUNNING
   PASSED
-  FAILED
   ERROR
-}
-
-/// One durable row per customer and Product: the current access period and its latest
-/// source. Stored status is ACTIVE or REVOKED; EXPIRED is derived from "expiresAt" at read
-/// time.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model Entitlement {
-  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  customerId           String                 @db.Uuid
-  productId            String                 @db.Uuid
-  status               EntitlementStatus      @default(ACTIVE)
-  grantSource          EntitlementGrantSource
-  grantedById          String?                @db.Uuid
-  startsAt             DateTime               @db.Timestamptz(6)
-  expiresAt            DateTime?              @db.Timestamptz(6)
-  latestProductOfferId String?                @db.Uuid
-  latestOrderId        String?                @db.Uuid
-  oneTimePurchasedAt   DateTime?              @db.Timestamptz(6)
-  grantSnapshot        Json
-  revokedAt            DateTime?              @db.Timestamptz(6)
-  revokedById          String?                @db.Uuid
-  revokedReason        String?
-  auditHistory         Json                   @default("[]")
-  createdAt            DateTime               @default(now()) @db.Timestamptz(6)
-  updatedAt            DateTime?              @db.Timestamptz(6)
-  customer             User                   @relation("EntitlementCustomer", fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  grantedBy            User?                  @relation("EntitlementGrantedBy", fields: [grantedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  revokedBy            User?                  @relation("EntitlementRevokedBy", fields: [revokedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  Product              Product                @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  latestProductOffer   ProductOffer?          @relation(fields: [latestProductOfferId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  latestOrder          Order?                 @relation(fields: [latestOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@unique([customerId, productId], map: "Entitlement_customerId_productId_key")
-  @@index([productId], map: "Entitlement_productId_idx")
+  FAILED_VALIDATION
+  FAILED_COMPILATION
 }
 
 enum EntitlementStatus {
@@ -824,90 +906,8 @@ enum EntitlementGrantSource {
   ADMIN_GRANT
 }
 
-/// One purchase of one Product paid from the customer's balance. Immutable once written:
-/// there is no update path, no soft delete, and the customer is the creator.
-/// "offerSnapshot" keeps the commercial terms as they were when the customer paid, so later
-/// price edits and offer removals cannot rewrite history.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model Order {
-  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  customerId        String      @db.Uuid
-  productId         String      @db.Uuid
-  productOfferId    String      @db.Uuid
-  status            OrderStatus @default(PAID)
-  totalAmount       BigInt
-  offerSnapshot     Json
-  paidAt            DateTime    @db.Timestamptz(6)
-  idempotencyKey    String      @db.Uuid
-  createdAt         DateTime    @default(now()) @db.Timestamptz(6)
-  /// Who received the money, denormalised: product ownership can change but a sale must
-  /// stay attributable to whoever actually took it.
-  publisherUserId   String      @db.Uuid
-  commissionRateBps Int
-  commissionAmount  BigInt
-  publisherAmount   BigInt
-  publisher         User        @relation("OrderPublisher", fields: [publisherUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  customer       User          @relation("OrderCustomer", fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  Product        Product       @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  ProductOffer   ProductOffer  @relation(fields: [productOfferId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  Entitlement    Entitlement[]
-  walletTransactions WalletTransaction[]
-
-  @@unique([customerId, idempotencyKey], map: "Order_customerId_idempotencyKey_key")
-  @@index([customerId, createdAt(sort: Desc)], map: "Order_customerId_createdAt_idx")
-  @@index([publisherUserId, createdAt(sort: Desc)], map: "Order_publisherUserId_createdAt_idx")
-  @@index([productId], map: "Order_productId_idx")
-}
-
 enum OrderStatus {
   PAID
-}
-
-/// Tiền của sàn. Cố ý KHÔNG thuộc về một User nào: phép đối soát ví người dùng lọc theo
-/// "chưa bị xoá mềm", nên nếu đây là một tài khoản người dùng thì chỉ cần ai đó xoá mềm nó
-/// là nó rơi khỏi phép đối soát mà phép đối soát vẫn báo sạch.
-/// This table contains check constraints and requires additional setup for migrations.
-model SystemAccount {
-  type               SystemAccountType   @id
-  balance            BigInt              @default(0)
-  updatedAt          DateTime?           @db.Timestamptz(6)
-  walletTransactions WalletTransaction[]
-}
-
-/// Một lần số dư của một tài khoản thay đổi. Ghi một lần, không sửa, không xoá: đây là bản
-/// ghi lịch sử chứ không phải trạng thái — nên không có updatedAt và không có xoá mềm.
-/// Mỗi dòng thuộc về ĐÚNG MỘT tài khoản: hoặc userId, hoặc systemAccount, không bao giờ cả
-/// hai và không bao giờ không có. "direction" luôn nhìn từ tài khoản ghi trên chính dòng đó,
-/// nên một lần chuyển khoản để lại hai dòng ngược chiều nhau cùng một transferId.
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model WalletTransaction {
-  id                 String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId             String?               @db.Uuid
-  systemAccount      SystemAccountType?
-  type               WalletTransactionType
-  direction          WalletDirection
-  /// Luôn dương. Dấu nằm ở "direction", không nằm ở số tiền.
-  amount             BigInt
-  /// Số dư của tài khoản ngay sau bút toán này. Lấy từ chính thao tác đã đổi số dư.
-  balanceAfter       BigInt
-  orderId            String?               @db.Uuid
-  topUpTransactionId String?               @db.Uuid
-  /// Nối hai chân của một lần chuyển khoản. Chỉ và luôn có với ADMIN_GRANT.
-  transferId         String?               @db.Uuid
-  note               String?
-  createdById        String?               @db.Uuid
-  createdAt          DateTime              @default(now()) @db.Timestamptz(6)
-  user               User?                 @relation("WalletTransactionAccount", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  account            SystemAccount?        @relation(fields: [systemAccount], references: [type], onDelete: NoAction, onUpdate: NoAction)
-  order              Order?                @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  topUpTransaction   TopUpTransaction?     @relation(fields: [topUpTransactionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdBy          User?                 @relation("WalletTransactionCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@unique([orderId, type], map: "WalletTransaction_order_type_key", where: raw("(\"orderId\" IS NOT NULL)"))
-  @@unique([topUpTransactionId], map: "WalletTransaction_topUp_key", where: raw("(\"topUpTransactionId\" IS NOT NULL)"))
-  @@unique([transferId, direction], map: "WalletTransaction_transfer_leg_key", where: raw("(\"transferId\" IS NOT NULL)"))
-  @@index([userId, createdAt(sort: Desc)], map: "WalletTransaction_userId_createdAt_idx", where: raw("(\"userId\" IS NOT NULL)"))
-  @@index([systemAccount, createdAt(sort: Desc)], map: "WalletTransaction_systemAccount_createdAt_idx", where: raw("(\"systemAccount\" IS NOT NULL)"))
 }
 
 enum SystemAccountType {

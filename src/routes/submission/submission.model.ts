@@ -26,7 +26,8 @@ export const SubmissionScanStatusSchema = z.enum([
   SubmissionScanStatus.QUEUED,
   SubmissionScanStatus.RUNNING,
   SubmissionScanStatus.PASSED,
-  SubmissionScanStatus.FAILED,
+  SubmissionScanStatus.FAILED_VALIDATION,
+  SubmissionScanStatus.FAILED_COMPILATION,
   SubmissionScanStatus.ERROR,
 ]);
 
