@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   NotFoundException,
   UnprocessableEntityException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 
 export const ProductNotFoundException = new NotFoundException('Error.ProductNotFound');
@@ -64,3 +65,14 @@ export const ProductSuspendReasonRequiredException = new UnprocessableEntityExce
     path: 'reason',
   },
 ]);
+
+// These wire keys are shared with the approved Production authorization contract.
+export const ProductPackageAccessDeniedException = new ForbiddenException(
+  'Error.ExecutionAuthorizationDenied',
+);
+export const ProductPackageUnavailableException = new NotFoundException(
+  'Error.ProductPackageUnavailable',
+);
+export const ProductPackageDownloadUnavailableException = new ServiceUnavailableException(
+  'Error.ExecutionAuthorizationUnavailable',
+);

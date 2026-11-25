@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
 import { MessageResDTO } from '../../shared/dtos/response.dto.ts';
@@ -15,6 +26,9 @@ import {
   UpdateProductInputDTO,
   UpdateProductLifecycleInputDTO,
   UpdateProductModerationInputDTO,
+  GetProductPackageDownloadInputDTO,
+  GetProductPackageDownloadOutputDTO,
+  ProductPackageProductParamDTO,
 } from './product.dto.ts';
 import { ProductService } from './product.service.ts';
 
@@ -38,6 +52,21 @@ export class ProductController {
     @ActivePermissionScopes() scopes: ActivePermissionScope[],
   ) {
     return this.productService.getList({ query, userId, scopes });
+  }
+
+  @Get(':productId/package-download')
+  @Header('Cache-Control', 'no-store')
+  @ZodResponse({ type: GetProductPackageDownloadOutputDTO })
+  getPackageDownload(
+    @Param() params: ProductPackageProductParamDTO,
+    @Query() query: GetProductPackageDownloadInputDTO,
+    @ActiveUser('userId') customerId: string,
+  ) {
+    return this.productService.getPackageDownload({
+      productId: params.productId,
+      customerId,
+      query,
+    });
   }
 
   @Get(':productId')

@@ -1,8 +1,16 @@
+import { SharedUserRepository } from '../../shared/repositories/shared-user.repo.ts';
+import { ProductPackageHash, ProductPackageFileMetadata } from './product.model.ts';
+import { EntitlementService } from '../entitlement/entitlement.service.ts';
+import { StaticService } from '../../shared/services/static.service.ts';
+import type { ObjectStorageProvider } from '../../shared/infrastructure/storage/object-storage.interface.ts';
+import { OBJECT_STORAGE_PROVIDER } from '../../shared/infrastructure/storage/object-storage.interface.ts';
+import envConfig from '../../shared/config.ts';
 import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import {
   ProductLifecycleAction,
   ProductModerationAction,
   ProductStatus,
+  MILLISECONDS_PER_SECOND,
 } from '../../shared/constants/product.constant.ts';
 import type { ActivePermissionScope } from '../../shared/decorators/active-permission-scopes.decorator.ts';
 import { Transactional } from '../../shared/decorators/transactional.decorator.ts';
@@ -31,6 +39,9 @@ import {
   ProductSlugConflictException,
   ProductSuspendReasonRequiredException,
   ProductSuspendedException,
+  ProductPackageAccessDeniedException,
+  ProductPackageUnavailableException,
+  ProductPackageDownloadUnavailableException,
 } from './product.error.ts';
 import type {
   CreateProductInputType,
@@ -42,6 +53,9 @@ import type {
   UpdateProductInputType,
   UpdateProductLifecycleInputType,
   UpdateProductModerationInputType,
+  GetProductPackageDownloadInputType,
+  GetProductPackageDownloadOutputType,
+  ProductPackageFileMetadataType,
 } from './product.model.ts';
 import { ProductRepo } from './product.repo.ts';
 import type { LockedProduct } from './product.repo.ts';
@@ -53,11 +67,15 @@ export class ProductService {
 
   constructor(
     @Inject(ProductRepo) private readonly productRepo: ProductRepo,
+    @Inject(SharedUserRepository) private readonly sharedUserRepository: SharedUserRepository,
     @Inject(ProductAccessPolicy) private readonly productAccessPolicy: ProductAccessPolicy,
     @Inject(TransactionService) private readonly transactionService: TransactionService,
     @Inject(ProductOfferService) private readonly productOfferService: ProductOfferService,
     @Inject(ProductReleaseManagementService)
     private readonly productReleaseService: ProductReleaseManagementService,
+    @Inject(EntitlementService) private readonly entitlementService: EntitlementService,
+    @Inject(StaticService) private readonly staticService: StaticService,
+    @Inject(OBJECT_STORAGE_PROVIDER) private readonly storage: ObjectStorageProvider,
   ) {}
 
   async create({
@@ -484,5 +502,83 @@ export class ProductService {
       throw ProductSuspendedException;
     }
     throw ProductArchivedException;
+  }
+
+  async getPackageDownload({
+    productId,
+    customerId,
+    query,
+  }: {
+    productId: string;
+    customerId: string;
+    query: GetProductPackageDownloadInputType;
+  }): Promise<GetProductPackageDownloadOutputType> {
+    await this.assertPackageDownloadAccess(customerId, productId);
+    const { release, file, packageHash } = await this.getPackageDownloadData(
+      productId,
+      query.releaseId,
+    );
+    const signedUrl = await this.createPackageDownloadUrl(file);
+    return {
+      package: { productId, releaseId: release.id, version: release.version, packageHash },
+      fileName: file.originalFileName,
+      packageSizeBytes: file.size.toString(),
+      ...signedUrl,
+    };
+  }
+
+  private async assertPackageDownloadAccess(customerId: string, productId: string): Promise<void> {
+    const active = await this.sharedUserRepository.hasActiveCustomer(customerId);
+    const access = active
+      ? await this.entitlementService.checkUsage({ customerId, productId })
+      : null;
+    if (!access?.usable) {
+      this.logger.error(
+        `Product package download denied productId=${productId} customerId=${customerId} reason=${access?.reason ?? 'customer_ineligible'}`,
+      );
+      throw ProductPackageAccessDeniedException;
+    }
+  }
+
+  private async getPackageDownloadData(productId: string, releaseId?: string) {
+    const release = await this.productRepo.findDownloadRelease({ productId, releaseId });
+    const hash = ProductPackageHash.safeParse(release?.packageHash);
+    if (!release?.packageStaticId || !hash.success) {
+      this.logger.error(
+        `Product package unavailable productId=${productId} releaseId=${releaseId ?? 'current'} reason=release_or_hash_missing`,
+      );
+      throw ProductPackageUnavailableException;
+    }
+    const file = ProductPackageFileMetadata.safeParse(
+      await this.staticService.getReservedFile(release.packageStaticId),
+    );
+    if (!file.success) {
+      this.logger.error(
+        `Product package unavailable productId=${productId} releaseId=${release.id} reason=invalid_file_metadata`,
+      );
+      throw ProductPackageUnavailableException;
+    }
+    return { release, file: file.data, packageHash: hash.data };
+  }
+
+  private async createPackageDownloadUrl(file: ProductPackageFileMetadataType) {
+    try {
+      if (!(await this.storage.objectExists(file.objectKey))) {
+        this.logger.error(`Product package unavailable staticId=${file.id} reason=object_missing`);
+        throw ProductPackageUnavailableException;
+      }
+      const expiresAt = new Date(
+        Date.now() + envConfig.FILE_DOWNLOAD_URL_TTL * MILLISECONDS_PER_SECOND,
+      );
+      if (Number.isNaN(expiresAt.getTime())) throw new Error('Invalid download expiration');
+      const downloadUrl = await this.storage.getDownloadUrl(file.objectKey, file.originalFileName);
+      return { downloadUrl, expiresAt };
+    } catch (error) {
+      if (error === ProductPackageUnavailableException) throw error;
+      this.logger.error(
+        `Product package download failed operation=create_package_download_url staticId=${file.id} reason=${error instanceof Error ? error.name : 'UnknownError'}`,
+      );
+      throw ProductPackageDownloadUnavailableException;
+    }
   }
 }

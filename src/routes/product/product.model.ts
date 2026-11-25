@@ -1,3 +1,5 @@
+import { zDate } from '../../shared/utils/zod.ts';
+import { PRODUCT_RELEASE_STATIC_PREFIX } from '../../shared/constants/storage.constant.ts';
 import { z } from 'zod';
 import { Product } from '../../entities/product.model.ts';
 import {
@@ -11,6 +13,14 @@ import {
   ProductMediaType,
   ProductModerationAction,
   ProductStatus,
+  PRODUCT_PACKAGE_FILENAME_MAX_BYTES,
+  PRODUCT_PACKAGE_FILENAME_PATTERN,
+  PRODUCT_PACKAGE_HASH_HEX_LENGTH,
+  PRODUCT_PACKAGE_HASH_PATTERN,
+  PRODUCT_PACKAGE_INVALID_UNICODE_PATTERN,
+  PRODUCT_PACKAGE_MAX_BYTES,
+  PRODUCT_PACKAGE_RESERVED_NAME_PATTERN,
+  PRODUCT_PACKAGE_CONTENT_TYPE,
 } from '../../shared/constants/product.constant.ts';
 import { ProjectStatus } from '../../shared/constants/project.constant.ts';
 import { PaginationQuerySchema } from '../../shared/models/request.model.ts';
@@ -233,3 +243,68 @@ export type ProductManagementOutputType = z.infer<typeof ProductManagementOutput
 // z.input: an Offer price leaves Prisma as a bigint and the response interceptor
 // serializes it into a decimal string.
 export type ProductDetailOutputType = z.input<typeof ProductDetailOutput>;
+
+// Customer package downloads.
+const PackageUuid = z.uuidv4().refine((value) => value === value.toLowerCase());
+
+export const ProductPackageProductParam = z.object({ productId: PackageUuid }).strict();
+export const GetProductPackageDownloadInput = z
+  .object({ releaseId: PackageUuid.optional() })
+  .strict();
+
+// Preserve the server basename exactly; never repair a name before authorizing it.
+export const ProductPackageFileName = z
+  .string()
+  .min(1)
+  .regex(PRODUCT_PACKAGE_FILENAME_PATTERN)
+  .refine((value) => !PRODUCT_PACKAGE_INVALID_UNICODE_PATTERN.test(value) && value.endsWith('.a2m'))
+  .refine((value) => Buffer.byteLength(value, 'utf8') <= PRODUCT_PACKAGE_FILENAME_MAX_BYTES)
+  .refine((value) => !PRODUCT_PACKAGE_RESERVED_NAME_PATTERN.test(value));
+
+export const ProductPackageHash = z
+  .string()
+  .length(PRODUCT_PACKAGE_HASH_HEX_LENGTH)
+  .regex(PRODUCT_PACKAGE_HASH_PATTERN);
+
+export const GetProductPackageDownloadOutput = z
+  .object({
+    package: z
+      .object({
+        productId: PackageUuid,
+        releaseId: PackageUuid,
+        version: z.string(),
+        packageHash: ProductPackageHash,
+      })
+      .strict(),
+    fileName: ProductPackageFileName,
+    packageSizeBytes: z
+      .string()
+      .regex(/^[1-9][0-9]*$/)
+      .pipe(
+        z
+          .string()
+          .refine(
+            (value) =>
+              value === BigInt(value).toString() &&
+              BigInt(value) <= BigInt(PRODUCT_PACKAGE_MAX_BYTES),
+          ),
+      ),
+    downloadUrl: z.url(),
+    expiresAt: zDate(),
+  })
+  .strict();
+
+export type GetProductPackageDownloadInputType = z.infer<typeof GetProductPackageDownloadInput>;
+export type GetProductPackageDownloadOutputType = z.infer<typeof GetProductPackageDownloadOutput>;
+
+// Internal storage metadata; it is never returned as the API response.
+export const ProductPackageFileMetadata = z
+  .object({
+    id: PackageUuid,
+    objectKey: z.string().startsWith(`${PRODUCT_RELEASE_STATIC_PREFIX}/`),
+    originalFileName: ProductPackageFileName,
+    contentType: z.literal(PRODUCT_PACKAGE_CONTENT_TYPE),
+    size: z.bigint().positive().max(BigInt(PRODUCT_PACKAGE_MAX_BYTES)),
+  })
+  .strict();
+export type ProductPackageFileMetadataType = z.infer<typeof ProductPackageFileMetadata>;
