@@ -7,6 +7,7 @@ import type { CacheProvider } from '../../shared/infrastructure/cache/cache.inte
 import { TransactionService } from '../../shared/services/transaction.service.ts';
 import { isUniqueConstraintPrismaError } from '../../shared/utils/prisma.ts';
 import { SystemSettingService } from '../system-setting/system-setting.service.ts';
+import { WalletService } from '../wallet/wallet.service.ts';
 import type { SepayWebhookPayloadType } from './topup.model.ts';
 import { TopUpRepo } from './topup.repo.ts';
 
@@ -24,6 +25,7 @@ export class TopUpService {
     @Inject(CACHE_PROVIDER) private readonly cacheProvider: CacheProvider,
     @Inject(TransactionService) private readonly transactionService: TransactionService,
     @Inject(SystemSettingService) private readonly systemSettingService: SystemSettingService,
+    @Inject(WalletService) private readonly walletService: WalletService,
   ) {}
 
   async createTopUpRequest({ userId, amount }: { userId: string; amount: number }) {
@@ -174,7 +176,16 @@ export class TopUpService {
       return false;
     }
 
-    await this.topUpRepo.incrementProfileBalance({ userId, amount: receivedAmount });
+    const balanceAfter = await this.topUpRepo.incrementProfileBalance({
+      userId,
+      amount: receivedAmount,
+    });
+    await this.walletService.recordTopUp({
+      userId,
+      topUpTransactionId,
+      amount: receivedAmount,
+      balanceAfter,
+    });
     return true;
   }
 }

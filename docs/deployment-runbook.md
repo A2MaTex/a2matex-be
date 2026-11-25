@@ -938,6 +938,157 @@ ssh -i ~/.ssh/a2matex-deploy deploy@34.87.57.207 \
 
 Bản ghi DNS `db.a2matex.com` của spec 003 (nếu đã tạo) không còn dùng, xoá tại zonedns.vn.
 
+## B9. Sổ cái ví và tài khoản tiền của sàn (spec 011)
+
+### B9.1 Một bước cố ý không nằm trong repo
+
+> **Ngoại lệ với Nguyên tắc III.** Một bước có tác động dữ liệu được áp lên production
+> **ngoài file migration đã commit**. Lý do và phạm vi ở mục Complexity Tracking của
+> `specs/011-wallet-ledger/plan.md`.
+
+Trước khi có sổ cái, quản trị viên đã đặt **15.994.000 ₫** thẳng vào hai ví. Hai ví đó là
+**người dùng thật đang hoạt động** — 6 quyền truy cập còn hiệu lực, một trong hai đã nạp tiền
+thật 6.000 ₫ — nên không xoá gì của họ. Thay vào đó, khoản đó được **ghi lại thành bút toán**:
+hệ thống tự phát hành vào tài khoản của sàn, rồi hai lần chuyển khoản sang hai ví.
+
+Bước ghi lại này (**B5**) **không nằm trong repo** vì nó hardcode UUID của hai người dùng thật
+và của tài khoản quản trị viên production. Nó nằm ở `prod-apply.local.sql` tại gốc repo, đã
+được `.gitignore` loại qua mẫu `*.local.sql`.
+
+**Vì sao không tách ra chạy riêng được.** B5 cần bảng sổ cái đã tồn tại, nhưng phải chạy
+**trước** hai chốt dừng. Chạy trước migration thì chưa có bảng; chạy sau thì migration đã dừng
+ở chốt dừng rồi. Nên cả cụm phải đi trong **một transaction** — đó là lý do `prod-apply.local.sql`
+chứa toàn bộ nội dung migration cộng B5, thay vì chỉ riêng B5.
+
+#### Cách chạy, một lần, chỉ trên production
+
+```text
+1. Snapshot Cloud SQL trong console — không bỏ qua
+2. Chạy prod-apply.local.sql qua Cloud SQL Auth Proxy hoặc container tạm trên VPS
+3. npx prisma migrate resolve --applied 20261125100000_add_wallet_ledger
+4. Thay container app
+5. npm run seed:permissions + xoá cache
+6. Chạy cả 5 truy vấn ở B9.3
+```
+
+Bước 3 là thứ làm Prisma coi migration đã áp dụng, nên lần `migrate deploy` sau không chạy lại.
+
+**Đã chạy thử hai lần trên chính dữ liệu production** ngày 2026-11-25, dùng `ROLLBACK` thay
+cho `COMMIT`: bốn phép đối soát ra 0 dòng, đẳng thức dòng tiền đúng
+`36.000 + 15.994.000 = 15.701.000 + 329.000`. Lần thử đầu bắt được một lỗi thật trong B5 (biến
+vòng lặp PL/pgSQL đụng tên alias bảng) — không thử thì migration đã gãy giữa chừng.
+
+#### Mọi môi trường khác
+
+**Không phải làm gì.** Database rỗng hay database của máy cá nhân không có khoản số dư không
+giải thích được nào, nên `migrate deploy` với bản trong git chạy thẳng, hai chốt dừng đi qua
+bình thường. Đã kiểm trên database local ngày 2026-11-25.
+
+### B9.2 Thứ tự deploy
+
+Khác thứ tự phát triển, và không đảo được:
+
+**Lần đầu trên production**: theo B9.1, không dùng `migrate deploy`.
+
+**Mọi lần sau, và mọi môi trường khác**:
+
+```text
+1. prisma migrate deploy
+2. Thay container app
+3. npm run seed:permissions  (tự quét controller, không phải sửa tay) + xoá cache
+4. Chạy cả 5 truy vấn ở B9.3
+```
+
+Migration **chạy lại được**: các câu chèn có `ON CONFLICT DO NOTHING`.
+
+**Nếu migration dừng kèm `RAISE EXCEPTION`**: đó là chốt dừng đang làm việc. Đọc danh sách
+tài khoản nó in ra, quay lại B9.1, rồi chạy lại. **Không sửa migration để nó đi qua.**
+
+### B9.3 Năm phép đối soát
+
+Bốn phép đầu phải trả về **0 dòng**. Phép (e) là bảng theo dõi, không phải phép kiểm.
+
+```sql
+-- (a) Ví người dùng khớp lịch sử của nó.
+SELECT pr."userId", pr.balance,
+       COALESCE(SUM(CASE w.direction WHEN 'CREDIT' THEN w.amount
+                                     ELSE -w.amount END), 0) AS tu_so_cai
+FROM "Profile" pr
+LEFT JOIN "WalletTransaction" w ON w."userId" = pr."userId"
+WHERE pr."deletedAt" IS NULL
+GROUP BY pr."userId", pr.balance
+HAVING pr.balance <> COALESCE(SUM(CASE w.direction WHEN 'CREDIT' THEN w.amount
+                                                   ELSE -w.amount END), 0);
+
+-- (b) Tài khoản của sàn khớp lịch sử của nó.
+--     KHÔNG có bộ lọc deletedAt ở đâu cả — đó chính là lý do tiền của sàn nằm ở bảng
+--     riêng thay vì ở một tài khoản người dùng dành riêng. Nếu nó là một người dùng thì
+--     chỉ cần ai đó xoá mềm tài khoản ấy là nó rơi khỏi phép kiểm mà phép kiểm vẫn báo sạch.
+SELECT sa.type, sa.balance,
+       COALESCE(SUM(CASE w.direction WHEN 'CREDIT' THEN w.amount
+                                     ELSE -w.amount END), 0) AS tu_so_cai
+FROM "SystemAccount" sa
+LEFT JOIN "WalletTransaction" w ON w."systemAccount" = sa.type
+GROUP BY sa.type, sa.balance
+HAVING sa.balance <> COALESCE(SUM(CASE w.direction WHEN 'CREDIT' THEN w.amount
+                                                   ELSE -w.amount END), 0);
+
+-- (c) Mỗi đơn: ba bút toán khớp CHÍNH ba cột trên Order.
+--     So với cột trên đơn, không so ba bút toán với nhau: ba dòng khớp nhau mà cùng lệch
+--     khỏi đơn thì vẫn là trôi dữ liệu.
+SELECT o.id, o."totalAmount", o."publisherAmount", o."commissionAmount"
+FROM "Order" o
+JOIN "WalletTransaction" w ON w."orderId" = o.id
+GROUP BY o.id, o."totalAmount", o."publisherAmount", o."commissionAmount"
+HAVING SUM(CASE WHEN w.type = 'PURCHASE'   THEN w.amount ELSE 0 END) <> o."totalAmount"
+    OR SUM(CASE WHEN w.type = 'EARNING'    THEN w.amount ELSE 0 END) <> o."publisherAmount"
+    OR SUM(CASE WHEN w.type = 'COMMISSION' THEN w.amount ELSE 0 END) <> o."commissionAmount";
+
+-- (d) Mỗi lần chuyển khoản có đúng hai chân và hai chân bằng nhau.
+SELECT "transferId"
+FROM "WalletTransaction"
+WHERE "transferId" IS NOT NULL
+GROUP BY "transferId"
+HAVING SUM(CASE direction WHEN 'CREDIT' THEN amount ELSE -amount END) <> 0
+    OR count(*) <> 2;
+
+-- (e) BÁO CÁO DÒNG TIỀN.
+SELECT
+  (SELECT COALESCE(SUM("receivedAmount"), 0) FROM "TopUpTransaction"
+    WHERE "creditedAt" IS NOT NULL)                       AS tien_mat_vao,
+  (SELECT COALESCE(SUM(amount), 0) FROM "WalletTransaction"
+    WHERE type = 'COMMISSION')                            AS hoa_hong_thu_duoc,
+  (SELECT COALESCE(SUM(amount), 0) FROM "WalletTransaction"
+    WHERE type = 'ISSUED_CREDIT')                         AS tien_tu_phat_hanh,
+  (SELECT COALESCE(SUM(balance), 0) FROM "Profile"
+    WHERE "deletedAt" IS NULL)                            AS no_voi_nguoi_dung,
+  (SELECT balance FROM "SystemAccount"
+    WHERE type = 'PLATFORM_REVENUE')                      AS so_du_vi_san;
+```
+
+Đẳng thức của (e) phải đúng:
+
+```text
+tien_mat_vao + tien_tu_phat_hanh = no_voi_nguoi_dung + so_du_vi_san
+```
+
+**Chỉ đúng khi chưa có đường rút tiền.** Phase 4 thêm `− tien_da_chi_rut` vào vế trái.
+
+`tien_tu_phat_hanh` là tổng các lần quản trị viên bơm tiền vào tài khoản của sàn — tiền
+không có đồng nào vào ngân hàng đối ứng. Con số này phải nhỏ và phải luôn nhìn thấy; nó
+tăng là có người đã tạo thêm nghĩa vụ không có tiền mặt đỡ sau lưng.
+
+Truy vấn (a) và (b) **sẽ** hiện ra tài khoản nào bị đổi số dư bằng lệnh trực tiếp. Đó là
+tính năng, không phải lỗi.
+
+### B9.4 Quản trị viên cộng tiền bị từ chối 422
+
+`Error.SystemAccountInsufficientFunds` nghĩa là tài khoản của sàn không đủ tiền — **không
+phải sự cố**. Ở giai đoạn đầu khi hoa hồng còn ít, đây là trạng thái bình thường.
+
+Xử lý: gọi `POST /api/v1/admin/system-account/issue-credit` để bơm tiền vào tài khoản của
+sàn trước, kèm lý do. Mỗi lần bơm làm `tien_tu_phat_hanh` ở (e) tăng lên, nên cân nhắc.
+
 ## C. Sự cố thường gặp
 
 | Triệu chứng | Nguyên nhân thường gặp | Xử lý |

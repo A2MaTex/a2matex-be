@@ -72,14 +72,23 @@ export class TopUpRepo {
     });
   }
 
-  incrementProfileBalance({ userId, amount }: { userId: string; amount: bigint }) {
-    return this.prisma.profile.update({
+  // Returns the balance from the statement that changed it. Reading it back with a
+  // separate SELECT would open a race: two concurrent credits would read the same value.
+  async incrementProfileBalance({
+    userId,
+    amount,
+  }: {
+    userId: string;
+    amount: bigint;
+  }): Promise<bigint> {
+    const row = await this.prisma.profile.update({
       where: { userId },
       data: {
         balance: { increment: amount },
       },
-      select: { id: true },
+      select: { balance: true },
     });
+    return row.balance;
   }
 
   createUnmatched({

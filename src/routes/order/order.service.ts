@@ -13,6 +13,7 @@ import {
   isUniqueConstraintPrismaError,
 } from '../../shared/utils/prisma.ts';
 import { EntitlementService } from '../entitlement/entitlement.service.ts';
+import { WalletService } from '../wallet/wallet.service.ts';
 import { ProductNotFoundException } from '../product/product.error.ts';
 import { SystemSettingKey } from '../../shared/constants/system-setting.constant.ts';
 import { SystemSettingService } from '../system-setting/system-setting.service.ts';
@@ -53,6 +54,7 @@ export class OrderService {
     @Inject(TransactionService) private readonly transactionService: TransactionService,
     @Inject(SystemSettingService) private readonly systemSettingService: SystemSettingService,
     @Inject(ProductLockRepository) private readonly productLockRepo: ProductLockRepository,
+    @Inject(WalletService) private readonly walletService: WalletService,
   ) {}
 
   // ---- Commission ----
@@ -243,11 +245,11 @@ export class OrderService {
 
     // The Profile row is already locked and the balance already compared, so a guard that
     // still matches no row means the invariant is broken, not that the customer is short.
-    const debited = await this.orderRepo.debitBalance({
+    const customerBalanceAfter = await this.orderRepo.debitBalance({
       customerId,
       amount: offer.priceAmount,
     });
-    if (debited === 0) {
+    if (customerBalanceAfter === null) {
       this.logger.error(
         `Order debit matched no Profile row customerId=${customerId} amount=${offer.priceAmount}`,
       );
@@ -256,15 +258,16 @@ export class OrderService {
 
     // After the balance check and the debit, never before: a purchase that fails because
     // the customer is short must not have touched the Publisher's wallet first.
+    let publisherBalanceAfter: bigint | null = null;
     if (publisherAmount > 0n) {
       // The row was locked above under a stricter predicate, so a guard that still
       // matches nothing means the invariant is broken, not that the Publisher is
       // missing. Same shape as the debit guard above.
-      const credited = await this.orderRepo.creditPublisherBalance({
+      publisherBalanceAfter = await this.orderRepo.creditPublisherBalance({
         publisherUserId: product.publisherUserId,
         amount: publisherAmount,
       });
-      if (credited === 0) {
+      if (publisherBalanceAfter === null) {
         this.logger.error(
           `Order publisher credit affected no row publisherUserId=${product.publisherUserId} amount=${publisherAmount}`,
         );
@@ -292,6 +295,32 @@ export class OrderService {
       commissionAmount,
       publisherAmount,
     });
+
+    // After createOrder, never before: all three entries point at the Order, and the id
+    // only exists once the row is written. Everything here runs inside the same
+    // transaction as the balance changes above, so the ledger and the balances either
+    // both land or neither does.
+    await this.walletService.recordPurchase({
+      userId: customerId,
+      orderId,
+      amount: offer.priceAmount,
+      balanceAfter: customerBalanceAfter,
+    });
+    if (publisherBalanceAfter !== null) {
+      await this.walletService.recordEarning({
+        userId: product.publisherUserId,
+        orderId,
+        amount: publisherAmount,
+        balanceAfter: publisherBalanceAfter,
+      });
+    }
+    // The Marketplace's cut, credited here rather than beside the Publisher credit above:
+    // the entry has to carry the Order id, and the account row is a single row every
+    // purchase contends for, so taking its lock last keeps the hot row held for less of
+    // the transaction. The customer debit still runs first, which is the ordering that
+    // matters — a purchase that fails for lack of funds must touch neither the Publisher
+    // nor the Marketplace.
+    await this.walletService.recordCommission({ orderId, amount: commissionAmount });
 
     await this.entitlementService.activateFromOrder({
       customerId,
