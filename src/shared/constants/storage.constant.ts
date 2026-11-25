@@ -57,7 +57,7 @@ export const MULTIPART_UPLOAD_CONTENT_FORMATS: ReadonlySet<string> = new Set([
   'application/x-msdownload',
 ]);
 export const MULTIPART_UPLOAD_DEFAULT_PART_SIZE = 5 * 1024 * 1024;
-export const ALLOW_FILE_UPLOAD_PREFIX = ['launcher/releases'];
+export const ALLOW_FILE_UPLOAD_PREFIX = ['launcher/releases', 'studio/releases'];
 
 export const MULTIPART_MIN_PARTS_PER_REQUEST = 1;
 export const MULTIPART_MAX_PARTS_PER_REQUEST = 100;
