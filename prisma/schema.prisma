@@ -60,6 +60,8 @@ model User {
   createdTerms                                        Term[]                @relation("Term_createdByIdToUser")
   updatedTerms                                        Term[]                @relation("Term_updatedByIdToUser")
   userRoles                                           UserRole[]
+  walletTransactions                                  WalletTransaction[]   @relation("WalletTransactionAccount")
+  recordedWalletTransactions                          WalletTransaction[]   @relation("WalletTransactionCreatedBy")
   WorkflowRevision_WorkflowRevision_createdByIdToUser WorkflowRevision[]    @relation("WorkflowRevision_createdByIdToUser")
   WorkflowRevision_WorkflowRevision_deletedByIdToUser WorkflowRevision[]    @relation("WorkflowRevision_deletedByIdToUser")
   WorkflowRevision_WorkflowRevision_updatedByIdToUser WorkflowRevision[]    @relation("WorkflowRevision_updatedByIdToUser")
@@ -125,6 +127,7 @@ model TopUpTransaction {
   creditedAt            DateTime?              @db.Timestamptz(6)
   createdAt             DateTime               @default(now()) @db.Timestamptz(6)
   updatedAt             DateTime?              @db.Timestamptz(6)
+  walletTransactions    WalletTransaction[]
 }
 
 model VerificationCode {
@@ -848,6 +851,7 @@ model Order {
   Product        Product       @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   ProductOffer   ProductOffer  @relation(fields: [productOfferId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   Entitlement    Entitlement[]
+  walletTransactions WalletTransaction[]
 
   @@unique([customerId, idempotencyKey], map: "Order_customerId_idempotencyKey_key")
   @@index([customerId, createdAt(sort: Desc)], map: "Order_customerId_createdAt_idx")
@@ -857,4 +861,69 @@ model Order {
 
 enum OrderStatus {
   PAID
+}
+
+/// Tiền của sàn. Cố ý KHÔNG thuộc về một User nào: phép đối soát ví người dùng lọc theo
+/// "chưa bị xoá mềm", nên nếu đây là một tài khoản người dùng thì chỉ cần ai đó xoá mềm nó
+/// là nó rơi khỏi phép đối soát mà phép đối soát vẫn báo sạch.
+/// This table contains check constraints and requires additional setup for migrations.
+model SystemAccount {
+  type               SystemAccountType   @id
+  balance            BigInt              @default(0)
+  updatedAt          DateTime?           @db.Timestamptz(6)
+  walletTransactions WalletTransaction[]
+}
+
+/// Một lần số dư của một tài khoản thay đổi. Ghi một lần, không sửa, không xoá: đây là bản
+/// ghi lịch sử chứ không phải trạng thái — nên không có updatedAt và không có xoá mềm.
+/// Mỗi dòng thuộc về ĐÚNG MỘT tài khoản: hoặc userId, hoặc systemAccount, không bao giờ cả
+/// hai và không bao giờ không có. "direction" luôn nhìn từ tài khoản ghi trên chính dòng đó,
+/// nên một lần chuyển khoản để lại hai dòng ngược chiều nhau cùng một transferId.
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model WalletTransaction {
+  id                 String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String?               @db.Uuid
+  systemAccount      SystemAccountType?
+  type               WalletTransactionType
+  direction          WalletDirection
+  /// Luôn dương. Dấu nằm ở "direction", không nằm ở số tiền.
+  amount             BigInt
+  /// Số dư của tài khoản ngay sau bút toán này. Lấy từ chính thao tác đã đổi số dư.
+  balanceAfter       BigInt
+  orderId            String?               @db.Uuid
+  topUpTransactionId String?               @db.Uuid
+  /// Nối hai chân của một lần chuyển khoản. Chỉ và luôn có với ADMIN_GRANT.
+  transferId         String?               @db.Uuid
+  note               String?
+  createdById        String?               @db.Uuid
+  createdAt          DateTime              @default(now()) @db.Timestamptz(6)
+  user               User?                 @relation("WalletTransactionAccount", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  account            SystemAccount?        @relation(fields: [systemAccount], references: [type], onDelete: NoAction, onUpdate: NoAction)
+  order              Order?                @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  topUpTransaction   TopUpTransaction?     @relation(fields: [topUpTransactionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy          User?                 @relation("WalletTransactionCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([orderId, type], map: "WalletTransaction_order_type_key", where: raw("(\"orderId\" IS NOT NULL)"))
+  @@unique([topUpTransactionId], map: "WalletTransaction_topUp_key", where: raw("(\"topUpTransactionId\" IS NOT NULL)"))
+  @@unique([transferId, direction], map: "WalletTransaction_transfer_leg_key", where: raw("(\"transferId\" IS NOT NULL)"))
+  @@index([userId, createdAt(sort: Desc)], map: "WalletTransaction_userId_createdAt_idx", where: raw("(\"userId\" IS NOT NULL)"))
+  @@index([systemAccount, createdAt(sort: Desc)], map: "WalletTransaction_systemAccount_createdAt_idx", where: raw("(\"systemAccount\" IS NOT NULL)"))
+}
+
+enum SystemAccountType {
+  PLATFORM_REVENUE
+}
+
+enum WalletTransactionType {
+  TOPUP
+  PURCHASE
+  EARNING
+  COMMISSION
+  ADMIN_GRANT
+  ISSUED_CREDIT
+}
+
+enum WalletDirection {
+  CREDIT
+  DEBIT
 }

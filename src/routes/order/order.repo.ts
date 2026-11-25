@@ -135,35 +135,39 @@ export class OrderRepo {
   // ---- Writes ----
 
   // Conditional in the statement itself, so a concurrent top-up or purchase can never
-  // drive the balance below zero. Returns the number of rows actually updated.
+  // drive the balance below zero. Returns the balance left after the debit, or null when
+  // no row matched. The balance comes from the statement that changed it: reading it back
+  // separately would let two concurrent purchases record the same figure in the ledger.
   async debitBalance({
     customerId,
     amount,
   }: {
     customerId: string;
     amount: bigint;
-  }): Promise<number> {
-    const result = await this.prisma.profile.updateMany({
+  }): Promise<bigint | null> {
+    const rows = await this.prisma.profile.updateManyAndReturn({
       where: { userId: customerId, deletedAt: null, balance: { gte: amount } },
       data: { balance: { decrement: amount } },
+      select: { balance: true },
     });
-    return result.count;
+    return rows[0]?.balance ?? null;
   }
 
   // Unconditional, unlike the customer debit: a credit has no lower bound to violate.
-  // Returns the number of rows actually updated, same shape as debitBalance above.
+  // Returns the balance after the credit, same shape as debitBalance above.
   async creditPublisherBalance({
     publisherUserId,
     amount,
   }: {
     publisherUserId: string;
     amount: bigint;
-  }): Promise<number> {
-    const result = await this.prisma.profile.updateMany({
+  }): Promise<bigint | null> {
+    const rows = await this.prisma.profile.updateManyAndReturn({
       where: { userId: publisherUserId, deletedAt: null },
       data: { balance: { increment: amount } },
+      select: { balance: true },
     });
-    return result.count;
+    return rows[0]?.balance ?? null;
   }
 
   async createOrder(input: {

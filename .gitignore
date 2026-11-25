@@ -69,3 +69,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 src/generated/prisma
 package-lock.json
 zref
+
+# Script chạy tay một lần trên production, cố ý KHÔNG vào repo: nó hardcode UUID của
+# người dùng thật. Xem docs/deployment-runbook.md mục B9.1.
+*.local.sql
