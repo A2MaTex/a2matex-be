@@ -3,6 +3,7 @@ import { KAFKA_TOPICS } from '../../shared/constants/kafka.constant.ts';
 import { RELEASABLE_PRODUCT_STATUSES } from '../../shared/constants/product.constant.ts';
 import { PublisherAccountStatus } from '../../shared/constants/publisher.constant.ts';
 import {
+  FAILED_SUBMISSION_SCAN_STATUSES,
   SubmissionScanStatus,
   SubmissionStatus,
 } from '../../shared/constants/submission.constant.ts';
@@ -315,7 +316,7 @@ function assertScanEligible(
     }
     return;
   }
-  if (target.scanStatus === SubmissionScanStatus.FAILED) {
+  if (FAILED_SUBMISSION_SCAN_STATUSES.includes(target.scanStatus)) {
     if (decision === SubmissionReviewDecision.APPROVE) {
       throw SubmissionScanFailedException;
     }

@@ -13,6 +13,8 @@ import {
   SUBMISSION_SNAPSHOT_SCHEMA_VERSION,
   SubmissionFindingCode,
   SubmissionFindingSeverity,
+  SubmissionScanStatus,
+  type SubmissionScanOutcomeStatus,
 } from '../../../shared/constants/submission.constant.ts';
 import { EDITOR_GRAPH_MAX_CONTENT_BYTES } from '../../../shared/constants/workflow-validation.constant.ts';
 import { NodeDefinitionCatalogContract } from '../../node-catalog/node-definition.model.ts';
@@ -24,6 +26,7 @@ import {
 import { WorkflowRevisionPayloadTooLargeException } from '../../workflow-revision/workflow-revision.error.ts';
 import type { WorkflowRevisionSourceSnapshot } from '../../workflow-revision/workflow-revision.model.ts';
 import { WorkflowCompilerService } from '../../workflow-compiler/workflow-compiler.service.ts';
+import type { ValidatedWorkflow } from '../../workflow-compiler/workflow-compiler.model.ts';
 import type { NodeDefinitionType } from '../../node-catalog/node-definition.model.ts';
 import { findUnsupportedAssets } from './scanner/submission-policy.validator.ts';
 import type { ScanTarget } from '../submission.repo.ts';
@@ -33,6 +36,7 @@ type Finding = SubmissionScanFindingType;
 // `compilation` is present only when every rule passed; the caller writes it with the scan
 // outcome or writes neither.
 export type SubmissionScanOutcome = {
+  scanStatus: SubmissionScanOutcomeStatus;
   result: SubmissionScanResultType;
   compilation: { runtimeIr: Prisma.InputJsonValue; contentHash: string } | null;
 };
@@ -58,6 +62,12 @@ type CompileOutcome = {
   compiled: { runtimeIr: Prisma.InputJsonValue; contentHash: string } | null;
 };
 
+type ValidationOutcome = {
+  findings: Finding[];
+  truncated: boolean;
+  workflow: ValidatedWorkflow | null;
+};
+
 // Runtime IR diagnostics keep their own code so an Admin does not read them as graph errors.
 function toFinding(diagnostic: ValidationDiagnostic, severity: Finding['severity']): Finding {
   return {
@@ -79,10 +89,8 @@ function toFinding(diagnostic: ValidationDiagnostic, severity: Finding['severity
  * Catalog is what makes a retry deterministic: deactivating a node type can no longer flip a
  * passed revision.
  *
- * Two failure classes must not be confused. A deterministic property of frozen content is a
- * business finding. A malformed system-owned manifest throws, because the data is corrupt
- * rather than wrong — hence the manifest is parsed before the compiler is called, so anything
- * thrown afterwards is content.
+ * Validation and compilation return distinct terminal scan statuses. Unexpected exceptions
+ * propagate to the handler's technical-error recovery path.
  *
  * Group 5's connector/capability policy rule is out of scope, not pending: there are no
  * connector nodes, and a capability is an Android permission the customer grants at run time
@@ -98,11 +106,32 @@ export class SubmissionScannerService {
   scan(target: ScanTarget): SubmissionScanOutcome {
     const frozenSource = this.checkFrozenSourceIntegrity(target);
     const snapshots = this.checkSnapshotIntegrity(target);
+    const checks = [frozenSource.findings, snapshots];
 
     // Nothing readable to compile, so the pipeline stops rather than guessing.
     if (!frozenSource.source) {
       return {
-        result: buildScanResult([...frozenSource.findings, ...snapshots], false),
+        scanStatus: SubmissionScanStatus.FAILED_VALIDATION,
+        result: buildScanResult(checks, false),
+        compilation: null,
+      };
+    }
+
+    checks.push(findUnsupportedAssets(frozenSource.source.editorGraph));
+    if (checks.some((findings) => findings.some(isError))) {
+      return {
+        scanStatus: SubmissionScanStatus.FAILED_VALIDATION,
+        result: buildScanResult(checks, false),
+        compilation: null,
+      };
+    }
+
+    const validated = this.validateFrozenSource(frozenSource.source);
+    checks.push(validated.findings);
+    if (!validated.workflow) {
+      return {
+        scanStatus: SubmissionScanStatus.FAILED_VALIDATION,
+        result: buildScanResult(checks, validated.truncated),
         compilation: null,
       };
     }
@@ -110,18 +139,22 @@ export class SubmissionScannerService {
     const compiled = this.compileFrozenSource({
       source: frozenSource.source,
       finalizedContentHash: frozenSource.finalizedContentHash,
+      workflow: validated.workflow,
     });
-    // Reads the frozen graph, so a workflow that failed to compile is still checked.
-    const policy = findUnsupportedAssets(frozenSource.source.editorGraph);
-    const result = buildScanResult(
-      [...frozenSource.findings, ...compiled.findings, ...policy, ...snapshots],
-      compiled.truncated,
-    );
+    checks.push(compiled.findings);
+    const result = buildScanResult(checks, validated.truncated || compiled.truncated);
 
     // A revision must never carry an authoritative Runtime IR while its own scan failed.
     const finalizable = result.summary.errors === 0 && frozenSource.finalizedContentHash === null;
 
-    return { result, compilation: finalizable ? compiled.compiled : null };
+    return {
+      scanStatus:
+        result.summary.errors > 0
+          ? SubmissionScanStatus.FAILED_COMPILATION
+          : SubmissionScanStatus.PASSED,
+      result,
+      compilation: finalizable ? compiled.compiled : null,
+    };
   }
 
   // Rule group 1.
@@ -194,7 +227,7 @@ export class SubmissionScannerService {
         runtimeIr: revision.runtimeIr as Prisma.JsonObject,
       });
       // Only a write outside the application reaches here: an operator problem, not a
-      // Publisher one, so it must not land as a FAILED scan they get judged on.
+      // Publisher one, so it must not become a business failure they get judged on.
       if (stored !== revision.contentHash) {
         throw new Error('Finalized Workflow Revision does not match its recorded hash');
       }
@@ -207,20 +240,13 @@ export class SubmissionScannerService {
     };
   }
 
-  // Rule groups 2, 3 and 4.
-  private compileFrozenSource({
-    source,
-    finalizedContentHash,
-  }: {
-    source: WorkflowRevisionSourceSnapshot;
-    finalizedContentHash: string | null;
-  }): CompileOutcome {
+  private validateFrozenSource(source: WorkflowRevisionSourceSnapshot): ValidationOutcome {
     // `WorkflowValidationService.validate` gates on this before parsing and the compiler does
     // not, so without this the 1 MiB graph limit would leave this path entirely.
     if (exceedsEditorGraphLimit(source.editorGraph)) {
       return {
         truncated: false,
-        compiled: null,
+        workflow: null,
         findings: [
           error(
             SubmissionFindingCode.EDITOR_GRAPH_INVALID,
@@ -237,7 +263,7 @@ export class SubmissionScannerService {
     if (missing.length > 0) {
       return {
         truncated: false,
-        compiled: null,
+        workflow: null,
         findings: [
           {
             code: SubmissionFindingCode.NODE_DEFINITION_MISSING,
@@ -254,7 +280,7 @@ export class SubmissionScannerService {
     if (entries.length === 0) {
       return {
         truncated: false,
-        compiled: null,
+        workflow: null,
         findings: [
           error(
             SubmissionFindingCode.NODE_DEFINITION_MISSING,
@@ -266,26 +292,36 @@ export class SubmissionScannerService {
 
     const definitions = toCompilerDefinitions(entries);
 
-    let compiled: ReturnType<WorkflowCompilerService['compileWorkflow']>;
-    try {
-      compiled = this.workflowCompilerService.compileWorkflow(
-        source.editorGraph,
-        source.inputSchema,
-        definitions,
-      );
-    } catch {
-      // The manifest already parsed, so this is publisher content and retrying cannot help.
-      return {
-        truncated: false,
-        compiled: null,
-        findings: [
-          error(
-            SubmissionFindingCode.RUNTIME_IR_COMPILATION_FAILED,
-            'The frozen workflow could not be compiled into a valid Runtime IR document',
-          ),
-        ],
-      };
-    }
+    const validated = this.workflowCompilerService.validateWorkflow(
+      source.editorGraph,
+      source.inputSchema,
+      definitions,
+    );
+
+    return {
+      findings: [
+        ...validated.validation.errors.map((item) =>
+          toFinding(item, SubmissionFindingSeverity.ERROR),
+        ),
+        ...validated.validation.warnings.map((item) =>
+          toFinding(item, SubmissionFindingSeverity.WARNING),
+        ),
+      ],
+      truncated: validated.validation.truncated,
+      workflow: validated.success ? validated : null,
+    };
+  }
+
+  private compileFrozenSource({
+    source,
+    finalizedContentHash,
+    workflow,
+  }: {
+    source: WorkflowRevisionSourceSnapshot;
+    finalizedContentHash: string | null;
+    workflow: ValidatedWorkflow;
+  }): CompileOutcome {
+    const compiled = this.workflowCompilerService.compileValidatedWorkflow(workflow);
 
     const findings = [
       ...compiled.validation.errors.map((item) => toFinding(item, SubmissionFindingSeverity.ERROR)),
@@ -439,7 +475,11 @@ function checkSnapshot(
     : error(code, `${label} does not satisfy its stored contract`);
 }
 
-function buildScanResult(all: Finding[], upstreamTruncated: boolean): SubmissionScanResultType {
+function buildScanResult(
+  checks: Finding[][],
+  upstreamTruncated: boolean,
+): SubmissionScanResultType {
+  const all = checks.flat();
   const truncated = upstreamTruncated || all.length > SUBMISSION_SCAN_MAX_FINDINGS;
   const findings = truncated ? all.slice(0, SUBMISSION_SCAN_MAX_FINDINGS) : all;
   const counted = (severity: string) => all.filter((item) => item.severity === severity).length;
@@ -448,15 +488,18 @@ function buildScanResult(all: Finding[], upstreamTruncated: boolean): Submission
   return {
     schemaVersion: SUBMISSION_SNAPSHOT_SCHEMA_VERSION,
     summary: {
-      // What was evaluated, not what the finished scanner will evaluate.
-      totalRules: 6,
-      passed: errors === 0 ? 6 : 0,
+      totalRules: checks.length,
+      passed: checks.filter((findings) => !findings.some(isError)).length,
       warnings: counted(SubmissionFindingSeverity.WARNING),
       errors,
       truncated,
     },
     findings,
   };
+}
+
+function isError(finding: Finding): boolean {
+  return finding.severity === SubmissionFindingSeverity.ERROR;
 }
 
 function error(code: string, message: string): Finding {

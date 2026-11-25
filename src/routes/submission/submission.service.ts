@@ -260,7 +260,7 @@ export class SubmissionService {
     submissionId: string;
     userId: string;
   }) {
-    // RUNNING is a claim another worker still holds; PASSED and FAILED are completed
+    // RUNNING is a claim another worker still holds; success and phase failures are completed
     // business results that an Admin reviews rather than re-runs.
     if (target.scanStatus !== SubmissionScanStatus.ERROR) {
       throw SubmissionScanNotRetryableException;

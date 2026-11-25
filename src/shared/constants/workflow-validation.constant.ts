@@ -52,6 +52,7 @@ export const WorkflowValidationDiagnosticCode = {
   SWITCH_PORT_EDGE_COUNT_INVALID: 'SWITCH_PORT_EDGE_COUNT_INVALID',
   WORKFLOW_INPUT_SCHEMA_INVALID: 'WORKFLOW_INPUT_SCHEMA_INVALID',
   RUNTIME_IR_PAYLOAD_TOO_LARGE: 'RUNTIME_IR_PAYLOAD_TOO_LARGE',
+  RUNTIME_IR_CONTRACT_INVALID: 'RUNTIME_IR_CONTRACT_INVALID',
   GRAPH_NODE_LIMIT_EXCEEDED: 'GRAPH_NODE_LIMIT_EXCEEDED',
   GRAPH_EDGE_LIMIT_EXCEEDED: 'GRAPH_EDGE_LIMIT_EXCEEDED',
 } as const;
@@ -85,6 +86,7 @@ export const WORKFLOW_VALIDATION_DIAGNOSTIC_MESSAGES: Record<
   SWITCH_PORT_EDGE_COUNT_INVALID: 'Switch port must have exactly one outgoing edge',
   WORKFLOW_INPUT_SCHEMA_INVALID: 'Workflow input schema does not match the required contract',
   RUNTIME_IR_PAYLOAD_TOO_LARGE: 'Compiled Runtime IR exceeds the maximum content size',
+  RUNTIME_IR_CONTRACT_INVALID: 'Compiled Runtime IR does not match the required contract',
   GRAPH_NODE_LIMIT_EXCEEDED: 'Graph exceeds the maximum node count',
   GRAPH_EDGE_LIMIT_EXCEEDED: 'Graph exceeds the maximum edge count',
 };

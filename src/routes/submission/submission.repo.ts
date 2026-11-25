@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.ts';
 import type {
   SubmissionScanStatusType,
+  SubmissionScanOutcomeStatus,
   SubmissionStatusType,
 } from '../../shared/constants/submission.constant.ts';
 import {
@@ -501,7 +502,7 @@ export class SubmissionRepo {
   }: {
     submissionId: string;
     scanAttempt: number;
-    scanStatus: typeof SubmissionScanStatus.PASSED | typeof SubmissionScanStatus.FAILED;
+    scanStatus: SubmissionScanOutcomeStatus;
     scanResult: SubmissionScanResultType;
     scannerVersion: string;
   }): Promise<boolean> {

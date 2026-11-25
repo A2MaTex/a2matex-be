@@ -17,12 +17,28 @@ export const SubmissionScanStatus = {
   QUEUED: 'QUEUED',
   RUNNING: 'RUNNING',
   PASSED: 'PASSED',
-  FAILED: 'FAILED',
+  FAILED_VALIDATION: 'FAILED_VALIDATION',
+  FAILED_COMPILATION: 'FAILED_COMPILATION',
   ERROR: 'ERROR',
 } as const;
 
 export type SubmissionScanStatusType =
   (typeof SubmissionScanStatus)[keyof typeof SubmissionScanStatus];
+
+export type SubmissionScanOutcomeStatus =
+  | typeof SubmissionScanStatus.PASSED
+  | typeof SubmissionScanStatus.FAILED_VALIDATION
+  | typeof SubmissionScanStatus.FAILED_COMPILATION;
+
+export const FAILED_SUBMISSION_SCAN_STATUSES: readonly SubmissionScanStatusType[] = [
+  SubmissionScanStatus.FAILED_VALIDATION,
+  SubmissionScanStatus.FAILED_COMPILATION,
+];
+
+export const TERMINAL_SUBMISSION_SCAN_STATUSES: readonly SubmissionScanStatusType[] = [
+  SubmissionScanStatus.PASSED,
+  ...FAILED_SUBMISSION_SCAN_STATUSES,
+];
 
 export const SubmissionFindingSeverity = {
   INFO: 'INFO',
@@ -63,9 +79,9 @@ export const SUBMISSION_CREATE_TX_TIMEOUT_MS = 15_000;
 export const SUBMISSION_CREATE_TX_MAX_WAIT_MS = 5_000;
 
 // Bump when the rule set changes. Recorded on every completed scan so an Admin can
-// tell which rules produced a stored result. 0.3.x covers every rule group except the
-// connector/capability policy rule, which SubmissionScannerService explains is out of scope.
-export const SUBMISSION_SCANNER_VERSION = '0.3.0';
+// tell which rules produced a stored result. 0.4.x reports validation and compilation
+// failures separately and stops before compilation when validation fails.
+export const SUBMISSION_SCANNER_VERSION = '0.4.0';
 
 // Stable machine-readable codes. Admin UIs branch on these, not on the messages.
 export const SubmissionFindingCode = {

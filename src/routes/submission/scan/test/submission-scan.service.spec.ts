@@ -60,7 +60,7 @@ describe('SubmissionScanService persistence', () => {
   }
 
   it('finalizes the revision in the same transaction as a passed outcome', async () => {
-    scan.mockReturnValue({ result: scanResult(0), compilation: COMPILATION });
+    scan.mockReturnValue({ scanStatus: 'PASSED', result: scanResult(0), compilation: COMPILATION });
 
     await expect(run()).resolves.toBe(ScanOutcome.COMPLETED);
 
@@ -75,21 +75,22 @@ describe('SubmissionScanService persistence', () => {
     });
   });
 
-  it('leaves the revision pending when the scan failed on content', async () => {
-    scan.mockReturnValue({ result: scanResult(2), compilation: null });
+  it.each(['FAILED_VALIDATION', 'FAILED_COMPILATION'])(
+    'leaves the revision pending for %s',
+    async (scanStatus) => {
+      scan.mockReturnValue({ scanStatus, result: scanResult(2), compilation: null });
 
-    await expect(run()).resolves.toBe(ScanOutcome.COMPLETED);
+      await expect(run()).resolves.toBe(ScanOutcome.COMPLETED);
 
-    expect(persistScanOutcome).toHaveBeenCalledWith(
-      expect.objectContaining({ scanStatus: 'FAILED' }),
-    );
-    expect(finalizeCompilation).not.toHaveBeenCalled();
-  });
+      expect(persistScanOutcome).toHaveBeenCalledWith(expect.objectContaining({ scanStatus }));
+      expect(finalizeCompilation).not.toHaveBeenCalled();
+    },
+  );
 
   // An Admin retry moved the counter while this attempt was compiling. Its result is
   // unwanted, and an unwanted result must not finalize the revision either.
   it('writes no revision and reports STALE when the attempt was superseded', async () => {
-    scan.mockReturnValue({ result: scanResult(0), compilation: COMPILATION });
+    scan.mockReturnValue({ scanStatus: 'PASSED', result: scanResult(0), compilation: COMPILATION });
     persistScanOutcome.mockResolvedValue(false);
 
     await expect(run()).resolves.toBe(ScanOutcome.STALE);
@@ -97,19 +98,22 @@ describe('SubmissionScanService persistence', () => {
     expect(finalizeCompilation).not.toHaveBeenCalled();
   });
 
-  it('does not scan a Submission whose scan already reached a terminal status', async () => {
-    loadForScan.mockResolvedValue({
-      id: SUBMISSION_ID,
-      scanAttempt: 1,
-      scanStatus: 'PASSED',
-      WorkflowRevision: { id: REVISION_ID },
-    });
+  it.each(['PASSED', 'FAILED_VALIDATION', 'FAILED_COMPILATION'])(
+    'does not scan a Submission with terminal scan status %s',
+    async (scanStatus) => {
+      loadForScan.mockResolvedValue({
+        id: SUBMISSION_ID,
+        scanAttempt: 1,
+        scanStatus,
+        WorkflowRevision: { id: REVISION_ID },
+      });
 
-    await expect(run()).resolves.toBe(ScanOutcome.ALREADY_DONE);
+      await expect(run()).resolves.toBe(ScanOutcome.ALREADY_DONE);
 
-    expect(scan).not.toHaveBeenCalled();
-    expect(finalizeCompilation).not.toHaveBeenCalled();
-  });
+      expect(scan).not.toHaveBeenCalled();
+      expect(finalizeCompilation).not.toHaveBeenCalled();
+    },
+  );
 
   it('performs no work for a stale attempt', async () => {
     loadForScan.mockResolvedValue({

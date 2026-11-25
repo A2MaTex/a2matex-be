@@ -25,8 +25,10 @@ import {
 } from './workflow-compiler.constant.ts';
 import {
   WorkflowValidationOutput,
+  type EditorGraphType,
   type WorkflowValidationOutputType,
 } from '../workflow-validation/workflow-validation.model.ts';
+import type { NodeDefinitionType } from '../node-catalog/node-definition.model.ts';
 
 const RuntimeIdentifier = z.string().trim().min(1).max(EDITOR_GRAPH_IDENTIFIER_MAX_LENGTH);
 const RuntimeFieldName = z.string().regex(/^[a-z][a-zA-Z0-9]{0,99}$/);
@@ -206,6 +208,17 @@ export type WorkflowInputSchemaType = z.infer<typeof WorkflowInputSchema>;
 export type RuntimeInputSourceType = z.infer<typeof RuntimeInputSource>;
 export type RuntimeIrType = z.infer<typeof RuntimeIr>;
 export type CompileProjectDraftOutputType = z.infer<typeof CompileProjectDraftOutput>;
+
+export type ValidatedWorkflow = {
+  graph: EditorGraphType;
+  inputSchema: WorkflowInputSchemaType;
+  definitions: NodeDefinitionType[];
+  validation: WorkflowValidationOutputType;
+};
+
+export type WorkflowSourceValidationResult =
+  | ({ success: true } & ValidatedWorkflow)
+  | { success: false; validation: WorkflowValidationOutputType };
 
 export type WorkflowCompileResult =
   | {
