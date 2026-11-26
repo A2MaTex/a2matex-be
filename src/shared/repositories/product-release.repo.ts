@@ -1,6 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.ts';
-import { ProductReleaseStatus, type ProductReleaseStatusType } from '../constants/product-release.constant.ts';
+import {
+  ProductReleaseStatus,
+  type ProductReleaseStatusType,
+} from '../constants/product-release.constant.ts';
 import type { ProductStatusType } from '../constants/product.constant.ts';
 import type { PublisherAccountStatusType } from '../constants/publisher.constant.ts';
 import { PrismaService } from '../services/prisma.service.ts';
@@ -36,6 +39,7 @@ export type LockForReservationOutput = {
   id: string;
   status: ProductReleaseStatusType;
   packageStaticId: string | null;
+  publishedAt: Date | null;
 };
 
 // Product + Publisher eligibility read under the Product lock during publication.
@@ -99,7 +103,7 @@ export class ProductReleaseRepository {
   // under the lock means a build cannot race a concurrent publication or Admin disable.
   async lockForReservation(id: string): Promise<LockForReservationOutput | null> {
     const rows = await this.prisma.$queryRaw<LockForReservationOutput[]>`
-      SELECT id, status, "packageStaticId"
+      SELECT id, status, "packageStaticId", "publishedAt"
       FROM "ProductRelease"
       WHERE id = ${id}::uuid
       FOR UPDATE
@@ -166,7 +170,11 @@ export class ProductReleaseRepository {
   // transition can never be overwritten. Clears the failure code on success.
   async markPublished(releaseId: string, input: MarkPublishedInput): Promise<number> {
     const { count } = await this.prisma.productRelease.updateMany({
-      where: { id: releaseId, status: ProductReleaseStatus.BUILDING },
+      where: {
+        id: releaseId,
+        status: ProductReleaseStatus.BUILDING,
+        packageStaticId: input.packageStaticId,
+      },
       data: {
         status: ProductReleaseStatus.PUBLISHED,
         packageHash: input.packageHash,
@@ -183,32 +191,33 @@ export class ProductReleaseRepository {
     return count;
   }
 
-  // Permanent-failure cleanup: mark a still-BUILDING release failed and drop its Static
-  // pointer so the Static row can be deleted without an FK violation. Returns 0 when the
-  // release is no longer BUILDING (e.g. Admin disabled it mid-build).
-  async markBuildFailedAndClearStatic(
-    releaseId: string,
-    buildFailureCode: string,
-  ): Promise<number> {
+  // Caller holds the Release row lock. Never detach a winner or another candidate.
+  async clearPackageStatic({
+    releaseId,
+    staticId,
+    status,
+    buildFailureCode,
+  }: {
+    releaseId: string;
+    staticId: string;
+    status?: ProductReleaseStatusType;
+    buildFailureCode?: string;
+  }): Promise<number> {
     const { count } = await this.prisma.productRelease.updateMany({
-      where: { id: releaseId, status: ProductReleaseStatus.BUILDING },
+      where: {
+        id: releaseId,
+        packageStaticId: staticId,
+        status: { not: ProductReleaseStatus.PUBLISHED },
+        publishedAt: null,
+      },
       data: {
-        status: ProductReleaseStatus.BUILD_FAILED,
-        buildFailureCode,
         packageStaticId: null,
+        status,
+        buildFailureCode,
         updatedAt: new Date(),
       },
     });
     return count;
-  }
-
-  // Drop the Static pointer on a release that is no longer BUILDING, so the Static row
-  // can be deleted without leaving a dangling reference. Does not change status.
-  async clearPackageStatic(releaseId: string): Promise<void> {
-    await this.prisma.productRelease.update({
-      where: { id: releaseId },
-      data: { packageStaticId: null, updatedAt: new Date() },
-    });
   }
 
   update(input: Object, id: string) {

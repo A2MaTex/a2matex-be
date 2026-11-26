@@ -54,3 +54,17 @@ export const PRODUCT_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 // upper bound is specific to an unauthenticated route.
 export const PUBLIC_PRODUCT_LIST_MAX_LIMIT = 100;
 export const PUBLIC_PRODUCT_SEARCH_MAX_LENGTH = 100;
+
+export const PRODUCT_PACKAGE_MAX_BYTES = 4 * 1024 * 1024;
+export const PRODUCT_PACKAGE_FILENAME_MAX_BYTES = 255;
+export const PRODUCT_PACKAGE_CONTENT_TYPE = 'application/zip';
+export const PRODUCT_PACKAGE_HASH_HEX_LENGTH = 64;
+export const PRODUCT_PACKAGE_HASH_PATTERN = /^[a-f0-9]{64}$/;
+// Rejecting control bytes is intentional for portable download filenames.
+// oxlint-disable-next-line no-control-regex
+export const PRODUCT_PACKAGE_FILENAME_PATTERN = /^[^<>:"/\\|?*\u0000-\u001f\u007f]+\.a2m$/u;
+// With Unicode mode, valid surrogate pairs are one code point; this matches only lone halves.
+export const PRODUCT_PACKAGE_INVALID_UNICODE_PATTERN = /[\uD800-\uDFFF]/u;
+export const PRODUCT_PACKAGE_RESERVED_NAME_PATTERN =
+  /^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:[ .]|$)/i;
+export const MILLISECONDS_PER_SECOND = 1_000;

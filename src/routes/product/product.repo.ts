@@ -1,3 +1,4 @@
+import { ProductReleaseStatus } from '../../shared/constants/product-release.constant.ts';
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client.ts';
 import { ProductStatus } from '../../shared/constants/product.constant.ts';
@@ -88,6 +89,34 @@ export class ProductRepo {
 
   private get prisma() {
     return this.prismaService.getClient();
+  }
+
+  async findDownloadRelease({ productId, releaseId }: { productId: string; releaseId?: string }) {
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, deletedAt: null, status: { not: ProductStatus.SUSPENDED } },
+      select: { currentReleaseId: true },
+    });
+    const selectedReleaseId = releaseId ?? product?.currentReleaseId;
+    if (!product || !selectedReleaseId) {
+      return null;
+    }
+    // "Supported" currently means published and non-disabled; no separate support flag exists.
+    return this.prisma.productRelease.findFirst({
+      where: {
+        id: selectedReleaseId,
+        productId,
+        status: ProductReleaseStatus.PUBLISHED,
+        disabledAt: null,
+        publishedAt: { not: null },
+      },
+      select: {
+        id: true,
+        productId: true,
+        version: true,
+        packageHash: true,
+        packageStaticId: true,
+      },
+    });
   }
 
   findOwnedActiveProject({

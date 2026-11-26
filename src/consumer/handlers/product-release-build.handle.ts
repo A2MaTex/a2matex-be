@@ -12,7 +12,8 @@ import {
   type SubscribeInput,
 } from '../../shared/infrastructure/queue/queue.interface.ts';
 import type { QueueConsumerHandler } from '../consumer.service.ts';
-import { BuildOutcome, ProjectReleaseService } from '../../routes/product-release/services/product-release-build.service.ts';
+import { ProjectReleaseService } from '../../routes/product-release/services/product-release-build.service.ts';
+import { BuildOutcome } from '../../shared/constants/product-release.constant.ts';
 import { ProductReleaseBuildRequestedPayload } from '../../routes/product-release/product-release-build.model.ts';
 
 @Injectable()
@@ -71,7 +72,7 @@ export class ProductReleaseBuildHandler implements QueueConsumerHandler {
           `traceId=${message.message.traceId ?? ''}: ` +
           `${error instanceof Error ? error.message : 'unknown'}`,
       );
-    //   when failed, retry 3 times
+      //   when failed, retry 3 times
       return MessageHandlerResult.RETRY;
     }
   }

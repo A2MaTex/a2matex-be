@@ -3,6 +3,7 @@ import { PermissionType } from '../../entities/permission.model.ts';
 import { RoleType } from '../../entities/role.schema.ts';
 import { UserType } from '../../entities/user.model.ts';
 import { RoleName } from '../constants/role.constant.ts';
+import { RoleStatus, UserStatus } from '../constants/auth.constant.ts';
 import { PrismaService } from '../services/prisma.service.ts';
 
 type UserIncludeRolePermissionsType = UserType & {
@@ -26,6 +27,24 @@ export class SharedUserRepository {
         deletedAt: null,
       },
     });
+  }
+
+  async hasActiveCustomer(customerId: string): Promise<boolean> {
+    const customer = await this.prisma.user.findFirst({
+      where: {
+        id: customerId,
+        status: UserStatus.ACTIVE,
+        deletedAt: null,
+        userRoles: {
+          some: {
+            deletedAt: null,
+            role: { name: RoleName.Customer, status: RoleStatus.ACTIVE, deletedAt: null },
+          },
+        },
+      },
+      select: { id: true },
+    });
+    return customer !== null;
   }
 
   async findOneAdmin(): Promise<string | null> {
@@ -97,7 +116,7 @@ export class SharedUserRepository {
         }
 
         const { rolePermissions, ...roleData } = userRole.role;
-        const { userRoles, ...userData } = user;
+        const { userRoles: _userRoles, ...userData } = user;
 
         return {
           ...userData,

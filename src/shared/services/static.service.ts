@@ -176,9 +176,8 @@ export class StaticService {
   }
 
   // Create the Static metadata row (UUID-sharded object key) WITHOUT uploading. Used by
-  // Product Release to reserve a private object before any R2 I/O so a build retry reuses
-  // the same key instead of allocating a new Static record. Joins the caller's
-  // transaction when one is active.
+  // Product Release to reserve a fresh private object per build attempt before R2 I/O.
+  // Joins the caller's transaction when one is active.
   async reserveFile(input: ReserveStaticFileInput): Promise<ReservedStaticFile> {
     this.validateFileMetadata(input);
     const id = randomUUID();
@@ -193,8 +192,7 @@ export class StaticService {
     return { ...created, objectKey };
   }
 
-  // Load a reserved Static record so a retry can reuse its object key instead of
-  // allocating a new one.
+  // Load a candidate's immutable storage metadata before publication.
   async getReservedFile(id: string): Promise<ReservedStaticFile | null> {
     const record = await this.staticRepository.findById(id);
     if (!record) {
@@ -218,8 +216,8 @@ export class StaticService {
     await this.staticRepository.updateMetadata(id, patch);
   }
 
-  // Upload bytes to a previously reserved object key. A failure does NOT delete the
-  // reserved Static row: a retry overwrites the same object and reuses the reservation.
+  // Upload bytes to the caller's reserved object. The caller owns failure cleanup;
+  // Product Release retries reserve a new object rather than overwriting this one.
   async uploadReservedFile(input: {
     objectKey: string;
     body: Readable | Uint8Array;
@@ -243,7 +241,7 @@ export class StaticService {
 
   // Step 8: verify the object that was just uploaded matches the package the builder
   // produced. Runs outside the publication transaction; a mismatch is a retryable build
-  // failure because the retry overwrites the same reserved object key.
+  // failure; the Product Release retry reserves another private object.
   async verifyUploadedObject(
     objectKey: string,
     expected: { size: number; contentType: string },
@@ -263,16 +261,14 @@ export class StaticService {
     }
   }
 
-  // Hard-delete a reserved Static metadata row. Used only when a build fails permanently
-  // and the reservation is no longer needed; the caller drops the ProductRelease pointer
-  // first so the FK to Static is gone before this runs.
+  // Hard-delete an unused candidate row. Product Release must first prove ownership
+  // and detach it from the Release inside its cleanup transaction.
   async removeReservedFile(id: string): Promise<void> {
     await this.staticRepository.hardDelete(id);
   }
 
-  // Delete the private object backing a reservation. Best effort: a leftover private
-  // object is never served without an entitlement check and is overwritten by a future
-  // build under a new key.
+  // Delete an unused private candidate after its metadata cleanup commits. A failed
+  // deletion may leave an orphan; Product Release never reuses that object key.
   async deleteReservedObject(objectKey: string): Promise<void> {
     await this.storageProvider.deleteFile(objectKey);
   }

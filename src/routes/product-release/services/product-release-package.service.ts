@@ -6,6 +6,7 @@ import {
   ProductReleaseManifest,
 } from '../types/product-release-package.types.ts';
 import { KeyService } from '../../../shared/services/key.service.ts';
+import { PRODUCT_RELEASE_ENCRYPTION_ALGORITHM } from '../../../shared/constants/product-release.constant.ts';
 import { sha256, toCanonicalBytes } from '../utils/package-crypto.util.ts';
 
 @Injectable()
@@ -56,7 +57,7 @@ export class ProductReleasePackageService {
         path: 'workflow.enc',
         sha256: workflowHash,
         encryption: {
-          algorithm: 'AES-256-GCM',
+          algorithm: PRODUCT_RELEASE_ENCRYPTION_ALGORITHM,
           nonce: nonce.toString('base64'),
           authenticationTagBytes: 16,
         },

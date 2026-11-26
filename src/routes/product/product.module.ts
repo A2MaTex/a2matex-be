@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { EntitlementModule } from '../entitlement/entitlement.module.ts';
 import { ProductOfferModule } from '../product-offer/product-offer.module.ts';
 import { ProductReleaseModule } from '../product-release/product-release.module.ts';
 import { PublisherModule } from '../publisher/publisher.module.ts';
@@ -12,7 +13,7 @@ import { ProductService } from './product.service.ts';
 
 @Module({
   // Activation readiness comes from both collaborators; neither imports Product back.
-  imports: [PublisherModule, ProductOfferModule, ProductReleaseModule],
+  imports: [PublisherModule, ProductOfferModule, ProductReleaseModule, EntitlementModule],
   controllers: [ProductController, MarketplaceProductController],
   providers: [
     ProductService,
