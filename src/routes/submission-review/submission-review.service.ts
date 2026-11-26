@@ -277,7 +277,7 @@ export class SubmissionReviewService {
           type: PRODUCT_RELEASE_BUILD_MESSAGE_TYPE,
           occurredAt: occurredAt.toISOString(),
           ...(traceId ? { traceId } : {}),
-          payload: { submissionId },
+          payload: { submissionId, createdById: reviewedById },
         },
       });
     } catch (error) {
