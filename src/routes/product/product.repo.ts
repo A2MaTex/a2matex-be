@@ -76,6 +76,12 @@ type ProductRow = Prisma.ProductGetPayload<{ select: typeof PRODUCT_SELECT }>;
 
 type ProductDetailRow = Prisma.ProductGetPayload<{ select: typeof PRODUCT_DETAIL_SELECT }>;
 
+// Only what the audit log prints; ProductMedia keeps the full row history itself.
+export type ProductMediaAuditRow = {
+  staticId: string;
+  type: string;
+};
+
 export type LockedProduct = {
   id: string;
   status: ProductStatusType;
@@ -313,7 +319,7 @@ export class ProductRepo {
     data: UpdateProductInputType;
     publisherAccountId: string;
     userId: string;
-  }): Promise<{ count: number }> {
+  }): Promise<{ count: number; previousMedia?: ProductMediaAuditRow[] }> {
     const { media, ...fields } = data;
 
     const result = await this.prisma.product.updateMany({
@@ -336,7 +342,7 @@ export class ProductRepo {
     }
 
     if (media !== undefined) {
-      await this.replaceMedia({ productId: id, media });
+      return { ...result, previousMedia: await this.replaceMedia({ productId: id, media }) };
     }
 
     return result;
@@ -490,13 +496,26 @@ export class ProductRepo {
     });
   }
 
+  // Returns the set it retired so the service can log who replaced what.
   private async replaceMedia({
     productId,
     media,
   }: {
     productId: string;
     media: ProductMediaInputType[];
-  }) {
+  }): Promise<ProductMediaAuditRow[]> {
+    const previous = await this.prisma.productMedia.findMany({
+      where: {
+        productId,
+        deletedAt: null,
+      },
+      select: {
+        staticId: true,
+        type: true,
+      },
+      orderBy: [{ type: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
+    });
+
     await this.prisma.productMedia.updateMany({
       where: {
         productId,
@@ -508,7 +527,7 @@ export class ProductRepo {
     });
 
     if (media.length === 0) {
-      return;
+      return previous;
     }
 
     await this.prisma.productMedia.createMany({
@@ -520,6 +539,8 @@ export class ProductRepo {
         altText: item.altText ?? null,
       })),
     });
+
+    return previous;
   }
 
   private toManagementOutput(product: ProductRow): ProductManagementOutputType {

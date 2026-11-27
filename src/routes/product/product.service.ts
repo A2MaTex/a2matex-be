@@ -58,8 +58,13 @@ import type {
   ProductPackageFileMetadataType,
 } from './product.model.ts';
 import { ProductRepo } from './product.repo.ts';
+import type { ProductMediaAuditRow } from './product.repo.ts';
 import type { LockedProduct } from './product.repo.ts';
 import { isProductProjectConflict, isProductSlugConflict } from './product.util.ts';
+
+// Artwork reaches the Marketplace without a review, so the log has to name the actor.
+const formatMediaAudit = (media: ProductMediaAuditRow[]) =>
+  media.length === 0 ? '-' : media.map((item) => `${item.type}:${item.staticId}`).join(',');
 
 @Injectable()
 export class ProductService {
@@ -160,7 +165,7 @@ export class ProductService {
       scopes,
     );
 
-    let result: { count: number };
+    let result: { count: number; previousMedia?: ProductMediaAuditRow[] };
     try {
       result = await this.commitUpdate({ id, data, publisherAccountId, userId });
     } catch (error) {
@@ -183,6 +188,13 @@ export class ProductService {
 
     if (result.count === 0) {
       await this.throwUpdateFailure({ id, publisherAccountId });
+    }
+    if (data.media !== undefined) {
+      this.logger.log(
+        `Product media replaced productId=${id} userId=${userId} ` +
+          `before=${formatMediaAudit(result.previousMedia ?? [])} ` +
+          `after=${formatMediaAudit(data.media)}`,
+      );
     }
     return SUCCESS_RESPONSE;
   }
@@ -457,7 +469,7 @@ export class ProductService {
     data: UpdateProductInputType;
     publisherAccountId: string;
     userId: string;
-  }): Promise<{ count: number }> {
+  }): Promise<{ count: number; previousMedia?: ProductMediaAuditRow[] }> {
     if (data.media !== undefined) {
       await this.assertMediaEligible(data.media);
     }

@@ -17,7 +17,7 @@ import type {
   PublicProductSummaryOutputType,
 } from './marketplace-product.model.ts';
 
-type SnapshotMediaRow = {
+type ProductMediaRow = {
   id: string;
   staticId: string;
   type: string;
@@ -39,7 +39,7 @@ type PublicProductRow = {
   minimumRuntimeVersion: string;
   minimumOfferPriceAmount: bigint;
   minimumOfferDurationDays: number;
-  media: SnapshotMediaRow[] | null;
+  media: ProductMediaRow[] | null;
 };
 
 type PublicProductDetailRow = PublicProductRow & {
@@ -47,8 +47,9 @@ type PublicProductDetailRow = PublicProductRow & {
   usageInstructions: string | null;
 };
 
-// Snapshot fields, not the mutable Product columns: what the Marketplace shows is what
-// Admin approved behind the current release.
+// Text comes from the Submission snapshot, so the Marketplace still shows what Admin
+// approved. Media is read live: artwork is the one thing a Publisher may refresh without
+// cutting a new Release.
 const SUMMARY_COLUMNS = Prisma.sql`
   p.id AS "id",
   s."productSnapshot"->>'name' AS "name",
@@ -63,7 +64,21 @@ const SUMMARY_COLUMNS = Prisma.sql`
   s."releaseRequest"->>'minimumRuntimeVersion' AS "minimumRuntimeVersion",
   mo."priceAmount" AS "minimumOfferPriceAmount",
   mo."durationDays" AS "minimumOfferDurationDays",
-  s."productSnapshot"->'media' AS "media"
+  (
+    SELECT jsonb_agg(
+             jsonb_build_object(
+               'id', pm.id::text,
+               'staticId', pm."staticId"::text,
+               'type', pm.type::text,
+               'sortOrder', pm."sortOrder",
+               'altText', pm."altText"
+             )
+             ORDER BY pm.type, pm."sortOrder", pm.id
+           )
+    FROM "ProductMedia" pm
+    WHERE pm."productId" = p.id
+      AND pm."deletedAt" IS NULL
+  ) AS "media"
 `;
 
 const DETAIL_COLUMNS = Prisma.sql`
@@ -76,9 +91,9 @@ const DETAIL_COLUMNS = Prisma.sql`
 // carry it. Detail asks for the whole set.
 const CARD_MEDIA_TYPES: ProductMediaTypeValue[] = [ProductMediaType.ICON, ProductMediaType.COVER];
 
-// Field by field, never a spread: the snapshot is a frozen document and may carry keys that
-// have no place in a public response. Same order the management projection uses.
-const toMediaOutput = (media: SnapshotMediaRow[] | null, allowedTypes?: ProductMediaTypeValue[]) =>
+// Field by field, never a spread: the row may carry keys that have no place in a public
+// response. Same order the management projection uses.
+const toMediaOutput = (media: ProductMediaRow[] | null, allowedTypes?: ProductMediaTypeValue[]) =>
   (media ?? [])
     .filter((item) => !allowedTypes || allowedTypes.includes(item.type as ProductMediaTypeValue))
     .map((item) => ({
@@ -225,7 +240,7 @@ export class MarketplaceProductRepo {
 
     return {
       ...this.toSummaryOutput(row),
-      // Detail widens the card projection to the full approved gallery.
+      // Detail widens the card projection to the full gallery.
       media: toMediaOutput(row.media),
       description: row.description,
       usageInstructions: row.usageInstructions,

@@ -24,8 +24,9 @@ export const PublicProductReleaseOutput = z.object({
   minimumRuntimeVersion: z.string(),
 });
 
-// Ordered image metadata frozen in the approved Submission snapshot. The Static ID is what
-// the client feeds to the public image route; no object key or private URL is exposed.
+// Ordered image metadata read from the live Product: artwork is managed outside review, so a
+// Static ID here may change between reads. It is what the client feeds to the public image
+// route; no object key or private URL is exposed.
 export const PublicProductMediaOutput = z.object({
   id: z.uuid(),
   staticId: z.uuid(),
@@ -39,8 +40,8 @@ export const PublicProductMinimumSubscriptionOffer = z.object({
   durationDays: z.number().int(),
 });
 
-// Presentation fields are projected from the approved Submission snapshot, never from
-// the mutable Product row, and never carry media or Static identifiers.
+// Text is projected from the approved Submission snapshot, never from the mutable Product
+// row. Media and Offers are the live exceptions.
 export const PublicProductSummaryOutput = z.object({
   id: z.uuid(),
   name: z.string(),
