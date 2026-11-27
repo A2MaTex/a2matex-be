@@ -214,6 +214,21 @@ export class StaticRepository {
     return records[0] ?? null;
   }
 
+  /**
+   * Returns the productId if the given staticId is used as a `packageStaticId` on any
+   * ProductRelease, otherwise null. Used by the static file endpoints to decide whether
+   * an entitlement check is required before serving the file.
+   */
+  async findProductIdByPackageStaticId(staticId: string): Promise<string | null> {
+    const rows = await this.prisma.$queryRaw<{ productId: string }[]>`
+      SELECT "productId"
+      FROM "ProductRelease"
+      WHERE "packageStaticId" = ${staticId}::uuid
+      LIMIT 1
+    `;
+    return rows[0]?.productId ?? null;
+  }
+
   async hardDelete(id: string): Promise<void> {
     await this.prisma.static.deleteMany({
       where: {

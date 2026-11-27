@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Headers,
   HttpStatus,
@@ -49,6 +50,11 @@ import {
 import { StaticUploadCleanupInterceptor } from './static-upload-cleanup.interceptor.ts';
 import { ActiveUser } from '../../shared/decorators/active-user.decorator.ts';
 import { IsPublic } from '../../shared/decorators/auth.decorator.ts';
+import { ActivePermissionScopes } from '../../shared/decorators/active-permission-scopes.decorator.ts';
+import type { ActivePermissionScope } from '../../shared/decorators/active-permission-scopes.decorator.ts';
+import { EntitlementService } from '../entitlement/entitlement.service.ts';
+import { SharedUserRepository } from '../../shared/repositories/shared-user.repo.ts';
+import { StaticRepository } from '../../shared/repositories/static.repo.ts';
 import {
   completeMultipartUploadBody,
   getBatchUrlsBody,
@@ -67,7 +73,12 @@ type UploadedStaticFile = {
 @ApiBearerAuth('access-token')
 @Controller('statics')
 export class StaticController {
-  constructor(@Inject(StaticService) private readonly staticService: StaticService) {}
+  constructor(
+    @Inject(StaticService) private readonly staticService: StaticService,
+    @Inject(StaticRepository) private readonly staticRepository: StaticRepository,
+    @Inject(EntitlementService) private readonly entitlementService: EntitlementService,
+    @Inject(SharedUserRepository) private readonly sharedUserRepo: SharedUserRepository,
+  ) {}
 
   @Delete(':staticId')
   @ZodResponse({ type: MessageResDTO })
@@ -142,7 +153,12 @@ export class StaticController {
       },
     },
   })
-  async getFile(@Param() params: StaticIdParamDTO) {
+  async getFile(
+    @Param() params: StaticIdParamDTO,
+    @ActiveUser('userId') userId: string,
+    @ActivePermissionScopes() scopes: ActivePermissionScope[],
+  ) {
+    await this.assertPackageFileAccess(params.staticId, userId, scopes);
     const output = await this.staticService.getFile(params.staticId);
     return new StreamableFile(output.body, {
       type: output.static.contentType,
@@ -247,7 +263,12 @@ export class StaticController {
 
   @Get('files/:staticId/download-url')
   @ZodResponse({ type: GetDownloadUrlOutputDTO })
-  async downloadFile(@Param() params: StaticIdParamDTO) {
+  async downloadFile(
+    @Param() params: StaticIdParamDTO,
+    @ActiveUser('userId') userId: string,
+    @ActivePermissionScopes() scopes: ActivePermissionScope[],
+  ) {
+    await this.assertPackageFileAccess(params.staticId, userId, scopes);
     return this.staticService.getDownloadUrl(params.staticId);
   }
 
@@ -317,6 +338,40 @@ export class StaticController {
   @Post('/files/multipart/cleanup-expired')
   async cleanupIncompleteUploads() {
     return this.staticService.cleanExpiredUploadSessions();
+  }
+
+  /**
+   * Minimal package-file access guard. If the requested staticId is a `packageStaticId`
+   * on any ProductRelease, the caller must hold an active entitlement for that product.
+   * Admin (scope === null) and Publisher callers bypass this check so their existing
+   * workflows remain unaffected. Unrelated statics (images, uploads) are never blocked.
+   */
+  private async assertPackageFileAccess(
+    staticId: string,
+    userId: string,
+    scopes: ActivePermissionScope[],
+  ): Promise<void> {
+    // Admin (unrestricted, null scope) and Publisher callers are permitted unconditionally.
+    if (scopes.includes(null) || scopes.some((s) => s !== null)) {
+      return;
+    }
+
+    const productId = await this.staticRepository.findProductIdByPackageStaticId(staticId);
+    if (!productId) {
+      // Not a package static — no extra check needed.
+      return;
+    }
+
+    // Customer path: require active Customer account + valid entitlement.
+    const hasCustomer = await this.sharedUserRepo.hasActiveCustomer(userId);
+    if (!hasCustomer) {
+      throw new ForbiddenException('Error.PackageAccessDenied');
+    }
+
+    const usage = await this.entitlementService.checkUsage({ customerId: userId, productId });
+    if (!usage.usable) {
+      throw new ForbiddenException('Error.PackageAccessDenied');
+    }
   }
 
   private matchesEtag(ifNoneMatch: string | undefined, etag: string) {
