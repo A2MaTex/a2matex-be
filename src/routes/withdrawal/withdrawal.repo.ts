@@ -5,6 +5,11 @@ import {
   type WithdrawalRequestStatusValue,
 } from '../../shared/constants/withdrawal.constant.ts';
 
+export type AdminWithdrawalRow = WithdrawalRow & {
+  processedById: string | null;
+  publisher: { email: string | null; profile: { fullName: string } | null };
+};
+
 export type WithdrawalRow = {
   id: string;
   publisherUserId: string;
@@ -155,6 +160,125 @@ export class WithdrawalRepo {
       select: { balanceAfter: true },
     });
     return row?.balanceAfter ?? null;
+  }
+
+  // ---- Quản trị viên: đổi trạng thái (spec 013) ----
+
+  // Ba hàm dưới đều KIỂM VÀ GHI TRONG MỘT CÂU LỆNH, cùng khuôn cancelIfPending. Không có
+  // phép đọc riêng thì không có cửa sổ cho lệnh song song chen vào, và lệnh thua đánh giá
+  // lại WHERE sau khi lệnh thắng commit rồi khớp 0 dòng.
+  //
+  // Mỗi câu phải đặt ĐÚNG bộ cột đi kèm trạng thái mới: ba ràng buộc
+  // WithdrawalRequest_processed_check / _transferRef_check / _rejection_check sẽ từ chối
+  // nếu thiếu hoặc thừa.
+  async approveIfPending(input: {
+    withdrawalId: string;
+    adminUserId: string;
+  }): Promise<WithdrawalRow | null> {
+    const rows = await this.prisma.$queryRaw<WithdrawalRow[]>`
+      UPDATE "WithdrawalRequest"
+         SET status = 'APPROVED'::"WithdrawalRequestStatus",
+             "processedAt" = now(),
+             "processedById" = ${input.adminUserId}::uuid
+       WHERE id = ${input.withdrawalId}::uuid
+         AND status = 'PENDING'::"WithdrawalRequestStatus"
+      RETURNING id, "publisherUserId", amount, status, "bankAccountNumber", "bankName",
+                "bankAccountHolder", "bankTransferRef", "rejectionReason", "createdAt",
+                "processedAt"
+    `;
+    const row = rows[0];
+    return row ? { ...row, amount: BigInt(row.amount) } : null;
+  }
+
+  async markPaidIfApproved(input: {
+    withdrawalId: string;
+    adminUserId: string;
+    bankTransferRef: string;
+  }): Promise<WithdrawalRow | null> {
+    const rows = await this.prisma.$queryRaw<WithdrawalRow[]>`
+      UPDATE "WithdrawalRequest"
+         SET status = 'PAID'::"WithdrawalRequestStatus",
+             "processedAt" = now(),
+             "processedById" = ${input.adminUserId}::uuid,
+             "bankTransferRef" = ${input.bankTransferRef}
+       WHERE id = ${input.withdrawalId}::uuid
+         AND status = 'APPROVED'::"WithdrawalRequestStatus"
+      RETURNING id, "publisherUserId", amount, status, "bankAccountNumber", "bankName",
+                "bankAccountHolder", "bankTransferRef", "rejectionReason", "createdAt",
+                "processedAt"
+    `;
+    const row = rows[0];
+    return row ? { ...row, amount: BigInt(row.amount) } : null;
+  }
+
+  // Nhận HAI trạng thái nguồn: tiền chưa thật sự đi nên quản trị viên phải rút lại được cả
+  // quyết định đã duyệt. Đơn PAID không nằm trong danh sách — tiền đã ra khỏi ngân hàng.
+  async rejectIfPendingOrApproved(input: {
+    withdrawalId: string;
+    adminUserId: string;
+    reason: string;
+  }): Promise<WithdrawalRow | null> {
+    const rows = await this.prisma.$queryRaw<WithdrawalRow[]>`
+      UPDATE "WithdrawalRequest"
+         SET status = 'REJECTED'::"WithdrawalRequestStatus",
+             "processedAt" = now(),
+             "processedById" = ${input.adminUserId}::uuid,
+             "rejectionReason" = ${input.reason}
+       WHERE id = ${input.withdrawalId}::uuid
+         AND status IN ('PENDING'::"WithdrawalRequestStatus",
+                        'APPROVED'::"WithdrawalRequestStatus")
+      RETURNING id, "publisherUserId", amount, status, "bankAccountNumber", "bankName",
+                "bankAccountHolder", "bankTransferRef", "rejectionReason", "createdAt",
+                "processedAt"
+    `;
+    const row = rows[0];
+    return row ? { ...row, amount: BigInt(row.amount) } : null;
+  }
+
+  // ---- Quản trị viên: đọc ----
+
+  // Một đơn kèm danh tính nhà phát hành, cho các đường trả về sau khi đổi trạng thái.
+  findOneForAdmin(withdrawalId: string): Promise<AdminWithdrawalRow | null> {
+    return this.prisma.withdrawalRequest.findUnique({
+      where: { id: withdrawalId },
+      select: {
+        ...ROW_SELECT,
+        processedById: true,
+        publisher: { select: { email: true, profile: { select: { fullName: true } } } },
+      },
+    }) as unknown as Promise<AdminWithdrawalRow | null>;
+  }
+
+  findAnyById(withdrawalId: string): Promise<WithdrawalRow | null> {
+    return this.prisma.withdrawalRequest.findUnique({
+      where: { id: withdrawalId },
+      select: ROW_SELECT,
+    });
+  }
+
+  // Bỏ trống statuses nghĩa là KHÔNG lọc — trả mọi trạng thái kể cả đã huỷ và bị từ chối.
+  // JOIN lấy tên và email để quản trị viên nhận ra mình đang chi tiền cho ai.
+  async listForAdmin(input: {
+    statuses?: WithdrawalRequestStatusValue[];
+    skip: number;
+    take: number;
+  }): Promise<{ rows: AdminWithdrawalRow[]; totalItems: number }> {
+    const where = input.statuses?.length ? { status: { in: input.statuses } } : {};
+    const [rows, totalItems] = await Promise.all([
+      this.prisma.withdrawalRequest.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        skip: input.skip,
+        take: input.take,
+        select: {
+          ...ROW_SELECT,
+          processedById: true,
+          publisher: { select: { email: true, profile: { select: { fullName: true } } } },
+        },
+      }),
+      this.prisma.withdrawalRequest.count({ where }),
+    ]);
+    return { rows: rows as unknown as AdminWithdrawalRow[], totalItems };
   }
 
   // ---- Đọc ----

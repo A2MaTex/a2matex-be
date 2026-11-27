@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AdminWalletService } from './admin-wallet.service.ts';
 import { WalletRepo } from './wallet.repo.ts';
 import { WalletService } from './wallet.service.ts';
 
@@ -6,7 +7,7 @@ import { WalletService } from './wallet.service.ts';
 // and CronModule imports TopUpCoreModule — anything with controllers that gets pulled in
 // along that path would serve its routes on the cron port (see src/cron/cron.module.ts).
 @Module({
-  providers: [WalletService, WalletRepo],
-  exports: [WalletService, WalletRepo],
+  providers: [WalletService, AdminWalletService, WalletRepo],
+  exports: [WalletService, AdminWalletService, WalletRepo],
 })
 export class WalletCoreModule {}

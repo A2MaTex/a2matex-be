@@ -13,3 +13,11 @@ export const SystemAccountInsufficientFundsException = new UnprocessableEntityEx
 export const WalletGrantRecipientNotFoundException = new NotFoundException(
   'Error.WalletGrantRecipientNotFound',
 );
+
+// ---- Quản trị viên (spec 013) ----
+
+export const WalletUserNotFoundException = new NotFoundException('Error.WalletUserNotFound');
+
+export const LedgerDateRangeInvalidException = new UnprocessableEntityException(
+  'Error.LedgerDateRangeInvalid',
+);
