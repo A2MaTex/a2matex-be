@@ -62,6 +62,8 @@ model User {
   userRoles                                           UserRole[]
   recordedWalletTransactions                          WalletTransaction[]   @relation("WalletTransactionCreatedBy")
   walletTransactions                                  WalletTransaction[]   @relation("WalletTransactionAccount")
+  withdrawalRequests                                  WithdrawalRequest[]   @relation("WithdrawalRequestPublisher")
+  processedWithdrawalRequests                         WithdrawalRequest[]   @relation("WithdrawalRequestProcessedBy")
   WorkflowRevision_WorkflowRevision_createdByIdToUser WorkflowRevision[]    @relation("WorkflowRevision_createdByIdToUser")
   WorkflowRevision_WorkflowRevision_deletedByIdToUser WorkflowRevision[]    @relation("WorkflowRevision_deletedByIdToUser")
   WorkflowRevision_WorkflowRevision_updatedByIdToUser WorkflowRevision[]    @relation("WorkflowRevision_updatedByIdToUser")
@@ -756,6 +758,7 @@ model WalletTransaction {
   balanceAfter       BigInt
   orderId            String?               @db.Uuid
   topUpTransactionId String?               @unique(map: "WalletTransaction_topUp_key", where: raw("(\"topUpTransactionId\" IS NOT NULL)")) @db.Uuid
+  withdrawalRequestId String?              @db.Uuid
   /// Nối hai chân của một lần chuyển khoản. Chỉ và luôn có với ADMIN_GRANT.
   transferId         String?               @db.Uuid
   note               String?
@@ -765,12 +768,44 @@ model WalletTransaction {
   order              Order?                @relation(fields: [orderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   account            SystemAccount?        @relation(fields: [systemAccount], references: [type], onDelete: NoAction, onUpdate: NoAction)
   topUpTransaction   TopUpTransaction?     @relation(fields: [topUpTransactionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  withdrawalRequest  WithdrawalRequest?    @relation(fields: [withdrawalRequestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   user               User?                 @relation("WalletTransactionAccount", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([orderId, type], map: "WalletTransaction_order_type_key", where: raw("(\"orderId\" IS NOT NULL)"))
   @@unique([transferId, direction], map: "WalletTransaction_transfer_leg_key", where: raw("(\"transferId\" IS NOT NULL)"))
+  @@unique([withdrawalRequestId, type], map: "WalletTransaction_withdrawal_type_key", where: raw("(\"withdrawalRequestId\" IS NOT NULL)"))
   @@index([userId, createdAt(sort: Desc)], where: raw("(\"userId\" IS NOT NULL)"))
   @@index([systemAccount, createdAt(sort: Desc)], where: raw("(\"systemAccount\" IS NOT NULL)"))
+}
+
+/// Một lần nhà phát hành xin chuyển tiền từ ví về tài khoản ngân hàng. Tiền bị trừ khỏi ví
+/// NGAY lúc tạo đơn, không đợi duyệt — nên đơn chưa chi vẫn là một khoản nợ của hệ thống,
+/// chỉ đổi hình thức. Không có deletedAt: đây là chứng từ tiền, CANCELLED là cách huỷ.
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model WithdrawalRequest {
+  id                String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  publisherUserId   String                  @db.Uuid
+  amount            BigInt
+  status            WithdrawalRequestStatus @default(PENDING)
+  /// Bản chụp, không phải tham chiếu: đổi thông tin ngân hàng về sau không được làm đổi
+  /// chứng từ của đơn đã chi.
+  bankAccountNumber String                  @db.VarChar(50)
+  bankName          String                  @db.VarChar(255)
+  bankAccountHolder String                  @db.VarChar(255)
+  idempotencyKey    String                  @db.Uuid
+  /// Quản trị viên nhập tay sau khi chuyển khoản. Lát cắt này chỉ khai chỗ chứa.
+  bankTransferRef   String?
+  rejectionReason   String?
+  /// Mốc neo của quy tắc 24 giờ.
+  createdAt         DateTime                @default(now()) @db.Timestamptz(6)
+  processedAt       DateTime?               @db.Timestamptz(6)
+  processedById     String?                 @db.Uuid
+  processedBy       User?                   @relation("WithdrawalRequestProcessedBy", fields: [processedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  publisher         User                    @relation("WithdrawalRequestPublisher", fields: [publisherUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  walletTransactions WalletTransaction[]
+
+  @@unique([publisherUserId, idempotencyKey], map: "WithdrawalRequest_publisher_idempotency_key")
+  @@index([publisherUserId, createdAt(sort: Desc)], map: "WithdrawalRequest_publisher_createdAt_idx")
 }
 
 enum ProductReleaseStatus {
@@ -921,6 +956,16 @@ enum WalletTransactionType {
   COMMISSION
   ADMIN_GRANT
   ISSUED_CREDIT
+  WITHDRAWAL
+  WITHDRAWAL_REVERSAL
+}
+
+enum WithdrawalRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+  CANCELLED
 }
 
 enum WalletDirection {

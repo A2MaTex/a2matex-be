@@ -90,6 +90,51 @@ export class WalletService {
     });
   }
 
+  // Tiền rời VÍ ở đây nhưng chưa rời HỆ THỐNG: nó vẫn nằm trong tài khoản ngân hàng công ty
+  // cho tới khi admin chuyển khoản thật, nên báo cáo dòng tiền phải đếm đơn chưa chi thành
+  // một khoản nợ riêng.
+  async recordWithdrawal(input: {
+    userId: string;
+    withdrawalRequestId: string;
+    amount: bigint;
+    balanceAfter: bigint;
+  }): Promise<void> {
+    if (this.isNoop(input.amount)) return;
+    await this.walletRepo.insertEntry({
+      type: WalletTransactionType.WITHDRAWAL,
+      direction: WalletDirection.DEBIT,
+      amount: input.amount,
+      balanceAfter: input.balanceAfter,
+      userId: input.userId,
+      withdrawalRequestId: input.withdrawalRequestId,
+    });
+  }
+
+  // Một loại dùng chung cho cả tự huỷ lẫn admin từ chối: lý do nằm ở WithdrawalRequest.status.
+  // Nhưng RIÊNG với WITHDRAWAL chứ không cùng loại đổi chiều — index
+  // WalletTransaction_withdrawal_type_key là "nhiều nhất một bút toán mỗi loại cho mỗi đơn",
+  // dùng chung loại thì chốt chặn hoàn tiền hai lần không dựng được.
+  async recordWithdrawalReversal(input: {
+    userId: string;
+    withdrawalRequestId: string;
+    amount: bigint;
+    balanceAfter: bigint;
+    note?: string;
+    createdById?: string;
+  }): Promise<void> {
+    if (this.isNoop(input.amount)) return;
+    await this.walletRepo.insertEntry({
+      type: WalletTransactionType.WITHDRAWAL_REVERSAL,
+      direction: WalletDirection.CREDIT,
+      amount: input.amount,
+      balanceAfter: input.balanceAfter,
+      userId: input.userId,
+      withdrawalRequestId: input.withdrawalRequestId,
+      note: input.note,
+      createdById: input.createdById,
+    });
+  }
+
   // Hoa hồng vào tài khoản của sàn. Cộng số dư và ghi sổ nằm cạnh nhau ở đây vì không
   // module nào khác cần tới số dư của sàn ngay lúc mua.
   async recordCommission(input: { orderId: string; amount: bigint }): Promise<void> {

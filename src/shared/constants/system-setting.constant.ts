@@ -6,6 +6,7 @@ export const SystemSettingKey = {
   SEPAY_BANK_ACCOUNT_NUMBER: 'SEPAY_BANK_ACCOUNT_NUMBER',
   SEPAY_BANK_NAME: 'SEPAY_BANK_NAME',
   SEPAY_BANK_ACCOUNT_HOLDER: 'SEPAY_BANK_ACCOUNT_HOLDER',
+  WITHDRAWAL_MIN_AMOUNT: 'WITHDRAWAL_MIN_AMOUNT',
 } as const;
 
 export type SystemSettingKeyValue = (typeof SystemSettingKey)[keyof typeof SystemSettingKey];

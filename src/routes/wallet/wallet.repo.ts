@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
 import {
+  isValidEntryShape,
   SystemAccountType,
   type SystemAccountTypeValue,
   type WalletDirectionValue,
@@ -30,6 +31,7 @@ export type WalletEntryInput = {
   systemAccount?: SystemAccountTypeValue;
   orderId?: string;
   topUpTransactionId?: string;
+  withdrawalRequestId?: string;
   transferId?: string;
   note?: string;
   createdById?: string;
@@ -49,6 +51,15 @@ export class WalletRepo {
   // defaults to now(), which in Postgres is the transaction start, so a Date() taken after the
   // insert would disagree with what the history endpoint later shows for the same entry.
   insertEntry(input: WalletEntryInput): Promise<{ id: string; createdAt: Date }> {
+    // Bắt tổ hợp sai ở đây thay vì để accountKind_check bắt: lỗi ràng buộc Postgres nổi
+    // lên thành 500 không nói được chỗ nào sai. Database vẫn là chốt chặn cuối.
+    const account = input.userId ? 'USER' : 'SYSTEM';
+    if (!isValidEntryShape({ type: input.type, direction: input.direction, account })) {
+      throw new Error(
+        `Invalid wallet entry shape: ${input.type}/${input.direction}/${account}`,
+      );
+    }
+
     return this.prisma.walletTransaction.create({
       data: {
         type: input.type,
@@ -59,6 +70,7 @@ export class WalletRepo {
         systemAccount: input.systemAccount ?? null,
         orderId: input.orderId ?? null,
         topUpTransactionId: input.topUpTransactionId ?? null,
+        withdrawalRequestId: input.withdrawalRequestId ?? null,
         transferId: input.transferId ?? null,
         note: input.note ?? null,
         createdById: input.createdById ?? null,
@@ -116,6 +128,24 @@ export class WalletRepo {
     const rows = await this.prisma.profile.updateManyAndReturn({
       where: { userId, deletedAt: null },
       data: { balance: { increment: amount } },
+      select: { balance: true },
+    });
+    return rows[0]?.balance ?? null;
+  }
+
+  // Đối xứng tryDebitSystemAccount: điều kiện `balance >= amount` nằm TRONG câu lệnh, vì để
+  // Profile_balance_check bắt thì "không đủ tiền" thành lỗi 500. Không khớp dòng nào là
+  // thiếu tiền hoặc hồ sơ đã xoá mềm — người gọi phân biệt bằng khoá dòng đang giữ.
+  async tryDebitUserBalance({
+    userId,
+    amount,
+  }: {
+    userId: string;
+    amount: bigint;
+  }): Promise<bigint | null> {
+    const rows = await this.prisma.profile.updateManyAndReturn({
+      where: { userId, deletedAt: null, balance: { gte: amount } },
+      data: { balance: { decrement: amount } },
       select: { balance: true },
     });
     return rows[0]?.balance ?? null;

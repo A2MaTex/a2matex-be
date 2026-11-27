@@ -71,3 +71,23 @@ export const zBigIntAsString = () => {
   schema._zod.toJSONSchema = () => ({ type: 'string' });
   return schema;
 };
+
+// Chuỗi thập phân nằm trong trần BIGINT, dùng cho mọi số tiền đi vào hệ thống.
+//
+// Hai điều phải giữ cùng nhau, nên để chung một chỗ:
+//  - `^[0-9]{1,19}$` một mình KHÔNG đủ: nó khớp 9999999999999999999, vượt trần BIGINT, rồi
+//    PostgreSQL ném 22003 và người dùng nhận 500 thay vì 422.
+//  - refine phải TỰ KIỂM LẠI hình dạng trước khi gọi BigInt: Zod 4 chạy mọi check rồi mới
+//    gộp lỗi, nên refine vẫn nhận cả chuỗi đã trượt regex, và BigInt('abc') ném SyntaxError
+//    ra ngoài tầng xác thực.
+export const BIGINT_MAX = 9223372036854775807n;
+
+export const zBigIntString = () =>
+  z
+    .string()
+    .regex(/^[0-9]{1,19}$/)
+    .refine((value) => {
+      if (!/^[0-9]{1,19}$/.test(value)) return false;
+      const parsed = BigInt(value);
+      return parsed >= 1n && parsed <= BIGINT_MAX;
+    });

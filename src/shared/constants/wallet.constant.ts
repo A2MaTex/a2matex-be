@@ -1,5 +1,6 @@
-// Loại biến động số dư. Thêm giá trị mới không đụng bản ghi đã có, nên phase 4 (rút tiền)
-// và spec giữ tiền bảo hành đều chỉ cần một ALTER TYPE ... ADD VALUE.
+// Loại biến động số dư. Thêm giá trị mới không đụng bản ghi đã có — nhưng ALTER TYPE phải
+// nằm ở MIGRATION RIÊNG với chỗ dùng nó, vì Prisma bọc mỗi file trong một transaction và
+// PostgreSQL không cho dùng giá trị enum vừa thêm trong cùng transaction.
 export const WalletTransactionType = {
   TOPUP: 'TOPUP',
   PURCHASE: 'PURCHASE',
@@ -7,6 +8,8 @@ export const WalletTransactionType = {
   COMMISSION: 'COMMISSION',
   ADMIN_GRANT: 'ADMIN_GRANT',
   ISSUED_CREDIT: 'ISSUED_CREDIT',
+  WITHDRAWAL: 'WITHDRAWAL',
+  WITHDRAWAL_REVERSAL: 'WITHDRAWAL_REVERSAL',
 } as const;
 
 export type WalletTransactionTypeValue =
@@ -28,9 +31,9 @@ export const SystemAccountType = {
 export type SystemAccountTypeValue =
   (typeof SystemAccountType)[keyof typeof SystemAccountType];
 
-// Bảy tổ hợp hợp lệ, không hơn. Database đã ép đúng bảng này qua
-// WalletTransaction_accountKind_check; bản sao ở đây để tầng ứng dụng không phải nhớ và
-// để một tổ hợp sai bị bắt trước khi chạm tới database.
+// Chín tổ hợp hợp lệ, không hơn. Database đã ép đúng bảng này qua
+// WalletTransaction_accountKind_check; bản sao ở đây được WalletRepo.insertEntry đọc để một
+// tổ hợp sai bị bắt thành lỗi lập trình có tên, thay vì thành lỗi ràng buộc 500 từ Postgres.
 export const WALLET_ENTRY_SHAPES = [
   { type: WalletTransactionType.TOPUP, direction: WalletDirection.CREDIT, account: 'USER' },
   { type: WalletTransactionType.PURCHASE, direction: WalletDirection.DEBIT, account: 'USER' },
@@ -39,6 +42,25 @@ export const WALLET_ENTRY_SHAPES = [
   { type: WalletTransactionType.ADMIN_GRANT, direction: WalletDirection.DEBIT, account: 'SYSTEM' },
   { type: WalletTransactionType.ADMIN_GRANT, direction: WalletDirection.CREDIT, account: 'USER' },
   { type: WalletTransactionType.ISSUED_CREDIT, direction: WalletDirection.CREDIT, account: 'SYSTEM' },
+  { type: WalletTransactionType.WITHDRAWAL, direction: WalletDirection.DEBIT, account: 'USER' },
+  {
+    type: WalletTransactionType.WITHDRAWAL_REVERSAL,
+    direction: WalletDirection.CREDIT,
+    account: 'USER',
+  },
 ] as const;
 
 export const WALLET_PAGE_SIZE_MAX = 100;
+
+// Một tổ hợp (loại, chiều, phía tài khoản) có nằm trong bảng trên không.
+export const isValidEntryShape = (input: {
+  type: WalletTransactionTypeValue;
+  direction: WalletDirectionValue;
+  account: 'USER' | 'SYSTEM';
+}): boolean =>
+  WALLET_ENTRY_SHAPES.some(
+    (shape) =>
+      shape.type === input.type &&
+      shape.direction === input.direction &&
+      shape.account === input.account,
+  );
