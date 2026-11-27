@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { PublisherModule } from '../publisher/publisher.module.ts';
 import { SystemSettingCoreModule } from '../system-setting/system-setting-core.module.ts';
 import { WalletCoreModule } from '../wallet/wallet-core.module.ts';
+import { AdminWithdrawalController } from './admin-withdrawal.controller.ts';
+import { AdminWithdrawalService } from './admin-withdrawal.service.ts';
 import { WithdrawalController } from './withdrawal.controller.ts';
 import { WithdrawalRepo } from './withdrawal.repo.ts';
 import { WithdrawalService } from './withdrawal.service.ts';
@@ -10,7 +12,7 @@ import { WithdrawalService } from './withdrawal.service.ts';
 // khác. Cùng lý do OrderModule dùng chúng.
 @Module({
   imports: [PublisherModule, WalletCoreModule, SystemSettingCoreModule],
-  controllers: [WithdrawalController],
-  providers: [WithdrawalService, WithdrawalRepo],
+  controllers: [WithdrawalController, AdminWithdrawalController],
+  providers: [WithdrawalService, AdminWithdrawalService, WithdrawalRepo],
 })
 export class WithdrawalModule {}

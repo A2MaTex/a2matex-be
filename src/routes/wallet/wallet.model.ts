@@ -3,8 +3,8 @@ import {
   WalletDirectionSchema,
   WalletTransactionTypeSchema,
 } from '../../entities/wallet-transaction.model.ts';
-import { WALLET_PAGE_SIZE_MAX } from '../../shared/constants/wallet.constant.ts';
-import { zBigIntAsString, zDate } from '../../shared/utils/zod.ts';
+import { LEDGER_PAGE_SIZE_MAX, WALLET_PAGE_SIZE_MAX } from '../../shared/constants/wallet.constant.ts';
+import { zBigIntAsString, zCoerceDate, zDate } from '../../shared/utils/zod.ts';
 
 const Pagination = z.object({
   page: z.coerce.number().int().positive().safe().default(1),
@@ -112,3 +112,131 @@ export const IssueCreditOutput = z.object({
 });
 
 export type IssueCreditOutputType = z.input<typeof IssueCreditOutput>;
+
+// ---- Quản trị viên: sổ cái toàn hệ thống (spec 013) ----
+
+// Ba bộ lọc độc lập, kết hợp bằng AND; bỏ trống nghĩa là không lọc theo tiêu chí đó.
+// `types` nhận nhiều giá trị vì câu hỏi thực tế là "cho tôi xem mọi khoản tôi cộng tay",
+// tức ADMIN_GRANT và ISSUED_CREDIT cùng lúc.
+export const GetAdminLedgerInput = z
+  .object({
+    page: z.coerce.number().int().positive().safe().default(1),
+    limit: z.coerce.number().int().positive().safe().max(LEDGER_PAGE_SIZE_MAX).default(10),
+    userId: z.uuid().optional(),
+    types: z
+      .union([WalletTransactionTypeSchema, z.array(WalletTransactionTypeSchema)])
+      .optional()
+      .transform((v) => (v === undefined ? undefined : Array.isArray(v) ? v : [v])),
+    from: zCoerceDate().optional(),
+    to: zCoerceDate().optional(),
+  })
+  .strict()
+  .superRefine(({ from, to }, ctx) => {
+    if (from && to && from > to) {
+      ctx.addIssue({ code: 'custom', message: 'Error.LedgerDateRangeInvalid', path: ['from'] });
+    }
+  });
+
+export type GetAdminLedgerInputType = z.infer<typeof GetAdminLedgerInput>;
+
+// Khác WalletTransactionOutput của người dùng: quản trị viên CÓ nhìn thấy systemAccount và
+// transferId, vì họ cần truy được một lần chuyển khoản về cả hai chân của nó.
+export const AdminLedgerEntryOutput = z.object({
+  id: z.uuid(),
+  userId: z.uuid().nullable(),
+  systemAccount: z.string().nullable(),
+  type: WalletTransactionTypeSchema,
+  direction: WalletDirectionSchema,
+  amount: zBigIntAsString(),
+  balanceAfter: zBigIntAsString(),
+  orderId: z.uuid().nullable(),
+  topUpTransactionId: z.uuid().nullable(),
+  withdrawalRequestId: z.uuid().nullable(),
+  transferId: z.uuid().nullable(),
+  note: z.string().nullable(),
+  createdById: z.uuid().nullable(),
+  createdAt: zDate(),
+});
+
+export const GetAdminLedgerOutput = z.object({
+  items: z.array(AdminLedgerEntryOutput),
+  totalItems: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+  totalPages: z.number(),
+});
+
+export type GetAdminLedgerOutputType = z.input<typeof GetAdminLedgerOutput>;
+
+// ---- Quản trị viên: ví một người dùng ----
+
+const BreakdownRow = z.object({
+  type: WalletTransactionTypeSchema,
+  total: zBigIntAsString(),
+  count: z.number(),
+});
+
+// totalIn − totalOut PHẢI bằng đúng balance. Một bảng dùng để quyết định chi tiền mà không
+// tự cân được thì không kiểm chứng được.
+export const UserWalletOutput = z.object({
+  user: z.object({
+    userId: z.uuid(),
+    fullName: z.string(),
+    email: z.string().nullable(),
+  }),
+  balance: zBigIntAsString(),
+  breakdown: z.object({
+    in: z.array(BreakdownRow),
+    out: z.array(BreakdownRow),
+    totalIn: zBigIntAsString(),
+    totalOut: zBigIntAsString(),
+  }),
+  items: z.array(AdminLedgerEntryOutput),
+  totalItems: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+  totalPages: z.number(),
+});
+
+export type UserWalletOutputType = z.input<typeof UserWalletOutput>;
+
+// Route xem ví một người CHỈ nhận phân trang. Dùng chung GetAdminLedgerInput sẽ nhận cả
+// userId/types/from/to rồi âm thầm vứt đi — quản trị viên lọc "chỉ xem khoản rút" trước khi
+// duyệt chi sẽ nhận về toàn bộ sổ cái kèm HTTP 200 mà không có dấu hiệu nào là bộ lọc trượt.
+export const GetUserWalletInput = z
+  .object({
+    page: z.coerce.number().int().positive().safe().default(1),
+    limit: z.coerce.number().int().positive().safe().max(LEDGER_PAGE_SIZE_MAX).default(10),
+  })
+  .strict();
+
+export type GetUserWalletInputType = z.infer<typeof GetUserWalletInput>;
+
+export const UserIdParam = z.object({ userId: z.uuid() }).strict();
+export type UserIdParamType = z.infer<typeof UserIdParam>;
+
+// ---- Quản trị viên: đối soát ----
+
+const ReconciliationCheck = z.object({
+  code: z.string(),
+  label: z.string(),
+  ok: z.boolean(),
+  offenders: z.array(z.record(z.string(), z.unknown())),
+});
+
+export const ReconciliationOutput = z.object({
+  cashflow: z.object({
+    cashIn: zBigIntAsString(),
+    issuedCredit: zBigIntAsString(),
+    paidOut: zBigIntAsString(),
+    owedToUsers: zBigIntAsString(),
+    platformBalance: zBigIntAsString(),
+    awaitingPayout: zBigIntAsString(),
+    leftSide: zBigIntAsString(),
+    rightSide: zBigIntAsString(),
+    balanced: z.boolean(),
+  }),
+  checks: z.array(ReconciliationCheck),
+});
+
+export type ReconciliationOutputType = z.input<typeof ReconciliationOutput>;

@@ -13,6 +13,10 @@ export type WithdrawalRequestStatusValue =
 
 export const WITHDRAWAL_PAGE_SIZE_MAX = 100;
 
+// Danh sách đơn của quản trị viên — toàn hệ thống nên tách trần riêng với danh sách của
+// chính nhà phát hành, dù hiện cùng giá trị.
+export const WITHDRAWAL_ADMIN_PAGE_SIZE_MAX = 100;
+
 // 24 giờ thật kể từ lúc tạo đơn gần nhất, không phải sang ngày lịch; đơn đã huỷ vẫn tính.
 // Hằng số chứ không nằm ở SystemSetting là CỐ Ý: mức tối thiểu là chính sách thương mại
 // admin phải đổi được, còn mốc này là luật chống lạm dụng.

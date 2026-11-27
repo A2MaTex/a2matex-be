@@ -52,6 +52,9 @@ export const WALLET_ENTRY_SHAPES = [
 
 export const WALLET_PAGE_SIZE_MAX = 100;
 
+// Sổ cái toàn hệ thống cho quản trị viên.
+export const LEDGER_PAGE_SIZE_MAX = 100;
+
 // Một tổ hợp (loại, chiều, phía tài khoản) có nằm trong bảng trên không.
 export const isValidEntryShape = (input: {
   type: WalletTransactionTypeValue;

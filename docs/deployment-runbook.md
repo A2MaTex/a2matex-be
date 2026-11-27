@@ -1117,6 +1117,151 @@ phải sự cố**. Ở giai đoạn đầu khi hoa hồng còn ít, đây là t
 Xử lý: gọi `POST /api/v1/admin/system-account/issue-credit` để bơm tiền vào tài khoản của
 sàn trước, kèm lý do. Mỗi lần bơm làm `tien_tu_phat_hanh` ở (e) tăng lên, nên cân nhắc.
 
+## B10. Đơn rút tiền cho nhà phát hành (spec 012)
+
+Đường tiền **ra** đầu tiên của hệ thống. Hai migration, không có biến môi trường mới, và dòng
+cấu hình `WITHDRAWAL_MIN_AMOUNT` do chính migration `INSERT` nên không phải seed gì.
+
+**KHÔNG chạy `seed-permissions` cho lần deploy này.** Bốn route mới (`POST /withdrawals`,
+`GET /withdrawals/me`, `GET /withdrawals/:id`, `POST /withdrawals/:id/cancel`) đều gắn
+`@SkipPermissionCheck()` nên chạy được mà không cần bản ghi `Permission` nào. Chạy thừa còn có
+rủi ro: script kết thúc bằng xoá cache role-permission, mà cache đó không có hạn dùng nên đang
+che mọi grant đã mất của CUSTOMER/PUBLISHER — ngày 2026-11-23 chính việc xoá cache này đã làm
+`POST /topups` trả 403 cho toàn bộ khách.
+
+**Hai migration phải chạy theo thứ tự và không gộp được.** File đầu chỉ có
+`ALTER TYPE ... ADD VALUE` cho `WITHDRAWAL` và `WITHDRAWAL_REVERSAL`; file sau dùng chính hai
+giá trị đó trong `WalletTransaction_accountKind_check`. Prisma bọc mỗi file trong một
+transaction và PostgreSQL không cho dùng giá trị enum vừa thêm trong cùng transaction.
+
+**Migration viết lại hai ràng buộc đang có trên `WalletTransaction`** (`accountKind_check` và
+`source_check`), nên Postgres sẽ validate lại toàn bộ dòng cũ. Kiểm trước khi deploy — cả hai
+phải ra **0 dòng**:
+
+```sql
+SELECT count(*) FROM "WalletTransaction" WHERE NOT (
+     (type IN ('TOPUP','EARNING')            AND direction='CREDIT' AND "userId" IS NOT NULL)
+  OR (type = 'PURCHASE'                      AND direction='DEBIT'  AND "userId" IS NOT NULL)
+  OR (type IN ('COMMISSION','ISSUED_CREDIT') AND direction='CREDIT' AND "systemAccount" IS NOT NULL)
+  OR (type = 'ADMIN_GRANT'                   AND direction='DEBIT'  AND "systemAccount" IS NOT NULL)
+  OR (type = 'ADMIN_GRANT'                   AND direction='CREDIT' AND "userId" IS NOT NULL));
+
+SELECT count(*) FROM "WalletTransaction" WHERE NOT (
+     (type='TOPUP' AND "topUpTransactionId" IS NOT NULL AND "orderId" IS NULL)
+  OR (type IN ('PURCHASE','EARNING','COMMISSION') AND "orderId" IS NOT NULL AND "topUpTransactionId" IS NULL)
+  OR (type IN ('ADMIN_GRANT','ISSUED_CREDIT') AND "orderId" IS NULL AND "topUpTransactionId" IS NULL));
+```
+
+**Cửa sổ deploy an toàn**: `migrate` chạy trước khi đổi container (`vps-deploy.sh:65`), nên app
+cũ chạy một lúc với ràng buộc mới. Không sao — Prisma client của app cũ không biết cột
+`withdrawalRequestId` nên không bao giờ ghi nó, và cột để NULL thì mọi nhánh ràng buộc đều cho qua.
+
+**Sau khi deploy xong**, chạy lại sáu phép đối soát ở B9.3 — nay có thêm phép (f), và phép (e)
+đã đổi sang dạng hai túi. Log khởi động phải in `Validated 5 system setting(s)` (trước là 4).
+
+## B11. Quản trị viên duyệt đơn rút tiền và xem sổ cái (spec 013)
+
+**KHÔNG có migration.** Spec 012 đã khai sẵn đủ 5 trạng thái và các cột `bankTransferRef`,
+`rejectionReason`, `processedById`, `processedAt`. Lần deploy này thuần tầng ứng dụng —
+`prisma migrate diff` phải báo `No difference detected` cả trước lẫn sau.
+
+**BẮT BUỘC chạy `seed-permissions`** — ngược hẳn với spec 012:
+
+```bash
+a2c --profile seed run --rm seed-permissions < /dev/null
+```
+
+Bảy route mới (4 duyệt đơn + 3 đọc sổ cái) đều **gác quyền thật**, không dùng
+`@SkipPermissionCheck()`, vì chúng đọc và sửa dữ liệu của người khác nên không có danh tính
+người gọi nào để lọc theo. Không chạy seed thì **quản trị viên cũng nhận 403**.
+
+Thao tác này xoá cache phân quyền (không có hạn dùng) — thứ từng làm lộ sự cố 403 ngày
+2026-11-23. Kiểm trước khi chạy, phải ra **0 dòng**:
+
+```sql
+SELECT r.name, p.method, p.path
+FROM "RolePermission" rp
+JOIN "Role" r ON r.id = rp."roleId"
+JOIN "Permission" p ON p.id = rp."permissionId"
+WHERE rp."deletedAt" IS NOT NULL AND r.name <> 'ADMIN'
+  AND NOT EXISTS (
+    SELECT 1 FROM "RolePermission" rp2 JOIN "Permission" p2 ON p2.id = rp2."permissionId"
+    WHERE rp2."roleId" = rp."roleId" AND rp2."deletedAt" IS NULL AND p2."deletedAt" IS NULL
+      AND p2.path = p.path AND p2.method = p.method);
+```
+
+Kiểm ngày 2026-11-27 ra 6 dòng, chia làm hai nhóm **khác hẳn nhau**:
+
+- **3 dòng là tên route cũ đã biến mất** (`/statics/images`, và `/products/{productId}/lifecycle`
+  viết `{}` thay vì `:`) — bản thân dòng `Permission` cũng đã bị xoá mềm. Vô hại.
+- **3 dòng còn lại trỏ vào route ĐANG SỐNG**: `GET /publishers`,
+  `GET /publishers/:publisherAccountId`, `PATCH /publishers/:publisherAccountId/status` —
+  ba route quản trị trong `publisher.controller.ts`, không có `@SkipPermissionCheck()`.
+  Vai trò `PUBLISHER` từng được cấp rồi bị thu hồi ngày **2026-11-24 06:56**, và **không có
+  bản thay thế nào** (khác với 4 grant `/products`, `/projects` bị thu hồi để thay bằng bản
+  `scope = OWN` — xem ghi chú "quyền trùng path là cặp scope").
+
+Thu hồi 3 quyền đó là **đúng**: một nhà phát hành không được liệt kê, soi chi tiết và **khoá**
+nhà phát hành khác. Việc thu hồi **đã có hiệu lực** — `seed-permissions` chạy gần nhất ngày
+**2026-11-25 08:35:10**, sau mốc thu hồi 11-24, và lần chạy nào cũng xoá sạch cache của **mọi**
+vai trò. Cache hiện tại đã dựng lại không còn 3 grant đó, nên lần seed này **không thu hồi thêm
+gì của ai** — đó là lý do chạy an toàn, không phải vì cả 6 dòng đều là route chết.
+
+> Cách đọc mốc seed gần nhất: `SELECT max("createdAt") FROM "Permission" WHERE scope IS NULL`.
+> **Phải lọc `scope IS NULL`** — seeder chỉ tạo quyền không giới hạn, nên dòng `scope = OWN` là
+> INSERT tay và **không** chứng minh seed đã chạy. Hai dòng `GET /launcher/products` và
+> `GET /products/:productId/package-download` tạo ngày 2026-11-27 đều là `scope = OWN`; đọc
+> nhầm chúng thành dấu vết seed sẽ cho mốc trễ hơn thực tế gần hai ngày.
+
+### Phạm vi thu hồi của seeder, và giới hạn cứu nó
+
+`syncPermissions` xoá mềm `Permission` nào có `method+path` **không còn trong mã nguồn được
+build**, và câu `rolePermission.updateMany` đi kèm **không lọc theo vai trò** — nó thu hồi grant
+của `CUSTOMER`, `PUBLISHER`, tất cả. Nghe thì ảnh hưởng của lần seed do **image đang deploy**
+quyết định chứ không do DB.
+
+Nhưng truy vấn nạp dữ liệu lọc **`scope: null`**:
+
+```ts
+const permissionsInDb = await prisma.permission.findMany({
+  where: { deletedAt: null, scope: null },
+});
+```
+
+Nên **dòng `scope = OWN` nằm ngoài tầm với của seeder hoàn toàn** — không bị xoá, và cũng không
+được tính là "đã có" khi thêm mới. Toàn bộ quyền `OWN` cấp tay cho `CUSTOMER`/`PUBLISHER` miễn
+nhiễm với mọi lần seed, kể cả seed từ nhánh thiếu commit.
+
+Đo trên prod 2026-11-27 từ nhánh `feat/withdrawal-admin` (lúc đó chậm 2 commit so với `staging`,
+thiếu PR #55 `feat/launcher-products`): **0 `Permission` bị xoá, 0 grant bị thu hồi**, kể cả
+`GET /api/v1/launcher/products` vì dòng đó là `scope = OWN`.
+
+Vẫn nên merge `staging` trước khi build — nhưng vì lý do thông thường (không deploy nhánh chậm
+hơn `staging`), không phải vì an toàn phân quyền.
+
+**Cách kiểm đúng** (chạy trước mỗi lần seed): quét route từ chính nhánh sắp build, đối chiếu với
+`Permission WHERE "deletedAt" IS NULL AND scope IS NULL`; dòng nào không khớp `method+path` là
+sắp bị xoá, kèm theo mọi grant của nó.
+
+**Lần seed này cũng cấp luôn 4 route của spec 012** (`POST /withdrawals`, `GET /withdrawals/me`,
+`GET /withdrawals/:id`, `POST /withdrawals/:id/cancel`) — kiểm 2026-11-27: bảng `Permission` chưa
+có dòng nào khớp `%withdrawal%`, đúng như dự kiến vì spec 012 cố ý không chạy seed. Bốn route đó dùng `@SkipPermissionCheck()` nên vẫn chạy như cũ với nhà phát
+hành; bản ghi quyền chỉ để đúng Nguyên tắc II.
+
+**Sau khi deploy**:
+
+1. Log khởi động phải có 7 dòng `Mapped {/api/v1/admin/withdrawals…}` và
+   `Mapped {/api/v1/admin/wallet-transactions…}`
+2. Gọi `GET /api/v1/admin/wallet-transactions/reconciliation` bằng tài khoản quản trị viên —
+   đây là cách nhanh nhất thay cho việc chạy tay sáu truy vấn ở B9.3, và số liệu phải **khớp
+   tuyệt đối** với chúng
+3. Gọi bằng tài khoản nhà phát hành để xác nhận trả **403**
+
+**Lưu ý nghiệp vụ cho người bấm duyệt**: duyệt chi là công ty bỏ tiền thật ra. Trước khi bấm,
+mở `GET /api/v1/admin/users/:userId/wallet` xem tiền của nhà phát hành đó từ đâu — tính đến
+2026-11-27, tiền mặt thật vào hệ thống là **36.000đ** trong khi tiền tự phát hành để thử nghiệm
+là **15.994.000đ**, nên phần lớn số dư trong ví nhà phát hành chưa từng có tiền thật đi vào.
+
 ## C. Sự cố thường gặp
 
 | Triệu chứng | Nguyên nhân thường gặp | Xử lý |

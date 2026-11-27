@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { WithdrawalRequestStatusSchema } from '../../entities/withdrawal-request.model.ts';
-import { WITHDRAWAL_PAGE_SIZE_MAX } from '../../shared/constants/withdrawal.constant.ts';
+import {
+  WITHDRAWAL_ADMIN_PAGE_SIZE_MAX,
+  WITHDRAWAL_PAGE_SIZE_MAX,
+  WithdrawalRequestStatus,
+} from '../../shared/constants/withdrawal.constant.ts';
 import { zBigIntAsString, zBigIntString, zDate } from '../../shared/utils/zod.ts';
 
 const Pagination = z.object({
@@ -80,3 +84,77 @@ export const sameClaim = (a: WithdrawalClaim, b: WithdrawalClaim): boolean =>
   a.bankAccountNumber === b.bankAccountNumber &&
   a.bankName === b.bankName &&
   a.bankAccountHolder === b.bankAccountHolder;
+
+// ---- Quản trị viên (spec 013) ----
+
+const StatusEnum = z.enum([
+  WithdrawalRequestStatus.PENDING,
+  WithdrawalRequestStatus.APPROVED,
+  WithdrawalRequestStatus.REJECTED,
+  WithdrawalRequestStatus.PAID,
+  WithdrawalRequestStatus.CANCELLED,
+]);
+
+// Bỏ trống `status` nghĩa là KHÔNG lọc — trả mọi trạng thái kể cả đã huỷ và bị từ chối.
+// Màn hình hàng đợi tự lọc lấy thứ nó cần; API không tự thu hẹp dữ liệu.
+export const GetAdminWithdrawalsInput = z
+  .object({
+    page: z.coerce.number().int().positive().safe().default(1),
+    limit: z.coerce
+      .number()
+      .int()
+      .positive()
+      .safe()
+      .max(WITHDRAWAL_ADMIN_PAGE_SIZE_MAX)
+      .default(10),
+    status: z
+      .union([StatusEnum, z.array(StatusEnum)])
+      .optional()
+      .transform((v) => (v === undefined ? undefined : Array.isArray(v) ? v : [v])),
+  })
+  .strict();
+
+export type GetAdminWithdrawalsInputType = z.infer<typeof GetAdminWithdrawalsInput>;
+
+// Quản trị viên phải nhận ra mình đang chi tiền cho AI mà không cần tra cứu thêm, nên khối
+// này mang tên và email chứ không chỉ một mã định danh.
+export const AdminWithdrawalOutput = WithdrawalOutput.extend({
+  publisher: z.object({
+    userId: z.uuid(),
+    fullName: z.string(),
+    email: z.string().nullable(),
+  }),
+  processedById: z.uuid().nullable(),
+});
+
+export type AdminWithdrawalOutputType = z.input<typeof AdminWithdrawalOutput>;
+
+export const GetAdminWithdrawalsOutput = z.object({
+  items: z.array(AdminWithdrawalOutput),
+  totalItems: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+  totalPages: z.number(),
+});
+
+export type GetAdminWithdrawalsOutputType = z.input<typeof GetAdminWithdrawalsOutput>;
+
+// `.trim()` chạy TRƯỚC `.min(1)`: chuỗi toàn khoảng trắng phải bị từ chối như chuỗi rỗng.
+//
+// Thông điệp là KHOÁ LỖI, không để Zod trả "Too small: expected string…": hợp đồng hứa
+// Error.WithdrawalRejectionReasonRequired và client dịch theo khoá đó.
+export const RejectWithdrawalInput = z
+  .object({
+    reason: z.string().trim().min(1, 'Error.WithdrawalRejectionReasonRequired').max(1000),
+  })
+  .strict();
+
+export type RejectWithdrawalInputType = z.infer<typeof RejectWithdrawalInput>;
+
+export const MarkPaidWithdrawalInput = z
+  .object({
+    bankTransferRef: z.string().trim().min(1, 'Error.WithdrawalTransferRefRequired').max(255),
+  })
+  .strict();
+
+export type MarkPaidWithdrawalInputType = z.infer<typeof MarkPaidWithdrawalInput>;

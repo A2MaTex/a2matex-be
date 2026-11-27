@@ -1,5 +1,11 @@
 import { createZodDto } from 'nestjs-zod';
 import {
+  GetAdminLedgerInput,
+  GetUserWalletInput,
+  GetAdminLedgerOutput,
+  ReconciliationOutput,
+  UserIdParam,
+  UserWalletOutput,
   GetMyWalletTransactionsInput,
   GetMyWalletTransactionsOutput,
   GrantToUserInput,
@@ -19,3 +25,10 @@ export class GrantToUserOutputDTO extends createZodDto(GrantToUserOutput) {}
 
 export class IssueCreditInputDTO extends createZodDto(IssueCreditInput) {}
 export class IssueCreditOutputDTO extends createZodDto(IssueCreditOutput) {}
+
+export class GetAdminLedgerInputDTO extends createZodDto(GetAdminLedgerInput) {}
+export class GetAdminLedgerOutputDTO extends createZodDto(GetAdminLedgerOutput) {}
+export class UserIdParamDTO extends createZodDto(UserIdParam) {}
+export class UserWalletOutputDTO extends createZodDto(UserWalletOutput) {}
+export class ReconciliationOutputDTO extends createZodDto(ReconciliationOutput) {}
+export class GetUserWalletInputDTO extends createZodDto(GetUserWalletInput) {}

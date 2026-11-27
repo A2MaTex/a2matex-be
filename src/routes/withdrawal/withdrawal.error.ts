@@ -41,3 +41,23 @@ export const WithdrawalNotPendingException = new ConflictException('Error.Withdr
 export const WithdrawalMinAmountUnavailableException = new ServiceUnavailableException(
   'Error.WithdrawalMinAmountUnavailable',
 );
+
+// ---- Quản trị viên (spec 013) ----
+
+// Ba thao tác quản trị có ba điều kiện trạng thái khác nhau, nên mỗi cái một lỗi riêng:
+// "sai trạng thái" trơ trụi không nói được người dùng phải làm gì tiếp.
+export const WithdrawalNotApprovedException = new ConflictException(
+  'Error.WithdrawalNotApproved',
+);
+
+export const WithdrawalCannotRejectException = new ConflictException(
+  'Error.WithdrawalCannotReject',
+);
+
+export const WithdrawalRejectionReasonRequiredException = new UnprocessableEntityException(
+  'Error.WithdrawalRejectionReasonRequired',
+);
+
+export const WithdrawalTransferRefRequiredException = new UnprocessableEntityException(
+  'Error.WithdrawalTransferRefRequired',
+);

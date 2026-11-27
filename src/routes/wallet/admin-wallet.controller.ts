@@ -1,20 +1,52 @@
-import { Body, Controller, Inject, Post } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
 import { ActiveUser } from '../../shared/decorators/active-user.decorator.ts';
 import {
+  GetAdminLedgerInputDTO,
+  GetAdminLedgerOutputDTO,
+  GetUserWalletInputDTO,
   GrantToUserInputDTO,
+  ReconciliationOutputDTO,
+  UserIdParamDTO,
+  UserWalletOutputDTO,
   GrantToUserOutputDTO,
   IssueCreditInputDTO,
   IssueCreditOutputDTO,
 } from './wallet.dto.ts';
+import { AdminWalletService } from './admin-wallet.service.ts';
 import { WalletService } from './wallet.service.ts';
 
 @ApiTags('Wallet Admin')
 @ApiBearerAuth('access-token')
 @Controller('admin')
 export class AdminWalletController {
-  constructor(@Inject(WalletService) private readonly walletService: WalletService) {}
+  constructor(
+    @Inject(WalletService) private readonly walletService: WalletService,
+    @Inject(AdminWalletService) private readonly adminWalletService: AdminWalletService,
+  ) {}
+
+  // ---- Đọc (spec 013) ----
+  //
+  // Khai route tĩnh TRƯỚC route có tham số đường dẫn: Nest khớp theo thứ tự khai báo, nên
+  // đặt sau thì "reconciliation" có thể bị đọc thành một tham số.
+  @Get('wallet-transactions/reconciliation')
+  @ZodResponse({ type: ReconciliationOutputDTO })
+  getReconciliation() {
+    return this.adminWalletService.getReconciliation();
+  }
+
+  @Get('wallet-transactions')
+  @ZodResponse({ type: GetAdminLedgerOutputDTO })
+  listLedger(@Query() query: GetAdminLedgerInputDTO) {
+    return this.adminWalletService.listLedger(query);
+  }
+
+  @Get('users/:userId/wallet')
+  @ZodResponse({ type: UserWalletOutputDTO })
+  getUserWallet(@Param() params: UserIdParamDTO, @Query() query: GetUserWalletInputDTO) {
+    return this.adminWalletService.getUserWallet({ userId: params.userId, query });
+  }
 
   // The money comes out of the Marketplace account, so an empty account rejects the grant
   // with 422 rather than creating value out of nothing.
