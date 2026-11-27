@@ -38,6 +38,7 @@ import CustomZodValidationPipe from './shared/pipes/custom-zod-validation.pipe.j
 import { SharedModule } from './shared/shared.module.js';
 import { ConfigModule } from '@nestjs/config';
 import { ProductReleaseModule } from './routes/product-release/product-release.module.ts';
+import { LauncherModule } from './routes/launcher/launcher.module.ts';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { ProductReleaseModule } from './routes/product-release/product-release.m
     UserModule,
     SharedModule,
     ProductReleaseModule,
+    LauncherModule,
     ConfigModule.forRoot({
       isGlobal: true,
     }),
