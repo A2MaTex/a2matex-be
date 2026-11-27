@@ -1006,7 +1006,7 @@ tài khoản nó in ra, quay lại B9.1, rồi chạy lại. **Không sửa migr
 
 ### B9.3 Năm phép đối soát
 
-Bốn phép đầu phải trả về **0 dòng**. Phép (e) là bảng theo dõi, không phải phép kiểm.
+Năm phép (a)(b)(c)(d)(f) phải trả về **0 dòng**. Phép (e) là bảng theo dõi, không phải phép kiểm.
 
 ```sql
 -- (a) Ví người dùng khớp lịch sử của nó.
@@ -1063,16 +1063,44 @@ SELECT
   (SELECT COALESCE(SUM(balance), 0) FROM "Profile"
     WHERE "deletedAt" IS NULL)                            AS no_voi_nguoi_dung,
   (SELECT balance FROM "SystemAccount"
-    WHERE type = 'PLATFORM_REVENUE')                      AS so_du_vi_san;
+    WHERE type = 'PLATFORM_REVENUE')                      AS so_du_vi_san,
+  -- Tien da roi HE THONG that su: chi don da duoc danh dau da chi.
+  (SELECT COALESCE(SUM(amount), 0) FROM "WithdrawalRequest"
+    WHERE status = 'PAID')                                AS da_chi_that,
+  -- Tien da roi VI nha phat hanh nhung VAN NAM trong tai khoan ngan hang cua cong ty.
+  (SELECT COALESCE(SUM(amount), 0) FROM "WithdrawalRequest"
+    WHERE status IN ('PENDING','APPROVED'))               AS dang_cho_chi;
+
+-- (f) Don chua hoan khop voi so cai. Phai tra ve 0 dong.
+SELECT tu_don, tu_so_cai FROM (
+  SELECT
+    (SELECT COALESCE(SUM(amount),0) FROM "WithdrawalRequest"
+      WHERE status NOT IN ('CANCELLED','REJECTED'))                  AS tu_don,
+    (SELECT COALESCE(SUM(amount),0) FROM "WalletTransaction"
+      WHERE type = 'WITHDRAWAL')
+    - (SELECT COALESCE(SUM(amount),0) FROM "WalletTransaction"
+      WHERE type = 'WITHDRAWAL_REVERSAL')                            AS tu_so_cai
+) x WHERE tu_don <> tu_so_cai;
 ```
 
 Đẳng thức của (e) phải đúng:
 
 ```text
-tien_mat_vao + tien_tu_phat_hanh = no_voi_nguoi_dung + so_du_vi_san
+tien_mat_vao + tien_tu_phat_hanh − da_chi_that
+    = no_voi_nguoi_dung + so_du_vi_san + dang_cho_chi
 ```
 
-**Chỉ đúng khi chưa có đường rút tiền.** Phase 4 thêm `− tien_da_chi_rut` vào vế trái.
+**HAI túi, không phải một số hạng.** Bản nháp cũ của tài liệu này ghi `− tien_da_chi_rut`
+vào vế trái, coi lúc TẠO đơn là lúc tiền rời hệ thống. Đó là **sai**: trừ ví nhà phát hành
+ngay lúc tạo đơn làm `no_voi_nguoi_dung` giảm xuống trong khi công ty **vẫn đang giữ nguyên
+số tiền mặt đó** cho tới lúc chuyển khoản thật. Dùng bản một số hạng thì sổ sách báo thiếu
+đúng bằng tổng các đơn chưa chi — một đơn nằm chờ một tuần là sổ sai suốt một tuần.
+
+Đẳng thức cân ở cả ba bước chuyển: **tạo đơn** (`no_voi_nguoi_dung` giảm X, `dang_cho_chi`
+tăng X — hai vế không đổi); **huỷ đơn** (ngược lại); **chi tiền** (`dang_cho_chi` giảm X,
+`da_chi_that` tăng X — cả hai vế cùng giảm X).
+
+Khi chưa có đơn rút tiền nào, cả hai túi bằng 0 và đẳng thức quy về đúng dạng cũ.
 
 `tien_tu_phat_hanh` là tổng các lần quản trị viên bơm tiền vào tài khoản của sàn — tiền
 không có đồng nào vào ngân hàng đối ứng. Con số này phải nhỏ và phải luôn nhìn thấy; nó

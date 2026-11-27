@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zBigIntString } from '../../shared/utils/zod.ts';
 
 // Shape the Admin Portal uses to build an input without hardcoding the key list. Kept
 // deliberately small: a full JSON Schema generated from Zod would pull in a dependency
@@ -53,6 +54,23 @@ export const settingRegistry = {
     schema: z.object({ value: z.string().max(255) }),
     description: 'Ten chu tai khoan nhan tien nap',
     valueSchema: { type: 'object', fields: [{ name: 'value', type: 'string', maxLength: 255 }] },
+  },
+  // Tien de chuoi chu khong phai so: tien trong he thong la BigInt, de o day thanh so thuc
+  // la tao ra dung mot cho tien song duoi dang khac. Regex chan tran BIGINT chu khong chi
+  // chan "toan chu so" — ^\\d{1,19}$ tran trui cho qua 9999999999999999999 vuot tran, roi
+  // PostgreSQL nem 22003 va nguoi dung nhan 500 thay vi 422.
+  WITHDRAWAL_MIN_AMOUNT: {
+    schema: z.object({
+      // Dung chung zBigIntString voi duong tao don rut tien: hai duong ghi phai dong y
+      // voi nhau the nao la mot so tien hop le, neu khong admin dat duoc mot muc toi
+      // thieu ma publisher khong bao gio rut duoc.
+      amount: zBigIntString(),
+    }),
+    description: 'Muc rut toi thieu cho mot don rut tien cua nha phat hanh, don vi dong',
+    valueSchema: {
+      type: 'object',
+      fields: [{ name: 'amount', type: 'string', maxLength: 19 }],
+    },
   },
 } as const satisfies Record<string, SettingDefinition>;
 

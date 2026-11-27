@@ -10,6 +10,8 @@ export const WalletTransactionTypeSchema = z.enum([
   WalletTransactionType.COMMISSION,
   WalletTransactionType.ADMIN_GRANT,
   WalletTransactionType.ISSUED_CREDIT,
+  WalletTransactionType.WITHDRAWAL,
+  WalletTransactionType.WITHDRAWAL_REVERSAL,
 ]);
 
 export const WalletDirectionSchema = z.enum([WalletDirection.CREDIT, WalletDirection.DEBIT]);
