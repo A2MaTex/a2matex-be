@@ -1,3 +1,5 @@
+import { CleanExecutionAuthorizationRequestsJob } from './jobs/execution-authorization.job.ts';
+import { ExecutionAuthorizationRepo } from '../routes/execution-authorization/execution-authorization.repo.ts';
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TopUpCoreModule } from '../routes/topup/topup-core.module.ts';
@@ -15,11 +17,17 @@ import { CleanExpiredUploadSessionsJob } from './jobs/static.job.ts';
     CronRunner,
     TopUpReconcileJob,
     CleanExpiredUploadSessionsJob,
+    ExecutionAuthorizationRepo,
+    CleanExecutionAuthorizationRequestsJob,
     // The single job list: a new job goes into `providers` above and `inject` below.
     {
       provide: CRON_JOBS,
       useFactory: (...jobs: CronJobDefinition[]) => jobs,
-      inject: [TopUpReconcileJob, CleanExpiredUploadSessionsJob],
+      inject: [
+        TopUpReconcileJob,
+        CleanExpiredUploadSessionsJob,
+        CleanExecutionAuthorizationRequestsJob,
+      ],
     },
   ],
 })

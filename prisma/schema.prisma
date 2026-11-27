@@ -10,61 +10,63 @@ datasource db {
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model User {
-  id                                                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  username                                            String                @db.VarChar(255)
+  id                                                  String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username                                            String                          @db.VarChar(255)
   email                                               String
-  password                                            String?               @db.VarChar(255)
-  status                                              UserStatus            @default(INACTIVE)
-  createdAt                                           DateTime              @default(now()) @db.Timestamptz(6)
-  updatedAt                                           DateTime?             @db.Timestamptz(6)
-  deletedAt                                           DateTime?             @db.Timestamptz(6)
-  auditHistory                                        Json                  @default("[]")
+  password                                            String?                         @db.VarChar(255)
+  status                                              UserStatus                      @default(INACTIVE)
+  createdAt                                           DateTime                        @default(now()) @db.Timestamptz(6)
+  updatedAt                                           DateTime?                       @db.Timestamptz(6)
+  deletedAt                                           DateTime?                       @db.Timestamptz(6)
+  auditHistory                                        Json                            @default("[]")
   device                                              Device[]
-  entitlements                                        Entitlement[]         @relation("EntitlementCustomer")
-  grantedEntitlements                                 Entitlement[]         @relation("EntitlementGrantedBy")
-  revokedEntitlements                                 Entitlement[]         @relation("EntitlementRevokedBy")
-  orders                                              Order[]               @relation("OrderCustomer")
-  publisherOrders                                     Order[]               @relation("OrderPublisher")
-  createdPermissions                                  Permission[]          @relation("PermissionCreatedBy")
-  deletedPermissions                                  Permission[]          @relation("PermissionDeletedBy")
-  updatedPermissions                                  Permission[]          @relation("PermissionUpdatedBy")
-  Product_Product_createdByIdToUser                   Product[]             @relation("Product_createdByIdToUser")
-  Product_Product_deletedByIdToUser                   Product[]             @relation("Product_deletedByIdToUser")
-  Product_Product_suspendedByIdToUser                 Product[]             @relation("Product_suspendedByIdToUser")
-  Product_Product_updatedByIdToUser                   Product[]             @relation("Product_updatedByIdToUser")
-  createdProductOffers                                ProductOffer[]        @relation("ProductOfferCreatedBy")
-  deletedProductOffers                                ProductOffer[]        @relation("ProductOfferDeletedBy")
-  updatedProductOffers                                ProductOffer[]        @relation("ProductOfferUpdatedBy")
-  createdProfiles                                     Profile[]             @relation("ProfileCreatedBy")
-  deletedProfiles                                     Profile[]             @relation("ProfileDeletedBy")
-  updatedProfiles                                     Profile[]             @relation("ProfileUpdatedBy")
-  profile                                             Profile?              @relation("ProfileUser")
-  Project_Project_createdByIdToUser                   Project[]             @relation("Project_createdByIdToUser")
-  Project_Project_deletedByIdToUser                   Project[]             @relation("Project_deletedByIdToUser")
-  Project_Project_updatedByIdToUser                   Project[]             @relation("Project_updatedByIdToUser")
+  entitlements                                        Entitlement[]                   @relation("EntitlementCustomer")
+  grantedEntitlements                                 Entitlement[]                   @relation("EntitlementGrantedBy")
+  revokedEntitlements                                 Entitlement[]                   @relation("EntitlementRevokedBy")
+  ExecutionAuthorizationRequest                       ExecutionAuthorizationRequest[]
+  ExecutionLease                                      ExecutionLease[]
+  orders                                              Order[]                         @relation("OrderCustomer")
+  publisherOrders                                     Order[]                         @relation("OrderPublisher")
+  createdPermissions                                  Permission[]                    @relation("PermissionCreatedBy")
+  deletedPermissions                                  Permission[]                    @relation("PermissionDeletedBy")
+  updatedPermissions                                  Permission[]                    @relation("PermissionUpdatedBy")
+  Product_Product_createdByIdToUser                   Product[]                       @relation("Product_createdByIdToUser")
+  Product_Product_deletedByIdToUser                   Product[]                       @relation("Product_deletedByIdToUser")
+  Product_Product_suspendedByIdToUser                 Product[]                       @relation("Product_suspendedByIdToUser")
+  Product_Product_updatedByIdToUser                   Product[]                       @relation("Product_updatedByIdToUser")
+  createdProductOffers                                ProductOffer[]                  @relation("ProductOfferCreatedBy")
+  deletedProductOffers                                ProductOffer[]                  @relation("ProductOfferDeletedBy")
+  updatedProductOffers                                ProductOffer[]                  @relation("ProductOfferUpdatedBy")
+  createdProfiles                                     Profile[]                       @relation("ProfileCreatedBy")
+  deletedProfiles                                     Profile[]                       @relation("ProfileDeletedBy")
+  updatedProfiles                                     Profile[]                       @relation("ProfileUpdatedBy")
+  profile                                             Profile?                        @relation("ProfileUser")
+  Project_Project_createdByIdToUser                   Project[]                       @relation("Project_createdByIdToUser")
+  Project_Project_deletedByIdToUser                   Project[]                       @relation("Project_deletedByIdToUser")
+  Project_Project_updatedByIdToUser                   Project[]                       @relation("Project_updatedByIdToUser")
   ProjectDraft                                        ProjectDraft[]
-  blockedPublisherAccounts                            PublisherAccount[]    @relation("PublisherAccount_blockedByIdToUser")
-  publisherAccount                                    PublisherAccount?     @relation("PublisherAccount_userIdToUser")
+  blockedPublisherAccounts                            PublisherAccount[]              @relation("PublisherAccount_blockedByIdToUser")
+  publisherAccount                                    PublisherAccount?               @relation("PublisherAccount_userIdToUser")
   refreshTokens                                       RefreshToken[]
-  createdRoles                                        Role[]                @relation("RoleCreatedBy")
-  deletedRoles                                        Role[]                @relation("RoleDeletedBy")
-  updatedRoles                                        Role[]                @relation("RoleUpdatedBy")
-  uploadSessionsCreatedBy                             StaticUploadSession[] @relation("UploadSessionCreatedBy")
-  uploadSessionsDeletedBy                             StaticUploadSession[] @relation("UploadSessionDeletedBy")
-  uploadSessionsUpdatedBy                             StaticUploadSession[] @relation("UploadSessionUpdatedBy")
-  Submission_Submission_createdByIdToUser             Submission[]          @relation("Submission_createdByIdToUser")
-  Submission_Submission_deletedByIdToUser             Submission[]          @relation("Submission_deletedByIdToUser")
-  Submission_Submission_updatedByIdToUser             Submission[]          @relation("Submission_updatedByIdToUser")
-  updatedSystemSettings                               SystemSetting[]       @relation("SystemSettingUpdatedBy")
-  createdTerms                                        Term[]                @relation("Term_createdByIdToUser")
-  updatedTerms                                        Term[]                @relation("Term_updatedByIdToUser")
+  createdRoles                                        Role[]                          @relation("RoleCreatedBy")
+  deletedRoles                                        Role[]                          @relation("RoleDeletedBy")
+  updatedRoles                                        Role[]                          @relation("RoleUpdatedBy")
+  uploadSessionsCreatedBy                             StaticUploadSession[]           @relation("UploadSessionCreatedBy")
+  uploadSessionsDeletedBy                             StaticUploadSession[]           @relation("UploadSessionDeletedBy")
+  uploadSessionsUpdatedBy                             StaticUploadSession[]           @relation("UploadSessionUpdatedBy")
+  Submission_Submission_createdByIdToUser             Submission[]                    @relation("Submission_createdByIdToUser")
+  Submission_Submission_deletedByIdToUser             Submission[]                    @relation("Submission_deletedByIdToUser")
+  Submission_Submission_updatedByIdToUser             Submission[]                    @relation("Submission_updatedByIdToUser")
+  updatedSystemSettings                               SystemSetting[]                 @relation("SystemSettingUpdatedBy")
+  createdTerms                                        Term[]                          @relation("Term_createdByIdToUser")
+  updatedTerms                                        Term[]                          @relation("Term_updatedByIdToUser")
   identities                                          UserIdentity[]
   userRoles                                           UserRole[]
-  recordedWalletTransactions                          WalletTransaction[]   @relation("WalletTransactionCreatedBy")
-  walletTransactions                                  WalletTransaction[]   @relation("WalletTransactionAccount")
-  WorkflowRevision_WorkflowRevision_createdByIdToUser WorkflowRevision[]    @relation("WorkflowRevision_createdByIdToUser")
-  WorkflowRevision_WorkflowRevision_deletedByIdToUser WorkflowRevision[]    @relation("WorkflowRevision_deletedByIdToUser")
-  WorkflowRevision_WorkflowRevision_updatedByIdToUser WorkflowRevision[]    @relation("WorkflowRevision_updatedByIdToUser")
+  recordedWalletTransactions                          WalletTransaction[]             @relation("WalletTransactionCreatedBy")
+  walletTransactions                                  WalletTransaction[]             @relation("WalletTransactionAccount")
+  WorkflowRevision_WorkflowRevision_createdByIdToUser WorkflowRevision[]              @relation("WorkflowRevision_createdByIdToUser")
+  WorkflowRevision_WorkflowRevision_deletedByIdToUser WorkflowRevision[]              @relation("WorkflowRevision_deletedByIdToUser")
+  WorkflowRevision_WorkflowRevision_updatedByIdToUser WorkflowRevision[]              @relation("WorkflowRevision_updatedByIdToUser")
 }
 
 model Profile {
@@ -510,6 +512,7 @@ model Product {
   deletedById                        String?          @db.Uuid
   offerChangeTimestamps              DateTime[]       @default([]) @db.Timestamptz(6)
   Entitlement                        Entitlement[]
+  ExecutionLease                     ExecutionLease[]
   Order                              Order[]
   User_Product_createdByIdToUser     User             @relation("Product_createdByIdToUser", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   currentRelease                     ProductRelease?  @relation("CurrentProductRelease", fields: [currentReleaseId], references: [id])
@@ -626,6 +629,7 @@ model ProductRelease {
   updatedAt          DateTime?            @db.Timestamptz(6)
   createdById        String               @db.Uuid
   updatedById        String?              @db.Uuid
+  ExecutionLease     ExecutionLease[]
   currentForProducts Product[]            @relation("CurrentProductRelease")
   product            Product              @relation("ProductReleases", fields: [productId], references: [id])
   submission         Submission           @relation(fields: [submissionId], references: [id])
@@ -687,6 +691,7 @@ model Entitlement {
   latestProductOffer   ProductOffer?          @relation(fields: [latestProductOfferId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   Product              Product                @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   revokedBy            User?                  @relation("EntitlementRevokedBy", fields: [revokedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ExecutionLease       ExecutionLease[]
 
   @@unique([customerId, productId])
   @@index([productId])
@@ -771,6 +776,56 @@ model WalletTransaction {
   @@unique([transferId, direction], map: "WalletTransaction_transfer_leg_key", where: raw("(\"transferId\" IS NOT NULL)"))
   @@index([userId, createdAt(sort: Desc)], where: raw("(\"userId\" IS NOT NULL)"))
   @@index([systemAccount, createdAt(sort: Desc)], where: raw("(\"systemAccount\" IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model ExecutionAuthorizationRequest {
+  id                 String                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String                             @db.Uuid
+  requestId          String                             @db.Uuid
+  operation          ExecutionAuthorizationOperation
+  requestFingerprint String                             @db.VarChar(64)
+  state              ExecutionAuthorizationRequestState @default(RESERVED)
+  ownerToken         String?                            @db.Uuid
+  reservedUntil      DateTime?                          @db.Timestamptz(6)
+  leaseFamilyId      String?                            @db.Uuid
+  leaseId            String?                            @db.Uuid
+  retainUntil        DateTime                           @db.Timestamptz(6)
+  createdAt          DateTime                           @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime?                          @db.Timestamptz(6)
+  deletedAt          DateTime?                          @db.Timestamptz(6)
+  ExecutionLease     ExecutionLease?                    @relation(fields: [leaseFamilyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User               User                               @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([userId, requestId], map: "ExecutionAuthorizationRequest_user_request_key")
+  @@index([retainUntil])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model ExecutionLease {
+  id                            String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  executionId                   String                          @unique @db.Uuid
+  userId                        String                          @db.Uuid
+  productId                     String                          @db.Uuid
+  entitlementId                 String                          @db.Uuid
+  productReleaseId              String                          @db.Uuid
+  packageHash                   String                          @db.VarChar(64)
+  runtimeSessionId              String                          @db.Uuid
+  runtimeKeyThumbprint          String                          @db.VarChar(64)
+  currentLeaseId                String                          @unique @db.Uuid
+  sequence                      Int                             @default(1)
+  signingKeyId                  String                          @db.VarChar(64)
+  issuedAt                      DateTime                        @db.Timestamptz(6)
+  refreshAfter                  DateTime                        @db.Timestamptz(6)
+  expiresAt                     DateTime                        @db.Timestamptz(6)
+  createdAt                     DateTime                        @default(now()) @db.Timestamptz(6)
+  updatedAt                     DateTime?                       @db.Timestamptz(6)
+  deletedAt                     DateTime?                       @db.Timestamptz(6)
+  ExecutionAuthorizationRequest ExecutionAuthorizationRequest[]
+  Entitlement                   Entitlement                     @relation(fields: [entitlementId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  Product                       Product                         @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ProductRelease                ProductRelease                  @relation(fields: [productReleaseId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  User                          User                            @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 enum ProductReleaseStatus {
@@ -926,4 +981,15 @@ enum WalletTransactionType {
 enum WalletDirection {
   CREDIT
   DEBIT
+}
+
+enum ExecutionAuthorizationOperation {
+  START
+  RENEW
+  REAUTHORIZE
+}
+
+enum ExecutionAuthorizationRequestState {
+  RESERVED
+  COMMITTED
 }

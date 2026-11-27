@@ -13,8 +13,6 @@ import type { ProductStatusType } from '../../shared/constants/product.constant.
 import { PrismaService } from '../../shared/services/prisma.service.ts';
 import type { EntitlementAuditEntryType } from './entitlement.model.ts';
 
-
-
 export type LockedEntitlement = {
   id: string;
   customerId: string;
@@ -124,8 +122,14 @@ export class EntitlementRepo {
     return fromEpochMs(rows[0]!.nowMs);
   }
 
-  // ---- Locks, in the shared order Product -> ProductOffer -> Profile -> Entitlement ----
+  async getAuthorizationNow(): Promise<Date> {
+    const rows = await this.prisma.$queryRaw<{ now: Date | string }[]>`
+      SELECT clock_timestamp() AS now
+    `;
+    return toDate(rows[0]!.now);
+  }
 
+  // ---- Locks, in the shared order Product -> ProductOffer -> Profile -> Entitlement ----
 
   // Serializes every entitlement change of one customer, including the very first one
   // when there is no Entitlement row to lock yet.

@@ -3,6 +3,12 @@ import fs from 'fs';
 import path from 'path';
 import { config } from 'dotenv';
 import { DEFAULT_STATIC_UPLOAD_MAX_SIZE_MB } from './constants/storage.constant.ts';
+import {
+  EXECUTION_LEASE_DURATION_SECONDS,
+  EXECUTION_LEASE_RENEWAL_LEAD_SECONDS,
+  EXECUTION_LEASE_MIN_SECONDS,
+  EXECUTION_LEASE_MAX_SECONDS,
+} from './constants/execution-authorization.constant.ts';
 
 // A .env file is a convenience for local development. In containers the values
 // arrive as real environment variables, so a missing file is not an error.
@@ -105,6 +111,21 @@ const configSchema = z
     CRON_MULTIPART_CLEAN_TIME: z.string().default('0 0 0 * * *'),
     UPLOAD_SESSION_TTL: z.coerce.number().int().positive().default(1),
     MASTER_KEY: z.string().optional().transform(emptyToUndefined),
+    EXECUTION_AUTHORIZATION_ENABLED: booleanString,
+    EXECUTION_LEASE_SIGNING_KEY_ID: z.string().optional().transform(emptyToUndefined),
+    EXECUTION_LEASE_SIGNING_KEYS: z.string().optional().transform(emptyToUndefined),
+    EXECUTION_LEASE_DURATION_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(EXECUTION_LEASE_MIN_SECONDS)
+      .max(EXECUTION_LEASE_MAX_SECONDS)
+      .default(EXECUTION_LEASE_DURATION_SECONDS),
+    EXECUTION_LEASE_RENEWAL_LEAD_SECONDS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(EXECUTION_LEASE_RENEWAL_LEAD_SECONDS),
+    CRON_EXECUTION_AUTHORIZATION_CLEANUP: z.string().optional().transform(emptyToUndefined),
     // Social login. Each provider is optional so an unconfigured environment still boots;
     // a half-configured one does not (see the superRefine below).
     GOOGLE_CLIENT_ID: z.string().optional().transform(emptyToUndefined),
@@ -126,6 +147,26 @@ const configSchema = z
     OAUTH_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   })
   .superRefine((cfg, ctx) => {
+    if (cfg.EXECUTION_AUTHORIZATION_ENABLED) {
+      for (const key of [
+        'EXECUTION_LEASE_SIGNING_KEY_ID',
+        'EXECUTION_LEASE_SIGNING_KEYS',
+      ] as const) {
+        if (!cfg[key])
+          ctx.addIssue({
+            code: 'custom',
+            path: [key],
+            message: 'Required when execution authorization is enabled',
+          });
+      }
+      if (cfg.EXECUTION_LEASE_RENEWAL_LEAD_SECONDS >= cfg.EXECUTION_LEASE_DURATION_SECONDS) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['EXECUTION_LEASE_RENEWAL_LEAD_SECONDS'],
+          message: 'Must be less than execution lease duration',
+        });
+      }
+    }
     const hasAccessKey = cfg.OBJECT_STORAGE_ACCESS_KEY_ID !== undefined;
     const hasSecretKey = cfg.OBJECT_STORAGE_SECRET_ACCESS_KEY !== undefined;
     if (hasAccessKey !== hasSecretKey) {
@@ -162,7 +203,8 @@ const configSchema = z
       ctx.addIssue({
         code: 'custom',
         path: ['OAUTH_REDIRECT_URI_ALLOWLIST'],
-        message: 'OAUTH_REDIRECT_URI_ALLOWLIST is required when a social login provider is configured',
+        message:
+          'OAUTH_REDIRECT_URI_ALLOWLIST is required when a social login provider is configured',
       });
     }
 

@@ -45,7 +45,11 @@ import type {
   UsageCheck,
 } from './entitlement.model.ts';
 import { EntitlementRepo } from './entitlement.repo.ts';
-import type { AdminEntitlementRow, LockedEntitlement } from './entitlement.repo.ts';
+import type {
+  AdminEntitlementRow,
+  LockedEntitlement,
+  EntitlementUsageRow,
+} from './entitlement.repo.ts';
 
 // REVOKED wins over time; otherwise a past "expiresAt" means EXPIRED. `now` is always the
 // database clock, never this process's.
@@ -329,7 +333,36 @@ export class EntitlementService {
     customerId: string;
     productId: string;
   }): Promise<UsageCheck> {
-    const row = await this.entitlementRepo.findUsage(customerId, productId);
+    return this.evaluateUsage(await this.entitlementRepo.findUsage(customerId, productId));
+  }
+
+  // Joins the issuer's Product -> Release -> Entitlement transaction and reuses usage policy.
+  async lockForAuthorization(input: {
+    userId: string;
+    productId: string;
+    productStatus: EntitlementUsageRow['productStatus'];
+  }) {
+    const row = await this.entitlementRepo.findByCustomerProductForUpdate(
+      input.userId,
+      input.productId,
+    );
+    const now = await this.entitlementRepo.getAuthorizationNow();
+    const usage = this.evaluateUsage(
+      row
+        ? {
+            id: row.id,
+            status: row.status,
+            expired: row.expiresAt !== null && row.expiresAt <= now,
+            productDeleted: false,
+            productStatus: input.productStatus,
+          }
+        : null,
+    );
+    if (!usage.usable || !row || row.startsAt > now) return null;
+    return { entitlementId: row.id, startsAt: row.startsAt, expiresAt: row.expiresAt, now };
+  }
+
+  private evaluateUsage(row: EntitlementUsageRow | null): UsageCheck {
     if (!row) {
       return { usable: false, reason: EntitlementUsageDenyReason.NOT_FOUND };
     }

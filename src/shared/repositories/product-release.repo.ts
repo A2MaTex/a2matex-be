@@ -111,6 +111,25 @@ export class ProductReleaseRepository {
     return rows[0] ?? null;
   }
 
+  async lockForAuthorization(id: string) {
+    await this.prisma.$queryRaw`SELECT id FROM "ProductRelease" WHERE id = ${id}::uuid FOR UPDATE`;
+    return this.prisma.productRelease.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        productId: true,
+        status: true,
+        disabledAt: true,
+        publishedAt: true,
+        packageStaticId: true,
+        packageHash: true,
+        wrappedKey: true,
+        contentKeyNonce: true,
+        algorithm: true,
+      },
+    });
+  }
+
   // Step 9.1: lock the Product first (shared Product-first lock order). Reads the
   // mutable status/deletion/current-release pointer and the Publisher eligibility so the
   // publication transaction can recheck them before committing. `OF p` keeps the

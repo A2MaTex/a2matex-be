@@ -8,7 +8,12 @@ import { TRACE_ID_HEADER } from './shared/constants/logging.constant.js';
 import { ContextLoggerService } from './shared/infrastructure/logging/context-logger.service.js';
 import { RequestLoggingMiddleware } from './shared/middlewares/request-logging.middleware.js';
 import envConfig from './shared/config.js';
-import { API_PREFIX, JSON_TRANSPORT_LIMIT } from './shared/constants/system.constant.js';
+import { executionAuthorizationTransport } from './routes/execution-authorization/execution-authorization.controller.ts';
+import {
+  API_PREFIX,
+  API_PREFIX_PATH,
+  JSON_TRANSPORT_LIMIT,
+} from './shared/constants/system.constant.js';
 
 /**
  * Explicit origins are allowed with credentials. A wildcard (or nothing) keeps
@@ -83,6 +88,7 @@ async function bootstrap() {
   const requestLogging = app.get(RequestLoggingMiddleware);
   app.use(requestLogging.use.bind(requestLogging));
 
+  app.use(`${API_PREFIX_PATH}/execution-authorizations`, executionAuthorizationTransport());
   app.useBodyParser('json', { limit: JSON_TRANSPORT_LIMIT });
 
   app.set('trust proxy', parseTrustProxy(envConfig.TRUST_PROXY));
