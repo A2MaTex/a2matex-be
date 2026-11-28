@@ -16,6 +16,7 @@ import {
   EXECUTION_AUTHORIZATION_LIFETIME_DIVISOR,
   EXECUTION_LEASE_MIN_SECONDS,
   EXECUTION_LEASE_INITIAL_SEQUENCE,
+  EXECUTION_LEASE_MAX_SEQUENCE,
   EXECUTION_KEY_ENVELOPE_ALGORITHM,
 } from '../../shared/constants/execution-authorization.constant.ts';
 import { TransactionContext } from '../../shared/infrastructure/database/transaction/transaction-context.ts';
@@ -44,10 +45,13 @@ import {
 import {
   AuthorizationId,
   InitialAuthorizationRequest,
+  RenewalAuthorizationRequest,
   type InitialAuthorizationRequestType,
   type InitialLeaseResult,
   type KeyEnvelopeType,
   type LeaseGrant,
+  type RenewalAuthorizationRequestType,
+  type RenewalLeaseResult,
 } from './execution-authorization.model.ts';
 import {
   ExecutionAuthorizationRepo,
@@ -57,8 +61,24 @@ import {
 import { claimsForGrant, ExecutionAuthorizationSigner } from './execution-authorization.signer.ts';
 
 type ReleaseKey = { wrappedKey: Buffer; contentKeyNonce: Buffer; algorithm: string };
-type Prepared = { grant: LeaseGrant; receiptId: string; replayed: boolean; releaseKey: ReleaseKey };
+type Prepared = { grant: LeaseGrant; receiptId: string; replayed: boolean };
 type Access = NonNullable<Awaited<ReturnType<EntitlementService['lockForAuthorization']>>>;
+type PackageBinding = Pick<
+  InitialAuthorizationRequestType,
+  'productId' | 'releaseId' | 'packageHash'
+>;
+type SessionBinding = PackageBinding &
+  Pick<InitialAuthorizationRequestType, 'runtimeSessionId' | 'runtimeKeyThumbprint'>;
+type PreparedRenewal = Prepared & { base: LeaseRow };
+type RenewalOperation = {
+  userId: string;
+  binding: SessionBinding;
+  discovered: LeaseRow;
+  request: RenewalAuthorizationRequestType;
+  fingerprint: string;
+  owner: string;
+  stage: string;
+};
 
 @Injectable()
 export class ExecutionAuthorizationService {
@@ -111,21 +131,13 @@ export class ExecutionAuthorizationService {
       const prepared = await this.transactionService.runInTransaction(async () => {
         const access = await this.eligibility(input.userId, request);
         const family = await this.repo.lockLease(request.executionId);
-        let receipt = await this.repo.lockReceipt(input.userId, request.requestId);
-        let now = await this.repo.now();
-        let inserted = false;
-        if (!receipt) {
-          inserted = await this.repo.reserve({
-            userId: input.userId,
-            requestId: request.requestId,
-            fingerprint,
-            owner,
-            now,
-          });
-          receipt = await this.repo.lockReceipt(input.userId, request.requestId);
-          now = await this.repo.now();
-        }
-        this.matchReceipt(receipt, fingerprint);
+        const { receipt, now, inserted } = await this.reserveReceipt({
+          userId: input.userId,
+          requestId: request.requestId,
+          fingerprint,
+          owner,
+          operation: AuthorizationOperation.START,
+        });
         // A replay is resolved before START's family-absence guard.
         if (receipt.state === AuthorizationRequestState.COMMITTED) {
           this.replay(receipt, family, input.userId, request, access, now);
@@ -223,31 +235,302 @@ export class ExecutionAuthorizationService {
         replayed: prepared.replayed,
       };
     } catch (error) {
-      if (pending) {
-        try {
-          await this.repo.release(pending.receiptId, owner);
-        } catch {
-          this.logger.error(
-            'Execution authorization cleanup failed operation=release_reservation reason=database_unavailable',
-          );
-        }
-      }
-      const mapped = isUniqueConstraintPrismaError(error)
-        ? AuthorizationRequestConflictException
-        : error instanceof HttpException
-          ? error
-          : ExecutionAuthorizationUnavailableException;
-      this.logger.error(
-        `Execution authorization failed operation=${operation} requestId=${requestId ?? 'invalid'} reason=${mapped.message} durationMs=${Math.round(performance.now() - started)}`,
-      );
-      throw mapped;
+      throw await this.failure(error, { pending, owner, operation, requestId, started });
     }
+  }
+
+  async renew(input: {
+    userId: string;
+    leaseFamilyId: string;
+    data: unknown;
+  }): Promise<RenewalLeaseResult> {
+    const started = performance.now();
+    const owner = randomUUID();
+    let pending: Prepared | undefined;
+    let requestId: string | undefined;
+    let executionId: string | undefined;
+    let sequence: number | undefined;
+    let operation = 'validate_renewal_request';
+    let renewal: RenewalOperation | undefined;
+    try {
+      if (this.transactionContext.hasTransaction())
+        throw ExecutionAuthorizationUnavailableException;
+      this.signer.activeKeyId();
+      const parsed = RenewalAuthorizationRequest.safeParse(input.data);
+      if (
+        !parsed.success ||
+        !AuthorizationId.safeParse(input.userId).success ||
+        !AuthorizationId.safeParse(input.leaseFamilyId).success
+      )
+        throw new UnprocessableEntityException('Error.InvalidExecutionAuthorization');
+      const request = parsed.data;
+      requestId = request.requestId;
+      executionId = request.executionId;
+      sequence = request.sequence;
+      const fingerprint = createHash('sha256')
+        .update(
+          canonicalize({
+            operation: AuthorizationOperation.RENEW,
+            leaseFamilyId: input.leaseFamilyId,
+            ...request,
+          })!,
+        )
+        .digest('hex');
+      const remembered = await this.repo.findReceipt(input.userId, requestId);
+      if (remembered) this.matchReceipt(remembered, fingerprint, AuthorizationOperation.RENEW);
+      operation = 'lookup_renewal_family';
+      const discovered = await this.repo.findOwnedLease(input.userId, input.leaseFamilyId);
+      if (!discovered) throw AuthorizationRequestConflictException;
+      const binding: SessionBinding = {
+        productId: discovered.productId,
+        releaseId: discovered.productReleaseId,
+        packageHash: discovered.packageHash,
+        runtimeSessionId: request.runtimeSessionId,
+        runtimeKeyThumbprint: discovered.runtimeKeyThumbprint,
+      };
+      renewal = {
+        userId: input.userId,
+        binding,
+        discovered,
+        request,
+        fingerprint,
+        owner,
+        stage: 'reserve_renewal',
+      };
+      const prepared = await this.prepareRenewal(renewal);
+      if (!prepared.replayed) pending = prepared;
+      renewal.stage = 'sign_renewal';
+      const lease = this.signer.sign(claimsForGrant(prepared.grant), prepared.grant.signingKeyId);
+      renewal.stage = 'commit_renewal';
+      const serverTime = await this.commitRenewal(renewal, prepared);
+      pending = undefined;
+      return {
+        requestId,
+        executionId: prepared.grant.executionId,
+        leaseFamilyId: prepared.grant.id,
+        leaseId: prepared.grant.currentLeaseId,
+        sequence: prepared.grant.sequence,
+        lease,
+        serverTime,
+        replayed: prepared.replayed,
+      };
+    } catch (error) {
+      throw await this.failure(error, {
+        pending,
+        owner,
+        operation: renewal?.stage ?? operation,
+        requestId,
+        started,
+        executionId,
+        sequence,
+        leaseFamilyId: requestId ? input.leaseFamilyId : undefined,
+      });
+    }
+  }
+
+  private prepareRenewal(renewal: RenewalOperation): Promise<PreparedRenewal> {
+    const { userId, binding, discovered, request, fingerprint, owner } = renewal;
+    return this.transactionService.runInTransaction(async () => {
+      const access = await this.resourceEligibility(userId, binding);
+      const family = await this.repo.lockLease(discovered.executionId);
+      this.renewalIdentity(family, discovered, userId, request);
+      const { receipt, now, inserted } = await this.reserveReceipt({
+        userId,
+        requestId: request.requestId,
+        fingerprint,
+        owner,
+        operation: AuthorizationOperation.RENEW,
+      });
+      if (receipt.state === AuthorizationRequestState.COMMITTED) {
+        this.replay(receipt, family, userId, binding, access, now);
+        return { grant: family, base: family, receiptId: receipt.id, replayed: true };
+      }
+      renewal.stage = 'validate_renewal_base';
+      this.renewalBase(family, request, access, now);
+      if (
+        !inserted &&
+        (!receipt.reservedUntil ||
+          receipt.reservedUntil > now ||
+          !(await this.repo.reclaim(receipt, owner, now)))
+      )
+        throw ExecutionAuthorizationUnavailableException;
+      renewal.stage = 'calculate_renewal_time';
+      const grant: LeaseGrant = {
+        ...family,
+        currentLeaseId: randomUUID(),
+        sequence: family.sequence + 1,
+        signingKeyId: this.signer.activeKeyId(),
+        ...this.grantTime(access, now),
+      };
+      this.renewalTimes(family, grant);
+      return { grant, base: family, receiptId: receipt.id, replayed: false };
+    });
+  }
+
+  private commitRenewal(renewal: RenewalOperation, prepared: PreparedRenewal): Promise<string> {
+    const { userId, binding, discovered, request, fingerprint, owner } = renewal;
+    return this.transactionService.runInTransaction(async () => {
+      const access = await this.resourceEligibility(userId, binding);
+      const family = await this.repo.lockLease(discovered.executionId);
+      this.renewalIdentity(family, discovered, userId, request);
+      const receipt = await this.repo.lockReceipt(userId, request.requestId);
+      const now = await this.repo.now();
+      this.matchReceipt(receipt, fingerprint, AuthorizationOperation.RENEW);
+      if (prepared.replayed) {
+        this.replay(receipt, family, userId, binding, access, now);
+        if (
+          canonicalize(claimsForGrant(family)) !== canonicalize(claimsForGrant(prepared.grant)) ||
+          family.signingKeyId !== prepared.grant.signingKeyId
+        )
+          throw AuthorizationRequestConflictException;
+      } else {
+        this.renewalBase(family, request, access, now);
+        if (
+          receipt.state !== AuthorizationRequestState.RESERVED ||
+          receipt.ownerToken !== owner ||
+          !receipt.reservedUntil ||
+          receipt.reservedUntil <= now
+        )
+          throw ExecutionAuthorizationUnavailableException;
+        this.checkTime(prepared.grant, access, now, true);
+        if (prepared.grant.entitlementId !== access.entitlementId)
+          throw ExecutionAuthorizationDeniedException;
+        this.renewalTimes(family, prepared.grant);
+        if (!(await this.repo.advanceFamily(prepared.base, prepared.grant, now)))
+          throw AuthorizationRequestConflictException;
+        if (!(await this.repo.commit({ receiptId: receipt.id, owner, grant: prepared.grant, now })))
+          throw ExecutionAuthorizationUnavailableException;
+      }
+      return now.toISOString();
+    });
+  }
+
+  private renewalIdentity(
+    family: LeaseRow | null,
+    discovered: LeaseRow,
+    userId: string,
+    request: RenewalAuthorizationRequestType,
+  ): asserts family is LeaseRow {
+    if (
+      !family ||
+      family.deletedAt ||
+      family.id !== discovered.id ||
+      family.userId !== userId ||
+      family.executionId !== request.executionId ||
+      family.runtimeSessionId !== request.runtimeSessionId ||
+      family.productId !== discovered.productId ||
+      family.productReleaseId !== discovered.productReleaseId ||
+      family.entitlementId !== discovered.entitlementId ||
+      family.packageHash !== discovered.packageHash ||
+      family.runtimeKeyThumbprint !== discovered.runtimeKeyThumbprint
+    )
+      throw AuthorizationRequestConflictException;
+  }
+
+  private renewalBase(
+    family: LeaseRow,
+    request: RenewalAuthorizationRequestType,
+    access: Access,
+    now: Date,
+  ): void {
+    if (
+      family.currentLeaseId !== request.currentLeaseId ||
+      family.sequence !== request.sequence ||
+      family.sequence >= EXECUTION_LEASE_MAX_SEQUENCE
+    )
+      throw AuthorizationRequestConflictException;
+    if (family.entitlementId !== access.entitlementId) throw ExecutionAuthorizationDeniedException;
+    this.checkTime(family, access, now, false);
+  }
+
+  private renewalTimes(base: LeaseGrant, grant: LeaseGrant): void {
+    if (
+      grant.issuedAt < base.issuedAt ||
+      grant.refreshAfter <= base.refreshAfter ||
+      grant.expiresAt <= base.expiresAt
+    )
+      throw ExecutionAuthorizationExpiredException;
+  }
+
+  private async reserveReceipt(input: {
+    userId: string;
+    requestId: string;
+    fingerprint: string;
+    owner: string;
+    operation: ReceiptRow['operation'];
+  }) {
+    let receipt = await this.repo.lockReceipt(input.userId, input.requestId);
+    let now = await this.repo.now();
+    let inserted = false;
+    if (!receipt) {
+      inserted = await this.repo.reserve({ ...input, now });
+      receipt = await this.repo.lockReceipt(input.userId, input.requestId);
+      now = await this.repo.now();
+    }
+    this.matchReceipt(receipt, input.fingerprint, input.operation);
+    return { receipt, now, inserted };
+  }
+
+  private async failure(
+    error: unknown,
+    context: {
+      pending?: Prepared;
+      owner: string;
+      operation: string;
+      requestId?: string;
+      started: number;
+      executionId?: string;
+      leaseFamilyId?: string;
+      sequence?: number;
+    },
+  ): Promise<HttpException> {
+    if (context.pending) {
+      try {
+        await this.repo.release(context.pending.receiptId, context.owner);
+      } catch {
+        this.logger.error(
+          'Execution authorization cleanup failed operation=release_reservation reason=database_unavailable',
+        );
+      }
+    }
+    const mapped = isUniqueConstraintPrismaError(error)
+      ? AuthorizationRequestConflictException
+      : error instanceof HttpException
+        ? error
+        : ExecutionAuthorizationUnavailableException;
+    const binding = context.leaseFamilyId
+      ? ` executionId=${context.executionId} leaseFamilyId=${context.leaseFamilyId} baseSequence=${context.sequence}`
+      : '';
+    this.logger.error(
+      `Execution authorization failed operation=${context.operation} requestId=${context.requestId ?? 'invalid'}${binding} reason=${mapped.message} durationMs=${Math.round(performance.now() - context.started)}`,
+    );
+    return mapped;
   }
 
   private async eligibility(
     userId: string,
     request: InitialAuthorizationRequestType,
   ): Promise<Access & { releaseKey: ReleaseKey }> {
+    const { release, ...access } = await this.resourceEligibility(userId, request);
+    if (
+      !(release.wrappedKey instanceof Uint8Array) ||
+      release.wrappedKey.length !== WRAPPED_CONTENT_KEY_BYTES ||
+      !(release.contentKeyNonce instanceof Uint8Array) ||
+      release.contentKeyNonce.length !== AES_GCM_NONCE_BYTES ||
+      release.algorithm !== PRODUCT_RELEASE_ENCRYPTION_ALGORITHM
+    )
+      throw ExecutionAuthorizationUnavailableException;
+    return {
+      ...access,
+      releaseKey: {
+        wrappedKey: Buffer.from(release.wrappedKey),
+        contentKeyNonce: Buffer.from(release.contentKeyNonce),
+        algorithm: release.algorithm,
+      },
+    };
+  }
+
+  private async resourceEligibility(userId: string, request: PackageBinding) {
     if (!(await this.users.hasActiveCustomer(userId))) throw ExecutionAuthorizationDeniedException;
     const product = await this.products.lockProduct(request.productId);
     if (!product) throw ExecutionAuthorizationDeniedException;
@@ -268,32 +551,18 @@ export class ExecutionAuthorizationService {
       productStatus: product.status,
     });
     if (!access) throw ExecutionAuthorizationDeniedException;
-    if (
-      !(release.wrappedKey instanceof Uint8Array) ||
-      release.wrappedKey.length !== WRAPPED_CONTENT_KEY_BYTES ||
-      !(release.contentKeyNonce instanceof Uint8Array) ||
-      release.contentKeyNonce.length !== AES_GCM_NONCE_BYTES ||
-      release.algorithm !== PRODUCT_RELEASE_ENCRYPTION_ALGORITHM
-    )
-      throw ExecutionAuthorizationUnavailableException;
-    return {
-      ...access,
-      releaseKey: {
-        wrappedKey: Buffer.from(release.wrappedKey),
-        contentKeyNonce: Buffer.from(release.contentKeyNonce),
-        algorithm: release.algorithm,
-      },
-    };
+    return { ...access, release };
   }
 
   private matchReceipt(
     receipt: ReceiptRow | null,
     fingerprint: string,
+    operation: ReceiptRow['operation'] = AuthorizationOperation.START,
   ): asserts receipt is ReceiptRow {
     if (
       !receipt ||
       receipt.deletedAt ||
-      receipt.operation !== AuthorizationOperation.START ||
+      receipt.operation !== operation ||
       receipt.requestFingerprint !== fingerprint
     )
       throw AuthorizationRequestConflictException;
@@ -303,7 +572,7 @@ export class ExecutionAuthorizationService {
     receipt: ReceiptRow,
     family: LeaseRow | null,
     userId: string,
-    request: InitialAuthorizationRequestType,
+    request: SessionBinding,
     access: Access,
     now: Date,
   ): void {
@@ -331,17 +600,6 @@ export class ExecutionAuthorizationService {
     access: Access,
     now: Date,
   ): LeaseGrant {
-    const issued = Math.floor(now.getTime() / SECOND);
-    const expiry = Math.min(
-      issued + envConfig.EXECUTION_LEASE_DURATION_SECONDS,
-      access.expiresAt ? Math.floor(access.expiresAt.getTime() / SECOND) : Infinity,
-    );
-    const lifetime = expiry - issued;
-    if (lifetime < EXECUTION_LEASE_MIN_SECONDS) throw ExecutionAuthorizationExpiredException;
-    const lead = Math.min(
-      envConfig.EXECUTION_LEASE_RENEWAL_LEAD_SECONDS,
-      Math.floor(lifetime / EXECUTION_AUTHORIZATION_LIFETIME_DIVISOR),
-    );
     return {
       id: randomUUID(),
       currentLeaseId: randomUUID(),
@@ -355,6 +613,23 @@ export class ExecutionAuthorizationService {
       runtimeKeyThumbprint: request.runtimeKeyThumbprint,
       sequence: EXECUTION_LEASE_INITIAL_SEQUENCE,
       signingKeyId: this.signer.activeKeyId(),
+      ...this.grantTime(access, now),
+    };
+  }
+
+  private grantTime(access: Access, now: Date) {
+    const issued = Math.floor(now.getTime() / SECOND);
+    const expiry = Math.min(
+      issued + envConfig.EXECUTION_LEASE_DURATION_SECONDS,
+      access.expiresAt ? Math.floor(access.expiresAt.getTime() / SECOND) : Infinity,
+    );
+    const lifetime = expiry - issued;
+    if (lifetime < EXECUTION_LEASE_MIN_SECONDS) throw ExecutionAuthorizationExpiredException;
+    const lead = Math.min(
+      envConfig.EXECUTION_LEASE_RENEWAL_LEAD_SECONDS,
+      Math.floor(lifetime / EXECUTION_AUTHORIZATION_LIFETIME_DIVISOR),
+    );
+    return {
       issuedAt: new Date(issued * SECOND),
       refreshAfter: new Date((expiry - lead) * SECOND),
       expiresAt: new Date(expiry * SECOND),

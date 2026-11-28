@@ -32,6 +32,17 @@ export const InitialAuthorizationRequest = z
     previousLeaseFamilyId: z.null(),
   })
   .strict();
+export const RenewalAuthorizationRequest = z
+  .object({
+    requestId: AuthorizationId,
+    executionId: AuthorizationId,
+    runtimeSessionId: AuthorizationId,
+    currentLeaseId: AuthorizationId,
+    sequence: z.number().int().min(1).max(EXECUTION_LEASE_MAX_SEQUENCE),
+  })
+  .strict();
+export const RenewalAuthorizationParams = z.object({ leaseFamilyId: AuthorizationId }).strict();
+export const RenewalAuthorizationQuery = z.object({}).strict();
 export const ExecutionLeaseClaims = z
   .object({
     leaseId: AuthorizationId,
@@ -79,8 +90,12 @@ export const ExecutionAuthorizationOutput = z
       .strict(),
   })
   .strict();
+export const RenewalAuthorizationOutput = ExecutionAuthorizationOutput.extend({
+  authorization: ExecutionAuthorizationOutput.shape.authorization.omit({ keyEnvelope: true }),
+});
 export type KeyEnvelopeType = z.infer<typeof KeyEnvelope>;
 export type InitialAuthorizationRequestType = z.infer<typeof InitialAuthorizationRequest>;
+export type RenewalAuthorizationRequestType = z.infer<typeof RenewalAuthorizationRequest>;
 export type LeaseClaims = z.infer<typeof ExecutionLeaseClaims>;
 export type LeaseGrant = Omit<
   z.infer<typeof ExecutionLease>,
@@ -97,3 +112,4 @@ export type InitialLeaseResult = {
   serverTime: string;
   replayed: boolean;
 };
+export type RenewalLeaseResult = Omit<InitialLeaseResult, 'keyEnvelope'>;

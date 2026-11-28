@@ -2,7 +2,6 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Prisma } from '../../generated/prisma/client.ts';
 import { PrismaService } from '../../shared/services/prisma.service.ts';
 import {
-  AuthorizationOperation,
   AuthorizationRequestState,
   EXECUTION_AUTHORIZATION_RECEIPT_CLEANUP_BATCH_SIZE,
   EXECUTION_AUTHORIZATION_RECEIPT_RETENTION_SECONDS,
@@ -68,6 +67,37 @@ export class ExecutionAuthorizationRepo {
     return this.prisma.executionLease.findUnique({ where: { executionId }, select: leaseSelect });
   }
 
+  findOwnedLease(userId: string, id: string): Promise<LeaseRow | null> {
+    return this.prisma.executionLease.findFirst({
+      where: { id, userId, deletedAt: null },
+      select: leaseSelect,
+    });
+  }
+
+  async advanceFamily(base: LeaseRow, grant: LeaseGrant, now: Date): Promise<boolean> {
+    const result = await this.prisma.executionLease.updateMany({
+      where: {
+        id: base.id,
+        userId: base.userId,
+        executionId: base.executionId,
+        runtimeSessionId: base.runtimeSessionId,
+        currentLeaseId: base.currentLeaseId,
+        sequence: base.sequence,
+        deletedAt: null,
+      },
+      data: {
+        currentLeaseId: grant.currentLeaseId,
+        sequence: grant.sequence,
+        signingKeyId: grant.signingKeyId,
+        issuedAt: grant.issuedAt,
+        refreshAfter: grant.refreshAfter,
+        expiresAt: grant.expiresAt,
+        updatedAt: now,
+      },
+    });
+    return result.count === 1;
+  }
+
   findReceipt(userId: string, requestId: string) {
     return this.prisma.executionAuthorizationRequest.findUnique({
       where: { userId_requestId: { userId, requestId } },
@@ -90,6 +120,7 @@ export class ExecutionAuthorizationRepo {
     fingerprint: string;
     owner: string;
     now: Date;
+    operation: ReceiptRow['operation'];
   }): Promise<boolean> {
     const until = new Date(
       input.now.getTime() + EXECUTION_AUTHORIZATION_RESERVATION_SECONDS * SECOND,
@@ -103,7 +134,7 @@ export class ExecutionAuthorizationRepo {
       INSERT INTO "ExecutionAuthorizationRequest"
         ("userId", "requestId", operation, "requestFingerprint", "ownerToken", "reservedUntil", "retainUntil")
       VALUES (${input.userId}::uuid, ${input.requestId}::uuid,
-        ${AuthorizationOperation.START}::"ExecutionAuthorizationOperation", ${input.fingerprint},
+        ${input.operation}::"ExecutionAuthorizationOperation", ${input.fingerprint},
         ${input.owner}::uuid, ${until}::timestamptz, ${retain}::timestamptz)
       ON CONFLICT ("userId", "requestId") DO NOTHING RETURNING id
     `;

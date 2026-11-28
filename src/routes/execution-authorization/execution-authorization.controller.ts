@@ -5,7 +5,9 @@ import {
   HttpStatus,
   Inject,
   PayloadTooLargeException,
+  Param,
   Post,
+  Query,
   Res,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
@@ -17,6 +19,10 @@ import { EXECUTION_AUTHORIZATION_BODY_MAX_BYTES } from '../../shared/constants/e
 import {
   ExecutionAuthorizationInputDTO,
   ExecutionAuthorizationOutputDTO,
+  RenewalAuthorizationInputDTO,
+  RenewalAuthorizationParamsDTO,
+  RenewalAuthorizationQueryDTO,
+  RenewalAuthorizationOutputDTO,
 } from './execution-authorization.dto.ts';
 import { ExecutionAuthorizationService } from './execution-authorization.service.ts';
 
@@ -67,6 +73,35 @@ export class ExecutionAuthorizationController {
         keyEnvelope: result.keyEnvelope,
         serverTime: new Date(result.serverTime),
       },
+    };
+  }
+
+  @Post(':leaseFamilyId/renew')
+  @ZodResponse({ status: HttpStatus.CREATED, type: RenewalAuthorizationOutputDTO })
+  @ApiOkResponse({
+    type: RenewalAuthorizationOutputDTO,
+    description: 'Identical committed renewal replay',
+  })
+  async renew(
+    @Param(new CustomZodValidationPipe(RenewalAuthorizationParamsDTO))
+    params: RenewalAuthorizationParamsDTO,
+    @Body(new CustomZodValidationPipe(RenewalAuthorizationInputDTO))
+    body: RenewalAuthorizationInputDTO,
+    @Query(new CustomZodValidationPipe(RenewalAuthorizationQueryDTO))
+    _query: RenewalAuthorizationQueryDTO,
+    @ActiveUser('userId') userId: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.service.renew({
+      userId,
+      leaseFamilyId: params.leaseFamilyId,
+      data: body,
+    });
+    response.status(result.replayed ? HttpStatus.OK : HttpStatus.CREATED);
+    return {
+      requestId: result.requestId,
+      executionId: result.executionId,
+      authorization: { lease: result.lease, serverTime: new Date(result.serverTime) },
     };
   }
 }
